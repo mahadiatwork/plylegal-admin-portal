@@ -94,3 +94,43 @@ export async function GET(request, { params }) {
     );
   }
 }
+
+export async function POST(request, { params }) {
+  try {
+    const { matterId } = await params;
+    const body = await request.json();
+    const { message } = body;
+
+    if (!matterId || !message) {
+      return NextResponse.json({ success: false, error: 'Matter ID and message are required' }, { status: 400 });
+    }
+
+    const zohoId = await resolveZohoId(matterId);
+    const zohoClient = new ZohoCRMClient();
+
+    console.log(`✉️ Sending reply for Deal ${zohoId}`);
+
+    // Create a new Client_Messages record related to this Deal
+    // We set Reply_Message and Time_Replied to indicate it's an outbound message from admin
+    const now = new Date().toISOString();
+    
+    // Note: Field names must match exactly what Zoho expects.
+    // Based on the GET logic, these are the fields used.
+    const result = await zohoClient.createRelatedRecord('Deals', zohoId, 'Client_Messages', {
+      Name: `Reply - ${new Date().toLocaleString('en-AU')}`,
+      Reply_Message: message,
+      Time_Replied: now,
+      // If we want to ensure it shows up correctly in the timeline, we might also set 
+      // Time_Sent if the system uses that as a primary sort field.
+      Time_Sent: now 
+    });
+
+    return NextResponse.json({ success: true, result });
+  } catch (error) {
+    console.error('Error sending message to Zoho:', error);
+    return NextResponse.json(
+      { success: false, error: 'Failed to send message', details: error.message },
+      { status: 500 }
+    );
+  }
+}

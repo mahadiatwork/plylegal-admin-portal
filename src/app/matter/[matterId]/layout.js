@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
-import { ArrowLeft, Loader2, FileText, Upload, MessageSquare, AlertCircle } from "lucide-react";
+import { ArrowLeft, Loader2, FileText, Upload, MessageSquare, AlertCircle, Bell, Search, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function MatterLayout({ children }) {
@@ -74,10 +74,31 @@ export default function MatterLayout({ children }) {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-10 print:hidden">
+        {/* Top Navbar (Full Width) */}
+        <div className="border-b border-gray-100 px-4 sm:px-8 py-4 flex flex-row items-center justify-between">
+          <div className="flex items-center gap-8">
+            <img src="/Ply_Logo_black.png" alt="ValidifyPro Logo" className="h-7 sm:h-9" />
+            <Link href="/" className="hidden sm:inline-flex items-center text-sm text-gray-500 hover:text-gray-900 transition-colors">
+              <ArrowLeft className="h-4 w-4 mr-1" />
+              Back to Search
+            </Link>
+          </div>
+          <div className="flex items-center gap-4 text-gray-600">
+            <Search className="h-5 w-5 cursor-pointer hover:text-gray-900 hidden sm:block" />
+            <Bell className="h-5 w-5 cursor-pointer hover:text-gray-900 hidden sm:block" />
+            <div className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 sm:px-2 py-1 rounded-md transition-colors">
+              <div className="h-8 w-8 rounded-full bg-blue-100 text-blue-800 flex items-center justify-center text-xs font-semibold">
+                MH
+              </div>
+              <ChevronDown className="h-4 w-4 text-gray-400 hidden sm:block" />
+            </div>
+          </div>
+        </div>
+
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="py-4">
-            <Link href="/" className="inline-flex items-center text-sm text-gray-500 hover:text-gray-900 mb-4 transition-colors">
+          <div className="pt-6 pb-2">
+            <Link href="/" className="inline-flex sm:hidden items-center text-sm text-gray-500 hover:text-gray-900 mb-4 transition-colors">
               <ArrowLeft className="h-4 w-4 mr-1" />
               Back to Search
             </Link>

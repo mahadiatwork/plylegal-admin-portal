@@ -23,9 +23,9 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden">
-        <div className="bg-[#285646] p-6 text-center">
-          <h1 className="text-2xl font-serif font-bold text-white mb-2">ValidifyPro</h1>
-          <p className="text-green-100/80 text-sm">Matter Viewer Portal</p>
+        <div className="bg-white border-b border-gray-100 p-6 flex flex-col items-center">
+          <img src="/Ply_Logo_black.png" alt="ValidifyPro" className="h-10 mb-2" />
+          <p className="text-gray-500 text-sm font-medium">Matter Viewer Portal</p>
         </div>
         
         <div className="p-8">

@@ -170,6 +170,74 @@ function RenderQuestions({ data }) {
   );
 }
 
+// Recursively render questions in Q&A format for print
+function PrintQARenderer({ data, parentKey = "" }) {
+  if (data === null || data === undefined || data === "") {
+    return null;
+  }
+
+  if (typeof data !== "object") {
+    const strVal = String(data);
+    let finalVal = strVal;
+    if (strVal === "true") finalVal = "Yes";
+    if (strVal === "false") finalVal = "No";
+    
+    return (
+      <div className="mb-2 break-inside-avoid">
+        <div className="font-bold text-gray-900 leading-snug">Q: {formatLabel(parentKey)}?</div>
+        <div className="text-gray-800 leading-snug">A: {finalVal}</div>
+      </div>
+    );
+  }
+
+  if (Array.isArray(data)) {
+    if (data.length === 0) return null;
+    return (
+      <div className="mb-2 pl-3 border-l-2 border-gray-300">
+        {data.map((item, idx) => (
+          <div key={idx} className="mb-2 last:mb-0 break-inside-avoid">
+            <div className="font-semibold text-gray-700 italic text-xs leading-snug">Item {idx + 1}</div>
+            <PrintQARenderer data={item} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  const entries = Object.entries(data).filter(
+    ([k, v]) => v !== null && v !== undefined && v !== ""
+  );
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="space-y-0">
+      {entries.map(([key, value]) => {
+        const isObject = typeof value === "object" && value !== null && !Array.isArray(value);
+        const isArray = Array.isArray(value);
+        const isSimpleArray = isArray && value.every((v) => typeof v !== "object");
+
+        if (isSimpleArray) {
+          return (
+            <div key={key} className="mb-2 break-inside-avoid">
+              <div className="font-bold text-gray-900 leading-snug">Q: {formatLabel(key)}?</div>
+              <div className="text-gray-800 leading-snug">A: {value.join(", ")}</div>
+            </div>
+          );
+        } else if (isObject || isArray) {
+          return (
+            <div key={key} className="mb-2 break-inside-avoid">
+              <div className="font-bold text-gray-900 text-[15px] border-b border-gray-200 pb-0.5 mb-1 mt-3">{formatLabel(key)}</div>
+              <PrintQARenderer data={value} />
+            </div>
+          );
+        } else {
+          return <PrintQARenderer key={key} data={value} parentKey={key} />;
+        }
+      })}
+    </div>
+  );
+}
+
 // SectionCard component with collapsible functionality
 function SectionCard({
   title,
@@ -297,13 +365,8 @@ export default function QuestionnairePage() {
 
   // Handle download PDF
   const handleDownloadPDF = useCallback(() => {
-    const allKeys = new Set(sections.map(([key]) => key));
-    setExpandedSections(allKeys);
-    setExpandAll(true);
-    requestAnimationFrame(() => {
-      setTimeout(() => window.print(), 100);
-    });
-  }, [sections]);
+    window.print();
+  }, []);
 
   // Sidebar navigation handler
   const handleSidebarNavigate = useCallback(
@@ -368,7 +431,8 @@ export default function QuestionnairePage() {
     : sections;
 
   return (
-    <div className="flex gap-0 -mx-4 sm:-mx-6 lg:-mx-8 -my-8 min-h-[calc(100vh-180px)]">
+    <>
+      <div className="flex gap-0 -mx-4 sm:-mx-6 lg:-mx-8 -my-8 min-h-[calc(100vh-180px)] print:hidden">
       {/* Mobile sidebar toggle */}
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -515,6 +579,41 @@ export default function QuestionnairePage() {
           )}
         </div>
       </main>
-    </div>
+      </div>
+
+      {/* Print-Only Q&A Layout */}
+      <div className="hidden print:block w-full bg-white text-black max-w-4xl mx-auto">
+        <table className="w-full">
+          <thead>
+            <tr>
+              <td>
+                <div className="flex items-center justify-between border-b-2 border-gray-800 pb-2 mb-4">
+                  <img src="/368e8734-fa6e-41c2-b88a-ccd1d381b50b.png" alt="PlyLegal Logo" className="h-8" />
+                  <div className="text-right">
+                    <p className="text-sm font-medium text-gray-500">Applicant Questionnaire</p>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                {sections.map(([sectionKey, sectionData]) => (
+                  <div key={sectionKey} className="mb-5">
+                    <h3 className="text-lg font-bold text-gray-900 mb-2 mt-4">
+                      {formatLabel(sectionKey)}
+                    </h3>
+                    <div className="text-sm">
+                      <PrintQARenderer data={sectionData} parentKey={sectionKey} />
+                    </div>
+                  </div>
+                ))}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
