@@ -1,5 +1,7 @@
 import axios from 'axios';
-import FormData from 'form-data';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const FormData = require('form-data');
 
 class ZohoCRMClient {
   constructor() {

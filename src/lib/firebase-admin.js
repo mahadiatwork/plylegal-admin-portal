@@ -7,9 +7,33 @@
  * - Server-side Firestore operations
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
+
+function loadServiceAccountFromFile() {
+  const candidates = [
+    process.env.GOOGLE_APPLICATION_CREDENTIALS,
+    process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
+    path.join(process.cwd(), 'service.json'),
+    path.join(process.cwd(), 'service-account.json'),
+  ].filter(Boolean);
+
+  for (const filePath of candidates) {
+    try {
+      if (fs.existsSync(filePath)) {
+        const raw = fs.readFileSync(filePath, 'utf8');
+        console.log(`✅ Loaded service account from file: ${filePath}`);
+        return JSON.parse(raw);
+      }
+    } catch (err) {
+      console.warn(`⚠️ Failed to read service account at ${filePath}:`, err.message);
+    }
+  }
+  return null;
+}
 
 let adminApp = null;
 let adminAuth = null;
@@ -55,6 +79,22 @@ function initializeAdminSDK() {
           }
         } catch (parseError) {
           console.warn('⚠️ Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY:', parseError.message);
+        }
+      }
+
+      // Fallback: load service account JSON from a file on disk
+      if (!serviceAccount) {
+        const fileAccount = loadServiceAccountFromFile();
+        if (fileAccount) {
+          serviceAccount = fileAccount;
+          if (!projectId && serviceAccount.project_id) {
+            projectId = serviceAccount.project_id;
+          }
+          if (serviceAccount.private_key) {
+            serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+          }
+          console.log(`✅ Loaded credentials for: ${serviceAccount.client_email}`);
+          console.log(`✅ Target Project ID: ${projectId}`);
         }
       }
 

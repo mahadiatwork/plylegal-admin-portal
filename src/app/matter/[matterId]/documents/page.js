@@ -40,7 +40,7 @@ export default function DocumentsPage() {
     };
     
     return (
-      <span className={\`px-2.5 py-1 rounded-full text-xs font-medium \${statusStyles[status] || statusStyles['Pending']}\`}>
+      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${statusStyles[status] || statusStyles['Pending']}`}>
         {status || 'Pending'}
       </span>
     );
@@ -81,7 +81,7 @@ export default function DocumentsPage() {
             </thead>
             <tbody className="divide-y divide-gray-200">
               {documents.map((doc, idx) => {
-                const name = doc.Name || doc.Matter_Document_Name || doc.Document_Name || doc.File_Name || \`Document \${doc.id?.slice(-6)}\`;
+                const name = doc.Name || doc.Matter_Document_Name || doc.Document_Name || doc.File_Name || `Document ${doc.id?.slice(-6)}`;
                 const status = doc.Document_Status || 'Pending';
                 const comment = doc.Decline_Reason || doc.Comments || doc.Rejection_Comments || '';
 

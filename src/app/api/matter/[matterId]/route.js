@@ -22,10 +22,10 @@ export async function GET(request, { params }) {
 
     let appDoc = null;
     let appId = matterId;
+    const appsRef = db.collection('applications');
 
     try {
       // 1. Check if it's a Zoho Deal ID
-      const appsRef = db.collection('applications');
       const snapshot = await appsRef.where('zohoId', '==', matterId).get();
       
       if (!snapshot.empty) {

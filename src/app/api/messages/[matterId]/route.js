@@ -1,19 +1,37 @@
 import { NextResponse } from 'next/server';
-import { ZohoCRMClient } from '@/lib/zohoClient';
 import { db } from '@/lib/firebase-admin';
+import { ZohoCRMClient } from '@/lib/zohoClient';
 
+// Resolve the Zoho Deal ID for a given matterId. The matterId may already be
+// a Zoho Deal ID, or it may be a Firestore application doc id whose document
+// holds the Zoho id under `zohoId`.
 async function resolveZohoId(matterId) {
   if (!db) return matterId;
-  const appsRef = db.collection('applications');
-  // 1. Try zohoId lookup
-  const snapshot = await appsRef.where('zohoId', '==', matterId).get();
-  if (!snapshot.empty) return matterId; // It's already a zohoId
-  // 2. Try doc ID lookup to get zohoId
-  const docSnap = await appsRef.doc(matterId).get();
-  if (docSnap.exists && docSnap.data().zohoId) {
-    return docSnap.data().zohoId;
+  try {
+    const appsRef = db.collection('applications');
+    // 1. matterId might already be a zohoId on an application doc
+    const snap = await appsRef.where('zohoId', '==', matterId).limit(1).get();
+    if (!snap.empty) return matterId;
+    // 2. matterId might be a Firestore doc id -> read its zohoId
+    const docSnap = await appsRef.doc(matterId).get();
+    if (docSnap.exists && docSnap.data().zohoId) {
+      return docSnap.data().zohoId;
+    }
+  } catch (err) {
+    console.warn('⚠️ Failed to resolve Zoho id for matter:', err.message);
   }
-  return matterId; // Fallback
+  return matterId;
+}
+
+function toIsoString(value) {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    // Zoho returns timestamps like "2026-04-28T10:15:00+10:00" already ISO-ish
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? value : d.toISOString();
+  }
+  if (value instanceof Date) return value.toISOString();
+  return null;
 }
 
 export async function GET(request, { params }) {
@@ -25,22 +43,54 @@ export async function GET(request, { params }) {
     }
 
     const zohoId = await resolveZohoId(matterId);
+    console.log(`🔍 Fetching Client_Messages for Deal ${zohoId}`);
 
-    console.log(`🔍 Fetching Client_Messages for Deal ${zohoId}...`);
     const zohoClient = new ZohoCRMClient();
-    
-    const fields = 'id,Name,Message_from_Client,Reply_Message,Time_Sent,Time_Replied,Created_Time,Modified_Time';
-    const messages = await zohoClient.getRelatedRecords('Deals', zohoId, 'Client_Messages', fields);
+    const records = await zohoClient.getRelatedRecords(
+      'Deals',
+      zohoId,
+      'Client_Messages',
+      'id,Name,Message_from_Client,Reply_Message,Time_Sent,Time_Replied,Created_Time,Modified_Time'
+    );
 
-    const sortedMessages = (messages || []).sort((a, b) => {
-      const timeA = a.Time_Sent || a.Created_Time || '';
-      const timeB = b.Time_Sent || b.Created_Time || '';
-      return timeA.localeCompare(timeB);
+    // Each Zoho Client_Messages record may carry both an inbound client
+    // message and an outbound reply. We split them into chat bubbles so the
+    // UI can render a conversation timeline.
+    const messages = [];
+    for (const r of records || []) {
+      const sentAt = toIsoString(r.Time_Sent) || toIsoString(r.Created_Time);
+      if (r.Message_from_Client) {
+        messages.push({
+          id: `${r.id}-client`,
+          body: r.Message_from_Client,
+          senderName: 'Applicant',
+          senderType: 'client',
+          createdAt: sentAt,
+        });
+      }
+      if (r.Reply_Message) {
+        messages.push({
+          id: `${r.id}-reply`,
+          body: r.Reply_Message,
+          senderName: 'Ply Legal',
+          senderType: 'admin',
+          createdAt: toIsoString(r.Time_Replied) || toIsoString(r.Modified_Time) || sentAt,
+        });
+      }
+    }
+
+    messages.sort((a, b) => {
+      const t1 = a.createdAt || '';
+      const t2 = b.createdAt || '';
+      return t1.localeCompare(t2);
     });
 
-    return NextResponse.json({ success: true, messages: sortedMessages });
+    return NextResponse.json({ success: true, messages });
   } catch (error) {
-    console.error('Error fetching messages:', error);
-    return NextResponse.json({ success: false, error: 'Failed to fetch messages' }, { status: 500 });
+    console.error('Error fetching messages from Zoho:', error);
+    return NextResponse.json(
+      { success: false, error: 'Failed to fetch messages', details: error.message },
+      { status: 500 }
+    );
   }
 }

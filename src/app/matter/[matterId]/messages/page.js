@@ -66,40 +66,29 @@ export default function MessagesPage() {
         <p className="text-sm text-gray-500">Read-only view of all messages between applicant and Ply Legal.</p>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-6 max-w-4xl mx-auto h-[600px] overflow-y-auto space-y-6">
+      <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-6 max-w-4xl mx-auto h-[600px] overflow-y-auto space-y-4">
         {messages.map((msg) => {
-          const clientMessage = msg.Message_from_Client || '';
-          const hasReply = msg.Reply_Message && msg.Reply_Message.trim() !== '';
+          const isClient = msg.senderType === 'client';
+          const senderLabel = isClient
+            ? (msg.senderName || 'Applicant')
+            : (msg.senderName || 'Ply Legal');
 
           return (
-            <div key={msg.id} className="space-y-4">
-              {/* Client Message */}
-              {clientMessage && (
-                <div className="flex justify-end">
-                  <div className="max-w-[80%] lg:max-w-[70%]">
-                    <div className="bg-[#285646] text-white rounded-2xl rounded-tr-sm px-5 py-3 shadow-sm">
-                      <p className="text-sm whitespace-pre-wrap">{clientMessage}</p>
-                    </div>
-                    <div className="text-xs text-gray-500 mt-1.5 text-right font-medium">
-                      Applicant • {formatTimestamp(msg.Time_Sent)}
-                    </div>
-                  </div>
+            <div key={msg.id} className={`flex ${isClient ? 'justify-end' : 'justify-start'}`}>
+              <div className="max-w-[80%] lg:max-w-[70%]">
+                <div
+                  className={
+                    isClient
+                      ? 'bg-[#285646] text-white rounded-2xl rounded-tr-sm px-5 py-3 shadow-sm'
+                      : 'bg-green-50 border border-green-200 text-gray-800 rounded-2xl rounded-tl-sm px-5 py-3 shadow-sm'
+                  }
+                >
+                  <p className="text-sm whitespace-pre-wrap">{msg.body}</p>
                 </div>
-              )}
-
-              {/* Ply Legal Reply */}
-              {hasReply && (
-                <div className="flex justify-start">
-                  <div className="max-w-[80%] lg:max-w-[70%]">
-                    <div className="bg-green-50 border border-green-200 text-gray-800 rounded-2xl rounded-tl-sm px-5 py-3 shadow-sm">
-                      <p className="text-sm whitespace-pre-wrap">{msg.Reply_Message}</p>
-                    </div>
-                    <div className="text-xs text-gray-500 mt-1.5 font-medium">
-                      Ply Legal • {formatTimestamp(msg.Time_Replied)}
-                    </div>
-                  </div>
+                <div className={`text-xs text-gray-500 mt-1.5 font-medium ${isClient ? 'text-right' : ''}`}>
+                  {senderLabel} • {formatTimestamp(msg.createdAt)}
                 </div>
-              )}
+              </div>
             </div>
           );
         })}

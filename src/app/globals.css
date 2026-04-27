@@ -311,12 +311,15 @@
 @media print {
   /* Hide navigation, buttons, and non-essential elements */
   button,
-  .no-print {
+  .no-print,
+  nav,
+  header {
     display: none !important;
   }
 
   /* Ensure proper page breaks */
-  .space-y-4 > * {
+  .space-y-4 > *,
+  .space-y-6 > * {
     page-break-inside: avoid;
     break-inside: avoid;
   }
@@ -331,13 +334,28 @@
   .shadow-sm,
   .shadow,
   .shadow-md,
-  .shadow-lg {
+  .shadow-lg,
+  .shadow-xl,
+  .shadow-2xl {
     box-shadow: none !important;
   }
 
   /* Ensure cards print properly */
-  .rounded-lg {
+  .rounded-lg,
+  .rounded-xl,
+  .rounded-md {
     border: 1px solid #e5e7eb !important;
+  }
+
+  /* Force single column on print */
+  .print-grid-cols-1,
+  .grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Expand all collapsible content for printing */
+  [data-state="closed"] {
+    display: block !important;
   }
 
   /* Page margins */
@@ -346,7 +364,16 @@
   }
 
   /* Prevent page breaks inside sections */
-  .p-5 {
+  .p-5,
+  .p-4,
+  .p-6 {
     page-break-inside: avoid;
+  }
+
+  /* Ensure content is visible */
+  .overflow-hidden,
+  .overflow-y-auto {
+    overflow: visible !important;
+    max-height: none !important;
   }
 }
