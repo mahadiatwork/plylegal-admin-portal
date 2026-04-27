@@ -1,0 +1,165 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { useParams, usePathname, useRouter } from "next/navigation";
+import { ArrowLeft, Loader2, FileText, Upload, MessageSquare, AlertCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+
+export default function MatterLayout({ children }) {
+  const params = useParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const matterId = params.matterId;
+
+  const [matterData, setMatterData] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    async function fetchMatter() {
+      try {
+        setIsLoading(true);
+        const res = await fetch(`/api/matter/${matterId}`);
+        const data = await res.json();
+
+        if (data.success) {
+          setMatterData(data);
+        } else {
+          setError(data.error + (data.details ? `: ${data.details}` : ""));
+        }
+      } catch (err) {
+        setError("Error connecting to server");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    fetchMatter();
+  }, [matterId]);
+
+  const tabs = [
+    { name: "Questionnaire", path: `/matter/${matterId}/questionnaire`, icon: FileText },
+    { name: "Documents", path: `/matter/${matterId}/documents`, icon: Upload },
+    { name: "Messages", path: `/matter/${matterId}/messages`, icon: MessageSquare },
+  ];
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto text-[#285646] mb-4" />
+          <p className="text-gray-500">Loading matter data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !matterData) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-xl shadow-sm text-center max-w-md w-full">
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold mb-2">Error Loading Matter</h2>
+          <p className="text-gray-600 mb-6">{error}</p>
+          <Button onClick={() => router.push("/")} className="w-full">
+            Return to Search
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const { application, percentage } = matterData;
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="py-4">
+            <Link href="/" className="inline-flex items-center text-sm text-gray-500 hover:text-gray-900 mb-4 transition-colors">
+              <ArrowLeft className="h-4 w-4 mr-1" />
+              Back to Search
+            </Link>
+            
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-3 mb-1">
+                  <h1 className="text-2xl font-bold text-gray-900">{application.reference || "Unnamed Matter"}</h1>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                    {application.type || "Visa Application"}
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200">
+                    Read Only
+                  </span>
+                </div>
+                <p className="text-sm text-gray-500 flex items-center gap-2">
+                  <span>Deal ID: {application.zohoId || "N/A"}</span>
+                  <span>•</span>
+                  <span>App ID: {application.id}</span>
+                </p>
+              </div>
+
+              {/* Progress Indicator */}
+              <div className="flex items-center gap-4 bg-gray-50 px-4 py-2 rounded-lg border border-gray-100">
+                <div className="relative h-12 w-12">
+                  <svg className="h-full w-full" viewBox="0 0 36 36">
+                    <path
+                      className="text-gray-200"
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                    />
+                    <path
+                      className="text-[#285646]"
+                      strokeDasharray={`${percentage || 0}, 100`}
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-[#285646]">
+                    {percentage || 0}%
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Completion</p>
+                  <p className="text-xs text-gray-500">Questionnaire Progress</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Navigation Tabs */}
+          <nav className="flex space-x-8 mt-2 -mb-px overflow-x-auto">
+            {tabs.map((tab) => {
+              const isActive = pathname.startsWith(tab.path);
+              const Icon = tab.icon;
+              return (
+                <Link
+                  key={tab.name}
+                  href={tab.path}
+                  className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors ${
+                    isActive
+                      ? "border-[#285646] text-[#285646]"
+                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {tab.name}
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
+      </header>
+
+      {/* Main Content Area */}
+      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {children}
+      </main>
+    </div>
+  );
+}
