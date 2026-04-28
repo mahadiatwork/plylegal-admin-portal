@@ -55,30 +55,49 @@ function initializeAdminSDK() {
       
       // Try to use service account JSON if available
       let serviceAccount = null;
-      const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
       
-      if (serviceAccountKey) {
+      // Method 1: Base64 Encoded (Most robust for Vercel/CI)
+      const base64Key = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
+      if (base64Key) {
         try {
-          // Remove surrounding single quotes if they exist
-          let cleanKey = serviceAccountKey.trim();
-          if (cleanKey.startsWith("'") && cleanKey.endsWith("'")) {
-            cleanKey = cleanKey.slice(1, -1);
-          }
-          serviceAccount = JSON.parse(cleanKey);
-          
-          if (!projectId && serviceAccount.project_id) {
-            projectId = serviceAccount.project_id;
-          }
+          const decoded = Buffer.from(base64Key, 'base64').toString('utf8');
+          serviceAccount = JSON.parse(decoded);
+          console.log('✅ Loaded credentials from FIREBASE_SERVICE_ACCOUNT_BASE64');
+        } catch (err) {
+          console.warn('⚠️ Failed to parse FIREBASE_SERVICE_ACCOUNT_BASE64:', err.message);
+        }
+      }
 
-          console.log(`✅ Loaded credentials for: ${serviceAccount.client_email}`);
-          console.log(`✅ Target Project ID: ${projectId}`);
-
-          // Ensure private_key has correct newlines
-          if (serviceAccount.private_key) {
-            serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+      // Method 2: Raw JSON String
+      if (!serviceAccount) {
+        const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+        if (serviceAccountKey) {
+          try {
+            let cleanKey = serviceAccountKey.trim();
+            if (cleanKey.startsWith("'") && cleanKey.endsWith("'")) {
+              cleanKey = cleanKey.slice(1, -1);
+            }
+            serviceAccount = JSON.parse(cleanKey);
+            console.log('✅ Loaded credentials from FIREBASE_SERVICE_ACCOUNT_KEY');
+          } catch (parseError) {
+            console.warn('⚠️ Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY:', parseError.message);
           }
-        } catch (parseError) {
-          console.warn('⚠️ Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY:', parseError.message);
+        }
+      }
+
+      if (serviceAccount) {
+        if (!projectId && serviceAccount.project_id) {
+          projectId = serviceAccount.project_id;
+        }
+        console.log(`✅ Target Project ID: ${projectId}`);
+
+        // Ensure private_key has correct newlines
+        // Sometimes Vercel strips newlines or passes them as literal strings
+        if (serviceAccount.private_key) {
+          serviceAccount.private_key = serviceAccount.private_key
+            .replace(/\\n/g, '\n') // Replace literal \n with real newline
+            .replace(/"/g, '')     // Remove any rogue quotes inside the key
+            .trim();
         }
       }
 
@@ -91,9 +110,9 @@ function initializeAdminSDK() {
             projectId = serviceAccount.project_id;
           }
           if (serviceAccount.private_key) {
-            serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+            serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n').trim();
           }
-          console.log(`✅ Loaded credentials for: ${serviceAccount.client_email}`);
+          console.log(`✅ Loaded credentials from file for: ${serviceAccount.client_email}`);
           console.log(`✅ Target Project ID: ${projectId}`);
         }
       }
