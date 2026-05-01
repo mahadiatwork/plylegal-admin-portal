@@ -11,15 +11,7 @@ import {
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-
-// Format key from camelCase/snake_case to Title Case
-function formatLabel(key) {
-  return key
-    .replace(/([A-Z])/g, " $1")
-    .replace(/_/g, " ")
-    .replace(/^./, (str) => str.toUpperCase())
-    .trim();
-}
+import { formatLabel } from "@/lib/questionnaireSections";
 
 // Count leaf values in a data tree
 function countFields(data) {
@@ -34,62 +26,20 @@ function countFields(data) {
     .reduce((sum, [, value]) => sum + countFields(value), 0);
 }
 
-// Determine the icon for a section based on its key
-function getSectionIcon(key) {
+// Determine the icon for a section based on its category/key
+function getSectionIcon(category, key) {
+  if (category === "allApplicants") return Users;
+  if (category === "applicant" || category === "nonMigrating") return User;
   const lower = key.toLowerCase();
-  if (lower.includes("allapplicant") || lower.includes("all_applicant"))
-    return Users;
-  if (
-    lower.includes("applicant") ||
-    lower.includes("spouse") ||
-    lower.includes("partner") ||
-    lower.includes("dependant") ||
-    lower.includes("child") ||
-    lower.includes("sponsor")
-  )
+  if (lower.includes("applicant") || lower.includes("spouse") || lower.includes("partner") || lower.includes("child"))
     return User;
+  if (lower.includes("allapplicant")) return Users;
   return FileText;
 }
 
-// Categorize sections into groups
-function categorizeSections(sections) {
-  const allApplicantsGroup = [];
-  const mainApplicantGroup = [];
-  const otherApplicantGroups = [];
-  const otherSections = [];
-
-  sections.forEach(([key, data]) => {
-    const lower = key.toLowerCase();
-
-    if (lower === "allapplicants" || lower === "all_applicants") {
-      allApplicantsGroup.push([key, data]);
-    } else if (lower === "mainapplicant" || lower === "main_applicant") {
-      mainApplicantGroup.push([key, data]);
-    } else if (
-      lower.includes("applicant") ||
-      lower.includes("spouse") ||
-      lower.includes("partner") ||
-      lower.includes("dependant") ||
-      lower.includes("child") ||
-      lower.includes("sponsor")
-    ) {
-      otherApplicantGroups.push([key, data]);
-    } else {
-      otherSections.push([key, data]);
-    }
-  });
-
-  return {
-    allApplicantsGroup,
-    mainApplicantGroup,
-    otherApplicantGroups,
-    otherSections,
-  };
-}
-
 // Sub-section item component
-function SubSectionItem({ subKey, subData, isActive, onClick }) {
-  const fieldCount = countFields(subData);
+function SubSectionItem({ subSection, isActive, onClick, hasComment }) {
+  const fieldCount = countFields(subSection.data);
   const hasData = fieldCount > 0;
 
   return (
@@ -114,7 +64,10 @@ function SubSectionItem({ subKey, subData, isActive, onClick }) {
       ) : (
         <Circle className="h-3.5 w-3.5 flex-shrink-0 text-gray-300" />
       )}
-      <span className="flex-1 truncate">{formatLabel(subKey)}</span>
+      <span className="flex-1 truncate">{subSection.title}</span>
+      {hasComment && (
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-500 flex-shrink-0" />
+      )}
       {hasData && (
         <span
           className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
@@ -130,28 +83,22 @@ function SubSectionItem({ subKey, subData, isActive, onClick }) {
   );
 }
 
-// Section group (collapsible)
+// Section group (collapsible) — works with structured section objects
 function SectionGroup({
-  sectionKey,
-  sectionData,
+  section,
   activeSectionKey,
   activeSubKey,
   onNavigate,
+  commentCount,
 }) {
   const [isExpanded, setIsExpanded] = useState(
-    activeSectionKey === sectionKey
+    activeSectionKey === section.key
   );
-  const Icon = getSectionIcon(sectionKey);
+  const Icon = getSectionIcon(section.category, section.key);
 
-  const subSections =
-    typeof sectionData === "object" && !Array.isArray(sectionData)
-      ? Object.entries(sectionData).filter(
-          ([, v]) => v !== null && v !== undefined && v !== ""
-        )
-      : [];
-
-  const totalFields = countFields(sectionData);
-  const isSectionActive = activeSectionKey === sectionKey;
+  const subSections = section.subSections || [];
+  const totalFields = countFields(section.data);
+  const isSectionActive = activeSectionKey === section.key;
 
   return (
     <div className="mb-1">
@@ -159,9 +106,9 @@ function SectionGroup({
         onClick={() => {
           setIsExpanded(!isExpanded);
           if (!isExpanded && subSections.length > 0) {
-            onNavigate(sectionKey, subSections[0][0]);
+            onNavigate(section.key, subSections[0].key);
           } else if (subSections.length === 0) {
-            onNavigate(sectionKey, null);
+            onNavigate(section.key, null);
           }
         }}
         className={`
@@ -180,8 +127,14 @@ function SectionGroup({
           }`}
         />
         <span className="flex-1 text-left truncate">
-          {formatLabel(sectionKey)}
+          {section.title}
         </span>
+        {commentCount > 0 && (
+          <span className="flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-1.5 py-0 text-[9px] font-semibold">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+            {commentCount}
+          </span>
+        )}
         {totalFields > 0 && (
           <Badge
             variant="secondary"
@@ -212,15 +165,15 @@ function SectionGroup({
       {/* Sub-sections */}
       {isExpanded && subSections.length > 0 && (
         <div className="ml-3 pl-3 border-l-2 border-gray-200 mt-1 space-y-0.5">
-          {subSections.map(([subKey, subData]) => (
+          {subSections.map((sub) => (
             <SubSectionItem
-              key={subKey}
-              subKey={subKey}
-              subData={subData}
+              key={sub.key}
+              subSection={sub}
               isActive={
-                activeSectionKey === sectionKey && activeSubKey === subKey
+                activeSectionKey === section.key && activeSubKey === sub.key
               }
-              onClick={() => onNavigate(sectionKey, subKey)}
+              onClick={() => onNavigate(section.key, sub.key)}
+              hasComment={false}
             />
           ))}
         </div>
@@ -247,26 +200,30 @@ function CategoryHeader({ icon: Icon, title, count }) {
 }
 
 export default function QuestionnaireSidebar({
-  data,
+  sections,
   activeSectionKey,
   activeSubKey,
   onNavigate,
+  commentCountBySection = {},
 }) {
-  if (!data) return null;
+  if (!sections || sections.length === 0) return null;
 
-  const sections = Object.entries(data).filter(
-    ([key]) => key !== "visaContext" && key !== "id" && key !== "profiles"
+  // Group sections by category
+  const allApplicantsGroup = sections.filter(
+    (s) => s.category === "allApplicants"
+  );
+  const applicantGroup = sections.filter(
+    (s) => s.category === "applicant"
+  );
+  const nonMigratingGroup = sections.filter(
+    (s) => s.category === "nonMigrating"
+  );
+  const otherSections = sections.filter(
+    (s) => s.category === "other"
   );
 
-  const {
-    allApplicantsGroup,
-    mainApplicantGroup,
-    otherApplicantGroups,
-    otherSections,
-  } = categorizeSections(sections);
-
   const hasApplicantSections =
-    mainApplicantGroup.length > 0 || otherApplicantGroups.length > 0;
+    applicantGroup.length > 0 || nonMigratingGroup.length > 0;
 
   return (
     <div className="flex flex-col h-full bg-white border-r border-gray-200">
@@ -291,18 +248,18 @@ export default function QuestionnaireSidebar({
                 icon={Users}
                 title="All Applicants"
                 count={allApplicantsGroup.reduce(
-                  (acc, [, d]) => acc + countFields(d),
+                  (acc, s) => acc + countFields(s.data),
                   0
                 )}
               />
-              {allApplicantsGroup.map(([key, sectionData]) => (
+              {allApplicantsGroup.map((section) => (
                 <SectionGroup
-                  key={key}
-                  sectionKey={key}
-                  sectionData={sectionData}
+                  key={section.key}
+                  section={section}
                   activeSectionKey={activeSectionKey}
                   activeSubKey={activeSubKey}
                   onNavigate={onNavigate}
+                  commentCount={commentCountBySection[section.key] || 0}
                 />
               ))}
               <div className="mx-3 my-2 border-b border-gray-100" />
@@ -315,28 +272,26 @@ export default function QuestionnaireSidebar({
               <CategoryHeader
                 icon={User}
                 title="Applicants"
-                count={
-                  mainApplicantGroup.length + otherApplicantGroups.length
-                }
+                count={applicantGroup.length + nonMigratingGroup.length}
               />
-              {mainApplicantGroup.map(([key, sectionData]) => (
+              {applicantGroup.map((section) => (
                 <SectionGroup
-                  key={key}
-                  sectionKey={key}
-                  sectionData={sectionData}
+                  key={section.key}
+                  section={section}
                   activeSectionKey={activeSectionKey}
                   activeSubKey={activeSubKey}
                   onNavigate={onNavigate}
+                  commentCount={commentCountBySection[section.key] || 0}
                 />
               ))}
-              {otherApplicantGroups.map(([key, sectionData]) => (
+              {nonMigratingGroup.map((section) => (
                 <SectionGroup
-                  key={key}
-                  sectionKey={key}
-                  sectionData={sectionData}
+                  key={section.key}
+                  section={section}
                   activeSectionKey={activeSectionKey}
                   activeSubKey={activeSubKey}
                   onNavigate={onNavigate}
+                  commentCount={commentCountBySection[section.key] || 0}
                 />
               ))}
               <div className="mx-3 my-2 border-b border-gray-100" />
@@ -351,14 +306,14 @@ export default function QuestionnaireSidebar({
                 title="Other Sections"
                 count={otherSections.length}
               />
-              {otherSections.map(([key, sectionData]) => (
+              {otherSections.map((section) => (
                 <SectionGroup
-                  key={key}
-                  sectionKey={key}
-                  sectionData={sectionData}
+                  key={section.key}
+                  section={section}
                   activeSectionKey={activeSectionKey}
                   activeSubKey={activeSubKey}
                   onNavigate={onNavigate}
+                  commentCount={commentCountBySection[section.key] || 0}
                 />
               ))}
             </div>

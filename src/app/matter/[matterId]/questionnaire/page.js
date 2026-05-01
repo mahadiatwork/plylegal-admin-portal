@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams } from "next/navigation";
 import {
   Loader2,
@@ -11,25 +11,22 @@ import {
   ChevronUp,
   Menu,
   X,
+  MessageSquarePlus,
+  AlertCircle,
+  X as XIcon,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Collapsible,
   CollapsibleTrigger,
   CollapsibleContent,
 } from "@/components/ui/collapsible";
 import QuestionnaireSidebar from "@/components/QuestionnaireSidebar";
-
-// Format key from camelCase/snake_case to Title Case
-function formatLabel(key) {
-  return key
-    .replace(/([A-Z])/g, " $1")
-    .replace(/_/g, " ")
-    .replace(/^./, (str) => str.toUpperCase());
-}
+import { buildStructuredSections, formatLabel } from "@/lib/questionnaireSections";
 
 // Count total questions in a section (recursively count leaf values)
 function countQuestions(data) {
@@ -51,18 +48,26 @@ function countQuestions(data) {
   }, 0);
 }
 
-// Filter data based on search query
-function filterData(data, query) {
+// Filter data based on search query (also matches comment bodies)
+function filterData(data, query, commentsByPath) {
   if (!query.trim()) return data;
   const lowerQuery = query.toLowerCase();
 
+  // Check if any comment body matches the search query
+  const commentMatches = commentsByPath
+    ? Object.values(commentsByPath).some((comments) =>
+        comments.some((c) => c.body?.toLowerCase().includes(lowerQuery))
+      )
+    : false;
+
   if (typeof data !== "object" || data === null) {
-    return String(data).toLowerCase().includes(lowerQuery) ? data : null;
+    const valueMatch = String(data).toLowerCase().includes(lowerQuery);
+    return valueMatch || commentMatches ? data : null;
   }
 
   if (Array.isArray(data)) {
     const filtered = data
-      .map((item) => filterData(item, query))
+      .map((item) => filterData(item, query, commentsByPath))
       .filter((item) => item !== null);
     return filtered.length > 0 ? filtered : null;
   }
@@ -73,26 +78,25 @@ function filterData(data, query) {
   const filteredEntries = entries
     .map(([key, value]) => {
       const keyMatches = formatLabel(key).toLowerCase().includes(lowerQuery);
-      const filteredValue = filterData(value, query);
+      const filteredValue = filterData(value, query, commentsByPath);
       if (keyMatches) return [key, value];
       if (filteredValue !== null) return [key, filteredValue];
       return null;
     })
     .filter((entry) => entry !== null);
 
-  if (filteredEntries.length === 0) return null;
+  if (filteredEntries.length === 0 && !commentMatches) return null;
   return Object.fromEntries(filteredEntries);
 }
 
-// Recursively render questions as label-value pairs
-function RenderQuestions({ data }) {
+// Recursively render questions as label-value pairs with comment support
+function RenderQuestions({ data, parentPath = "", commentsByPath = {}, onAddComment }) {
   if (data === null || data === undefined || data === "") {
     return <span className="text-muted-foreground">—</span>;
   }
 
   if (typeof data !== "object") {
     const strVal = String(data);
-    // Boolean rendering
     if (strVal === "true") return <span className="text-emerald-600 font-medium">Yes</span>;
     if (strVal === "false") return <span className="text-gray-400">No</span>;
     return <span className="text-foreground">{strVal}</span>;
@@ -113,7 +117,12 @@ function RenderQuestions({ data }) {
                 Item {idx + 1}
               </span>
             </div>
-            <RenderQuestions data={item} />
+            <RenderQuestions
+              data={item}
+              parentPath={`${parentPath}[${idx}]`}
+              commentsByPath={commentsByPath}
+              onAddComment={onAddComment}
+            />
           </div>
         ))}
       </div>
@@ -130,6 +139,7 @@ function RenderQuestions({ data }) {
     <div className="space-y-3">
       {entries.map(([key, value]) => {
         const formattedKey = formatLabel(key);
+        const fieldPath = parentPath ? `${parentPath}.${key}` : key;
         const isObject =
           typeof value === "object" &&
           value !== null &&
@@ -137,11 +147,20 @@ function RenderQuestions({ data }) {
         const isArray = Array.isArray(value);
         const isSimpleArray =
           isArray && value.every((v) => typeof v !== "object");
+        const isLeaf = !isObject && !isArray;
+
+        // Find unresolved comments for this field path
+        const openComments = (commentsByPath[fieldPath] || []).filter(
+          (c) => c.status === "open"
+        );
+        const latestOpenComment = openComments[openComments.length - 1];
 
         return (
           <div
             key={key}
-            className="border-b border-gray-100 pb-3 last:border-0 last:pb-0"
+            className={`border-b border-gray-100 pb-3 last:border-0 last:pb-0 group relative ${
+              openComments.length > 0 ? "border-l-2 border-l-red-400 pl-3" : ""
+            }`}
           >
             <span className="text-xs font-medium text-gray-500 uppercase block mb-1">
               {formattedKey}
@@ -157,12 +176,38 @@ function RenderQuestions({ data }) {
                 </ul>
               ) : isObject || (isArray && !isSimpleArray) ? (
                 <div className="pl-3 border-l-2 border-gray-200">
-                  <RenderQuestions data={value} />
+                  <RenderQuestions
+                    data={value}
+                    parentPath={fieldPath}
+                    commentsByPath={commentsByPath}
+                    onAddComment={onAddComment}
+                  />
                 </div>
               ) : (
                 <RenderQuestions data={value} />
               )}
             </div>
+
+            {/* Inline red note for open comments */}
+            {latestOpenComment && (
+              <div className="mt-1 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 flex items-start gap-2">
+                <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                <span className="italic">
+                  Reviewer note: {latestOpenComment.body}
+                </span>
+              </div>
+            )}
+
+            {/* Hover "Add note" button for leaf fields */}
+            {isLeaf && onAddComment && (
+              <button
+                onClick={() => onAddComment(fieldPath, formattedKey)}
+                className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity p-1 text-gray-400 hover:text-[#285646]"
+                title="Add reviewer note"
+              >
+                <MessageSquarePlus className="h-4 w-4" />
+              </button>
+            )}
           </div>
         );
       })}
@@ -171,7 +216,7 @@ function RenderQuestions({ data }) {
 }
 
 // Recursively render questions in Q&A format for print
-function PrintQARenderer({ data, parentKey = "" }) {
+function PrintQARenderer({ data, parentKey = "", commentsByPath = {}, includeComments = false }) {
   if (data === null || data === undefined || data === "") {
     return null;
   }
@@ -181,11 +226,18 @@ function PrintQARenderer({ data, parentKey = "" }) {
     let finalVal = strVal;
     if (strVal === "true") finalVal = "Yes";
     if (strVal === "false") finalVal = "No";
-    
+
+    const openComments = (commentsByPath[parentKey] || []).filter(c => c.status === "open");
+
     return (
       <div className="mb-2 break-inside-avoid">
         <div className="font-bold text-gray-900 leading-snug">Q: {formatLabel(parentKey)}?</div>
         <div className="text-gray-800 leading-snug">A: {finalVal}</div>
+        {includeComments && openComments.map((c) => (
+          <div key={c.id} className="text-xs italic text-gray-500 mt-0.5">
+            Reviewer note ({c.authorName || "Reviewer"}, {c.createdAt ? new Date(c.createdAt).toLocaleDateString() : ""} — {c.severity || "info"}): &ldquo;{c.body}&rdquo;
+          </div>
+        ))}
       </div>
     );
   }
@@ -197,7 +249,7 @@ function PrintQARenderer({ data, parentKey = "" }) {
         {data.map((item, idx) => (
           <div key={idx} className="mb-2 last:mb-0 break-inside-avoid">
             <div className="font-semibold text-gray-700 italic text-xs leading-snug">Item {idx + 1}</div>
-            <PrintQARenderer data={item} />
+            <PrintQARenderer data={item} parentKey={`${parentKey}[${idx}]`} commentsByPath={commentsByPath} includeComments={includeComments} />
           </div>
         ))}
       </div>
@@ -227,18 +279,178 @@ function PrintQARenderer({ data, parentKey = "" }) {
           return (
             <div key={key} className="mb-2 break-inside-avoid">
               <div className="font-bold text-gray-900 text-[15px] border-b border-gray-200 pb-0.5 mb-1 mt-3">{formatLabel(key)}</div>
-              <PrintQARenderer data={value} />
+              <PrintQARenderer data={value} parentKey={key} commentsByPath={commentsByPath} includeComments={includeComments} />
             </div>
           );
         } else {
-          return <PrintQARenderer key={key} data={value} parentKey={key} />;
+          return <PrintQARenderer key={key} data={value} parentKey={key} commentsByPath={commentsByPath} includeComments={includeComments} />;
         }
       })}
     </div>
   );
 }
 
-// SectionCard component with collapsible functionality
+// CommentBadge — shows count of unresolved comments on a section header
+function CommentBadge({ count, onClick }) {
+  if (!count || count <= 0) return null;
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-2 py-0.5 text-[10px] font-semibold hover:bg-amber-100 transition-colors"
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+      {count} {count === 1 ? "note" : "notes"}
+    </button>
+  );
+}
+
+// CommentDrawer — right-side slide-over for adding/viewing comments
+function CommentDrawer({
+  isOpen,
+  onClose,
+  path,
+  label,
+  comments,
+  onAddComment,
+  onResolveComment,
+}) {
+  const [body, setBody] = useState("");
+  const [severity, setSeverity] = useState("suggestion");
+
+  if (!isOpen) return null;
+
+  const pathComments = comments.filter(
+    (c) => c.path === path && c.status === "open"
+  );
+
+  const handleSubmit = () => {
+    if (!body.trim()) return;
+    onAddComment({ path, label, body: body.trim(), severity });
+    setBody("");
+    setSeverity("suggestion");
+  };
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 bg-black/30 z-50"
+        onClick={onClose}
+      />
+      {/* Drawer — bottom sheet on mobile, right slide-over on desktop */}
+      <div className="fixed bottom-0 left-0 right-0 sm:bottom-auto sm:left-auto sm:right-0 sm:top-0 h-[85vh] sm:h-full w-full sm:w-96 sm:max-w-full bg-white shadow-xl z-50 flex flex-col rounded-t-2xl sm:rounded-none">
+        {/* Mobile drag handle */}
+        <div className="flex justify-center pt-2 pb-0 sm:hidden">
+          <div className="w-10 h-1 rounded-full bg-gray-300" />
+        </div>
+        {/* Header */}
+        <div className="px-4 py-4 border-b border-gray-200 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900">Reviewer Notes</h3>
+            <p className="text-xs text-gray-500 mt-0.5 truncate max-w-[280px]">{label}</p>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+            <XIcon className="h-4 w-4 text-gray-500" />
+          </button>
+        </div>
+
+        {/* Existing comments */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {pathComments.length === 0 && (
+            <p className="text-sm text-gray-400 italic">No notes yet for this field.</p>
+          )}
+          {pathComments.map((comment) => (
+            <div
+              key={comment.id}
+              className={`rounded-lg border p-3 text-sm ${
+                comment.severity === "issue"
+                  ? "border-red-200 bg-red-50"
+                  : comment.severity === "suggestion"
+                  ? "border-amber-200 bg-amber-50"
+                  : "border-blue-200 bg-blue-50"
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-medium text-gray-600">
+                  {comment.authorName || "Reviewer"}
+                </span>
+                <span
+                  className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${
+                    comment.severity === "issue"
+                      ? "bg-red-100 text-red-700"
+                      : comment.severity === "suggestion"
+                      ? "bg-amber-100 text-amber-700"
+                      : "bg-blue-100 text-blue-700"
+                  }`}
+                >
+                  {comment.severity}
+                </span>
+              </div>
+              <p className="text-gray-800">{comment.body}</p>
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-[10px] text-gray-400">
+                  {comment.createdAt
+                    ? new Date(comment.createdAt).toLocaleString()
+                    : ""}
+                </span>
+                <button
+                  onClick={() => onResolveComment(comment.id)}
+                  className="text-[10px] font-medium text-[#285646] hover:underline"
+                >
+                  Mark resolved
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* New comment form */}
+        <div className="border-t border-gray-200 p-4 space-y-3">
+          {/* Severity selector */}
+          <div className="flex gap-2">
+            {[
+              { key: "info", label: "Info", classes: "bg-blue-50 text-blue-700 border-blue-200" },
+              { key: "suggestion", label: "Suggestion", classes: "bg-amber-50 text-amber-700 border-amber-200" },
+              { key: "issue", label: "Issue", classes: "bg-red-50 text-red-700 border-red-200" },
+            ].map(({ key, label: lbl, classes }) => (
+              <button
+                key={key}
+                onClick={() => setSeverity(key)}
+                className={`text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
+                  severity === key ? classes : "bg-white text-gray-500 border-gray-200"
+                }`}
+              >
+                {lbl}
+              </button>
+            ))}
+          </div>
+          <Textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder="Add a reviewer note..."
+            rows={3}
+            className="text-sm"
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSubmit}
+              disabled={!body.trim()}
+              className="bg-[#285646] hover:bg-[#1e4035] text-white"
+            >
+              Save Note
+            </Button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// SectionCard component with collapsible functionality + comment support
 function SectionCard({
   title,
   data,
@@ -247,11 +459,14 @@ function SectionCard({
   onToggle,
   searchQuery,
   sectionRef,
+  commentCount,
+  onCommentClick,
+  commentsByPath,
+  onAddComment,
 }) {
-  const filteredData = searchQuery ? filterData(data, searchQuery) : data;
+  const filteredData = searchQuery ? filterData(data, searchQuery, commentsByPath) : data;
   const questionCount = countQuestions(data);
 
-  // Don't render if search query exists and no matches found
   if (searchQuery && filteredData === null) return null;
 
   return (
@@ -276,13 +491,14 @@ function SectionCard({
                   expanded ? "text-[#285646]" : "text-gray-800"
                 }`}
               >
-                {formatLabel(title)}
+                {title}
               </h3>
               {!expanded && questionCount > 0 && (
                 <Badge variant="secondary" className="text-xs">
                   {questionCount} {questionCount === 1 ? "item" : "items"}
                 </Badge>
               )}
+              <CommentBadge count={commentCount} onClick={onCommentClick} />
             </div>
             <div
               className={`transform transition-transform duration-200 ${
@@ -295,7 +511,12 @@ function SectionCard({
         </CollapsibleTrigger>
         <CollapsibleContent>
           <CardContent className="p-5">
-            <RenderQuestions data={filteredData || data} />
+            <RenderQuestions
+              data={filteredData || data}
+              parentPath={sectionKey}
+              commentsByPath={commentsByPath}
+              onAddComment={onAddComment}
+            />
           </CardContent>
         </CollapsibleContent>
       </Collapsible>
@@ -314,6 +535,11 @@ export default function QuestionnairePage() {
   const [activeSectionKey, setActiveSectionKey] = useState(null);
   const [activeSubKey, setActiveSubKey] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [comments, setComments] = useState([]);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerPath, setDrawerPath] = useState("");
+  const [drawerLabel, setDrawerLabel] = useState("");
+  const [includeCommentsInPDF, setIncludeCommentsInPDF] = useState(true);
   const sectionRefs = useRef({});
 
   useEffect(() => {
@@ -331,12 +557,47 @@ export default function QuestionnairePage() {
     fetchData();
   }, [matterId]);
 
-  // Build sections from data
-  const sections = data
-    ? Object.entries(data).filter(
-        ([key]) => key !== "visaContext" && key !== "id" && key !== "profiles"
-      )
-    : [];
+  // Fetch review comments
+  useEffect(() => {
+    async function fetchComments() {
+      try {
+        const res = await fetch(`/api/review-comments/${matterId}`);
+        const result = await res.json();
+        if (result.success) setComments(result.comments || []);
+      } catch (e) {
+        // Comments endpoint may not exist yet — fail silently
+        console.warn("Could not load review comments:", e.message);
+      }
+    }
+    if (matterId) fetchComments();
+  }, [matterId]);
+
+  // Build structured sections from data
+  const sections = useMemo(() => {
+    if (!data) return [];
+    return buildStructuredSections(data);
+  }, [data]);
+
+  // Index comments by path for quick lookup
+  const commentsByPath = useMemo(() => {
+    const map = {};
+    comments.forEach((c) => {
+      if (!map[c.path]) map[c.path] = [];
+      map[c.path].push(c);
+    });
+    return map;
+  }, [comments]);
+
+  // Count unresolved comments per section key
+  const commentCountBySection = useMemo(() => {
+    const map = {};
+    comments.forEach((c) => {
+      if (c.status === "open") {
+        map[c.sectionKey] = (map[c.sectionKey] || 0) + 1;
+      }
+    });
+    return map;
+  }, [comments]);
 
   // Toggle single section
   const toggleSection = useCallback((sectionKey) => {
@@ -357,7 +618,7 @@ export default function QuestionnairePage() {
       setExpandedSections(new Set());
       setExpandAll(false);
     } else {
-      const allKeys = new Set(sections.map(([key]) => key));
+      const allKeys = new Set(sections.map((s) => s.key));
       setExpandedSections(allKeys);
       setExpandAll(true);
     }
@@ -374,14 +635,12 @@ export default function QuestionnairePage() {
       setActiveSectionKey(sectionKey);
       setActiveSubKey(subKey);
 
-      // Expand the section
       setExpandedSections((prev) => {
         const newSet = new Set(prev);
         newSet.add(sectionKey);
         return newSet;
       });
 
-      // Scroll to the section
       setTimeout(() => {
         const ref = sectionRefs.current[sectionKey];
         if (ref) {
@@ -389,15 +648,65 @@ export default function QuestionnairePage() {
         }
       }, 100);
 
-      // Close mobile sidebar
       setSidebarOpen(false);
     },
     []
   );
 
+  // Open comment drawer for a specific field
+  const handleAddComment = useCallback((path, label) => {
+    setDrawerPath(path);
+    setDrawerLabel(label);
+    setDrawerOpen(true);
+  }, []);
+
+  // Submit a new comment
+  const handleSaveComment = useCallback(
+    async ({ path, label, body, severity }) => {
+      try {
+        const res = await fetch(`/api/review-comments/${matterId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path, label, body, severity }),
+        });
+        const result = await res.json();
+        if (result.success && result.comment) {
+          setComments((prev) => [...prev, result.comment]);
+        }
+      } catch (e) {
+        console.error("Failed to save comment:", e);
+      }
+    },
+    [matterId]
+  );
+
+  // Resolve a comment
+  const handleResolveComment = useCallback(
+    async (commentId) => {
+      try {
+        const res = await fetch(`/api/review-comments/${matterId}/${commentId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "resolved" }),
+        });
+        const result = await res.json();
+        if (result.success) {
+          setComments((prev) =>
+            prev.map((c) =>
+              c.id === commentId ? { ...c, status: "resolved" } : c
+            )
+          );
+        }
+      } catch (e) {
+        console.error("Failed to resolve comment:", e);
+      }
+    },
+    [matterId]
+  );
+
   // Sync expand-all state
   useEffect(() => {
-    const allKeys = sections.map(([key]) => key);
+    const allKeys = sections.map((s) => s.key);
     const allExpanded =
       allKeys.length > 0 && allKeys.every((k) => expandedSections.has(k));
     const noneExpanded = expandedSections.size === 0;
@@ -425,9 +734,7 @@ export default function QuestionnairePage() {
 
   // Filter sections based on search query
   const filteredSections = searchQuery
-    ? sections.filter(
-        ([_, sectionData]) => filterData(sectionData, searchQuery) !== null
-      )
+    ? sections.filter((s) => filterData(s.data, searchQuery, commentsByPath) !== null)
     : sections;
 
   return (
@@ -466,10 +773,11 @@ export default function QuestionnairePage() {
       `}
       >
         <QuestionnaireSidebar
-          data={data}
+          sections={sections}
           activeSectionKey={activeSectionKey}
           activeSubKey={activeSubKey}
           onNavigate={handleSidebarNavigate}
+          commentCountBySection={commentCountBySection}
         />
       </aside>
 
@@ -515,6 +823,15 @@ export default function QuestionnairePage() {
                   <FileDown className="h-4 w-4" />
                   Download PDF
                 </Button>
+                <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={includeCommentsInPDF}
+                    onChange={(e) => setIncludeCommentsInPDF(e.target.checked)}
+                    className="rounded border-gray-300 text-[#285646] focus:ring-[#285646]"
+                  />
+                  Include reviewer notes
+                </label>
               </div>
             </div>
 
@@ -525,7 +842,7 @@ export default function QuestionnairePage() {
               </div>
               <Input
                 type="search"
-                placeholder="Search questions or answers..."
+                placeholder="Search questions, answers, or reviewer notes..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
@@ -547,18 +864,22 @@ export default function QuestionnairePage() {
 
           {/* Sections List */}
           <div className="space-y-4">
-            {filteredSections.map(([sectionKey, sectionData]) => (
+            {filteredSections.map((section) => (
               <SectionCard
-                key={sectionKey}
-                title={sectionKey}
-                sectionKey={sectionKey}
-                data={sectionData}
-                expanded={expandedSections.has(sectionKey)}
-                onToggle={() => toggleSection(sectionKey)}
+                key={section.key}
+                title={section.title}
+                sectionKey={section.key}
+                data={section.data}
+                expanded={expandedSections.has(section.key)}
+                onToggle={() => toggleSection(section.key)}
                 searchQuery={searchQuery}
                 sectionRef={(el) => {
-                  sectionRefs.current[sectionKey] = el;
+                  sectionRefs.current[section.key] = el;
                 }}
+                commentCount={commentCountBySection[section.key] || 0}
+                onCommentClick={() => handleAddComment(section.key, section.title)}
+                commentsByPath={commentsByPath}
+                onAddComment={handleAddComment}
               />
             ))}
           </div>
@@ -599,13 +920,18 @@ export default function QuestionnairePage() {
           <tbody>
             <tr>
               <td>
-                {sections.map(([sectionKey, sectionData]) => (
-                  <div key={sectionKey} className="mb-5">
+                {sections.map((section) => (
+                  <div key={section.key} className="mb-5">
                     <h3 className="text-lg font-bold text-gray-900 mb-2 mt-4">
-                      {formatLabel(sectionKey)}
+                      {section.title}
                     </h3>
                     <div className="text-sm">
-                      <PrintQARenderer data={sectionData} parentKey={sectionKey} />
+                      <PrintQARenderer
+                        data={section.data}
+                        parentKey={section.key}
+                        commentsByPath={commentsByPath}
+                        includeComments={includeCommentsInPDF}
+                      />
                     </div>
                   </div>
                 ))}
@@ -614,6 +940,17 @@ export default function QuestionnairePage() {
           </tbody>
         </table>
       </div>
+
+      {/* Comment Drawer */}
+      <CommentDrawer
+        isOpen={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        path={drawerPath}
+        label={drawerLabel}
+        comments={comments}
+        onAddComment={handleSaveComment}
+        onResolveComment={handleResolveComment}
+      />
     </>
   );
 }

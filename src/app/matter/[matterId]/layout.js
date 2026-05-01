@@ -2,13 +2,13 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useParams, usePathname, useRouter } from "next/navigation";
-import { ArrowLeft, Loader2, FileText, Upload, MessageSquare, AlertCircle, Bell, Search, ChevronDown } from "lucide-react";
+import { useParams, useRouter } from "next/navigation";
+import { ArrowLeft, Loader2, AlertCircle, Bell, Search, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { formatVisaApplicationType } from "@/lib/visaDisplay";
 
 export default function MatterLayout({ children }) {
   const params = useParams();
-  const pathname = usePathname();
   const router = useRouter();
   const matterId = params.matterId;
 
@@ -37,11 +37,6 @@ export default function MatterLayout({ children }) {
     fetchMatter();
   }, [matterId]);
 
-  const tabs = [
-    { name: "Questionnaire", path: `/matter/${matterId}/questionnaire`, icon: FileText },
-    { name: "Documents", path: `/matter/${matterId}/documents`, icon: Upload },
-    { name: "Messages", path: `/matter/${matterId}/messages`, icon: MessageSquare },
-  ];
 
   if (isLoading) {
     return (
@@ -108,7 +103,7 @@ export default function MatterLayout({ children }) {
                 <div className="flex items-center gap-3 mb-1">
                   <h1 className="text-2xl font-bold text-gray-900">{application.reference || "Unnamed Matter"}</h1>
                   <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                    {application.type || "Visa Application"}
+                    {formatVisaApplicationType(application)}
                   </span>
                   <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200">
                     Read Only
@@ -153,27 +148,12 @@ export default function MatterLayout({ children }) {
             </div>
           </div>
 
-          {/* Navigation Tabs */}
-          <nav className="flex space-x-8 mt-2 -mb-px overflow-x-auto">
-            {tabs.map((tab) => {
-              const isActive = pathname.startsWith(tab.path);
-              const Icon = tab.icon;
-              return (
-                <Link
-                  key={tab.name}
-                  href={tab.path}
-                  className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors ${
-                    isActive
-                      ? "border-[#285646] text-[#285646]"
-                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  {tab.name}
-                </Link>
-              );
-            })}
-          </nav>
+          {/* Single-tab indicator — Questionnaire only */}
+          <div className="flex mt-2 -mb-px">
+            <span className="py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 border-[#285646] text-[#285646]">
+              Questionnaire
+            </span>
+          </div>
         </div>
       </header>
 
