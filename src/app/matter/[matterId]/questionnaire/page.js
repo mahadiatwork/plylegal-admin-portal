@@ -6,21 +6,18 @@ import {
   Loader2,
   ChevronDown,
   FileDown,
+  FileText,
   Search,
-  Maximize2,
-  ChevronUp,
   Menu,
   X,
   MessageSquarePlus,
   AlertCircle,
-  X as XIcon,
   User,
   Users,
   Briefcase,
   GraduationCap,
   Languages,
-  Contact2,
-  Identity,
+  Phone,
   ShieldCheck,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -430,7 +427,7 @@ function CommentDrawer({
             <p className="text-xs text-gray-500 mt-0.5 truncate max-w-[280px]">{label}</p>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
-            <XIcon className="h-4 w-4 text-gray-500" />
+            <X className="h-4 w-4 text-gray-500" />
           </button>
         </div>
 
@@ -612,7 +609,7 @@ function getSectionIcon(title) {
   if (lower.includes("employment")) return Briefcase;
   if (lower.includes("education") || lower.includes("qualification")) return GraduationCap;
   if (lower.includes("skills") || lower.includes("language")) return Languages;
-  if (lower.includes("contact")) return Contact2;
+  if (lower.includes("contact")) return Phone;
   return FileText;
 }
 
