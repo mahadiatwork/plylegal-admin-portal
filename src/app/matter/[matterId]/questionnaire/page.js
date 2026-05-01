@@ -14,6 +14,14 @@ import {
   MessageSquarePlus,
   AlertCircle,
   X as XIcon,
+  User,
+  Users,
+  Briefcase,
+  GraduationCap,
+  Languages,
+  Contact2,
+  Identity,
+  ShieldCheck,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -87,6 +95,78 @@ function filterData(data, query, commentsByPath) {
 
   if (filteredEntries.length === 0 && !commentMatches) return null;
   return Object.fromEntries(filteredEntries);
+}
+
+// Grid-based renderer for the final data view
+function GridRenderer({ data, parentPath = "", commentsByPath = {}, onAddComment }) {
+  if (data === null || data === undefined || data === "") return null;
+
+  const entries = Object.entries(data).filter(
+    ([k, v]) => v !== null && v !== undefined && v !== ""
+  );
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+      {entries.map(([key, value]) => {
+        const formattedKey = formatLabel(key);
+        const fieldPath = parentPath ? `${parentPath}.${key}` : key;
+        const isObject = typeof value === "object" && value !== null && !Array.isArray(value);
+        const isArray = Array.isArray(value);
+        
+        if (isObject || isArray) {
+            // Recursive for nested objects/arrays but keeping them within the grid if possible
+            // or spanning them full width
+            return (
+                <div key={key} className="col-span-full mt-2">
+                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">{formattedKey}</h4>
+                    <div className="pl-4 border-l-2 border-gray-100">
+                        <GridRenderer 
+                            data={value} 
+                            parentPath={fieldPath} 
+                            commentsByPath={commentsByPath} 
+                            onAddComment={onAddComment} 
+                        />
+                    </div>
+                </div>
+            );
+        }
+
+        const openComments = (commentsByPath[fieldPath] || []).filter(c => c.status === "open");
+        const strVal = String(value);
+        let displayVal = strVal;
+        if (strVal === "true") displayVal = "Yes";
+        if (strVal === "false") displayVal = "No";
+
+        return (
+          <div key={key} className="group relative">
+            <label className="text-[13px] font-semibold text-gray-700 mb-1.5 block">
+              {formattedKey}
+            </label>
+            <div className={`
+                min-h-[42px] flex items-center px-4 py-2 rounded-lg border bg-white text-sm text-gray-900 transition-all
+                ${openComments.length > 0 ? "border-red-300 bg-red-50/30" : "border-gray-200"}
+            `}>
+              {displayVal}
+            </div>
+            {openComments.map(c => (
+                <div key={c.id} className="mt-1 flex items-start gap-1.5 text-[11px] text-red-600 italic">
+                    <AlertCircle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                    <span>{c.body}</span>
+                </div>
+            ))}
+            {onAddComment && (
+              <button
+                onClick={() => onAddComment(fieldPath, formattedKey)}
+                className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity p-1 text-gray-400 hover:text-[#285646]"
+              >
+                <MessageSquarePlus className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 // Recursively render questions as label-value pairs with comment support
@@ -524,6 +604,77 @@ function SectionCard({
   );
 }
 
+// Map section types to icons
+function getSectionIcon(title) {
+  const lower = title.toLowerCase();
+  if (lower.includes("personal") || lower.includes("details")) return User;
+  if (lower.includes("identity")) return ShieldCheck;
+  if (lower.includes("employment")) return Briefcase;
+  if (lower.includes("education") || lower.includes("qualification")) return GraduationCap;
+  if (lower.includes("skills") || lower.includes("language")) return Languages;
+  if (lower.includes("contact")) return Contact2;
+  return FileText;
+}
+
+// Profile Tabs component
+function ProfileTabs({ profiles, activeKey, onChange }) {
+  return (
+    <div className="flex border-b border-gray-200 overflow-x-auto no-scrollbar">
+      {profiles.map((p) => {
+        const isActive = activeKey === p.key;
+        return (
+          <button
+            key={p.key}
+            onClick={() => onChange(p.key)}
+            className={`
+              flex-1 min-w-[200px] px-6 py-4 text-sm font-semibold transition-all duration-200 border-b-2
+              ${
+                isActive
+                  ? "border-[#285646] text-[#285646] bg-[#285646]/5"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+              }
+            `}
+          >
+            <div className="flex items-center justify-center gap-2">
+              <User className={`h-4 w-4 ${isActive ? "text-[#285646]" : "text-gray-400"}`} />
+              {p.title}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Internal Section Sidebar
+function SectionSidebar({ subSections, activeKey, onChange }) {
+  return (
+    <div className="w-64 border-r border-gray-100 py-4 flex-shrink-0">
+      {subSections.map((s) => {
+        const Icon = getSectionIcon(s.title);
+        const isActive = activeKey === s.key;
+        return (
+          <button
+            key={s.key}
+            onClick={() => onChange(s.key)}
+            className={`
+              w-full flex items-center gap-3 px-6 py-4 text-sm font-medium transition-all duration-200 border-l-4
+              ${
+                isActive
+                  ? "bg-[#285646]/5 border-[#285646] text-[#285646]"
+                  : "bg-transparent border-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+              }
+            `}
+          >
+            <Icon className={`h-4 w-4 ${isActive ? "text-[#285646]" : "text-gray-400"}`} />
+            <span className="truncate">{s.title}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function QuestionnairePage() {
   const params = useParams();
   const matterId = params.matterId;
@@ -532,6 +683,8 @@ export default function QuestionnairePage() {
   const [expandedSections, setExpandedSections] = useState(new Set());
   const [expandAll, setExpandAll] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState("applicants");
+  const [activeProfileKey, setActiveProfileKey] = useState(null);
   const [activeSectionKey, setActiveSectionKey] = useState(null);
   const [activeSubKey, setActiveSubKey] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -577,6 +730,50 @@ export default function QuestionnairePage() {
     if (!data) return [];
     return buildStructuredSections(data);
   }, [data]);
+
+  // Derived sections based on active category
+  const activeCategorySections = useMemo(() => {
+    if (activeCategory === "applicants") {
+      return sections.filter(s => s.category === "applicant" || s.category === "nonMigrating" || s.category === "allApplicants");
+    }
+    return sections.filter(s => s.category === "other");
+  }, [sections, activeCategory]);
+
+  // Handle category change
+  const handleCategoryChange = useCallback((catId) => {
+    setActiveCategory(catId);
+    const firstSection = sections.find(s => {
+      if (catId === "applicants") return s.category === "applicant" || s.category === "nonMigrating" || s.category === "allApplicants";
+      return s.category === "other";
+    });
+    if (firstSection) {
+      setActiveProfileKey(firstSection.key);
+      if (firstSection.subSections?.length > 0) {
+        setActiveSectionKey(firstSection.subSections[0].key);
+      } else {
+        setActiveSectionKey(null);
+      }
+    }
+  }, [sections]);
+
+  // Auto-set initial profile and section
+  useEffect(() => {
+    if (sections.length > 0 && !activeProfileKey) {
+      handleCategoryChange("applicants");
+    }
+  }, [sections, activeProfileKey, handleCategoryChange]);
+
+  const activeProfile = useMemo(() => {
+    return activeCategorySections.find(s => s.key === activeProfileKey) || activeCategorySections[0];
+  }, [activeCategorySections, activeProfileKey]);
+
+  const activeSection = useMemo(() => {
+    if (!activeProfile) return null;
+    if (activeProfile.subSections?.length > 0) {
+      return activeProfile.subSections.find(s => s.key === activeSectionKey) || activeProfile.subSections[0];
+    }
+    return activeProfile;
+  }, [activeProfile, activeSectionKey]);
 
   // Index comments by path for quick lookup
   const commentsByPath = useMemo(() => {
@@ -740,205 +937,154 @@ export default function QuestionnairePage() {
   return (
     <>
       <div className="flex gap-0 -mx-4 sm:-mx-6 lg:-mx-8 -my-8 min-h-[calc(100vh-180px)] print:hidden">
-      {/* Mobile sidebar toggle */}
-      <button
-        onClick={() => setSidebarOpen(!sidebarOpen)}
-        className="no-print fixed bottom-6 right-6 z-50 lg:hidden bg-[#285646] text-white p-3 rounded-full shadow-lg hover:bg-[#1e4035] transition-colors"
-      >
-        {sidebarOpen ? (
-          <X className="h-5 w-5" />
-        ) : (
-          <Menu className="h-5 w-5" />
-        )}
-      </button>
+        {/* Category Sidebar */}
+        <aside className="no-print hidden lg:block sticky top-[137px] h-[calc(100vh-137px)] flex-shrink-0">
+          <QuestionnaireSidebar
+            sections={sections}
+            activeCategory={activeCategory}
+            onCategoryChange={handleCategoryChange}
+          />
+        </aside>
 
-      {/* Sidebar overlay for mobile */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/30 z-30 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
-      <aside
-        className={`
-        no-print
-        fixed lg:sticky lg:top-[137px] left-0 z-40
-        w-72 lg:w-[280px] h-[calc(100vh-137px)]
-        transform transition-transform duration-300 ease-in-out
-        ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
-        flex-shrink-0 overflow-hidden rounded-none lg:rounded-l-xl
-        shadow-xl lg:shadow-none
-      `}
-      >
-        <QuestionnaireSidebar
-          sections={sections}
-          activeSectionKey={activeSectionKey}
-          activeSubKey={activeSubKey}
-          onNavigate={handleSidebarNavigate}
-          commentCountBySection={commentCountBySection}
-        />
-      </aside>
-
-      {/* Main content */}
-      <main className="flex-1 min-w-0">
-        <div className="p-4 sm:p-6 lg:p-8 space-y-6">
-          {/* Control Bar */}
-          <div className="no-print bg-white p-4 rounded-xl shadow-sm border border-gray-200 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">
-                  Questionnaire Answers
-                </h2>
-                <p className="text-sm text-gray-500">
-                  All data saved by the applicant.
-                </p>
+        {/* Main Content */}
+        <main className="flex-1 min-w-0 bg-[#F8FAFC]">
+          <div className="p-6 lg:p-10 space-y-8 max-w-6xl mx-auto">
+            
+            {/* Matter Hero (Redesigned Header) */}
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
+                  {data?.mainApplicant?.details?.given_names} {data?.mainApplicant?.details?.family_name} - Skills in Demand (Subclass 482)
+                </h1>
+                <Badge className="bg-[#285646]/10 text-[#285646] border-[#285646]/20 hover:bg-[#285646]/10 px-3 py-1 text-xs">
+                  Skills in Demand (Subclass 482)
+                </Badge>
+                <Badge variant="secondary" className="bg-gray-100 text-gray-500 hover:bg-gray-100 px-3 py-1 text-xs font-normal">
+                  Read Only
+                </Badge>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleExpandAll}
-                  className="gap-2"
-                >
-                  {expandAll ? (
+              <div className="flex items-center gap-6 text-sm text-gray-500 font-medium">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-[#285646]" />
+                  Questionnaire
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />
+                  {sections.length} sections • Read-only review
+                </div>
+              </div>
+            </div>
+
+            {/* Main Application Interface */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col min-h-[600px]">
+              
+              {/* Profile Tabs */}
+              {activeCategory === "applicants" && activeCategorySections.length > 0 && (
+                <ProfileTabs
+                  profiles={activeCategorySections}
+                  activeKey={activeProfileKey}
+                  onChange={setActiveProfileKey}
+                />
+              )}
+
+              {/* Layout: Inner Sidebar + Content */}
+              <div className="flex flex-1 min-h-0">
+                
+                {/* Internal Section Sidebar */}
+                {activeProfile?.subSections?.length > 0 && (
+                  <SectionSidebar
+                    subSections={activeProfile.subSections}
+                    activeKey={activeSectionKey}
+                    onChange={setActiveSectionKey}
+                  />
+                )}
+
+                {/* Data Content Panel */}
+                <div className="flex-1 overflow-hidden flex flex-col">
+                  {activeSection && (
                     <>
-                      <ChevronUp className="h-4 w-4" />
-                      Collapse All
-                    </>
-                  ) : (
-                    <>
-                      <Maximize2 className="h-4 w-4" />
-                      Expand All
+                      {/* Dark Green Section Header */}
+                      <div className="bg-[#4a675d] text-white px-6 py-4 flex items-center justify-between shadow-sm">
+                        <h2 className="text-sm font-semibold tracking-wide uppercase">
+                          {activeProfile?.title?.toUpperCase()} - {activeSection?.title?.toUpperCase()}
+                        </h2>
+                        <div className="flex items-center gap-4 no-print">
+                            <label className="flex items-center gap-2 text-[11px] font-medium text-white/80 cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={includeCommentsInPDF}
+                                    onChange={(e) => setIncludeCommentsInPDF(e.target.checked)}
+                                    className="rounded border-white/30 bg-transparent text-[#285646] focus:ring-offset-0 focus:ring-0"
+                                />
+                                Include notes in PDF
+                            </label>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={handleDownloadPDF}
+                                className="h-7 px-2 text-white/90 hover:text-white hover:bg-white/10 text-[11px] font-medium gap-1.5"
+                            >
+                                <FileDown className="h-3.5 w-3.5" />
+                                Export
+                            </Button>
+                        </div>
+                      </div>
+
+                      {/* Data Grid Body */}
+                      <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                        <GridRenderer
+                          data={activeSection.data}
+                          parentPath={activeSection.key}
+                          commentsByPath={commentsByPath}
+                          onAddComment={handleAddComment}
+                        />
+
+                        {/* Search results summary (only if search is active) */}
+                        {searchQuery && (
+                          <div className="mt-8 pt-6 border-t border-gray-100 text-sm text-gray-500">
+                            Search matches in this section: {countQuestions(filterData(activeSection.data, searchQuery, commentsByPath))} items
+                          </div>
+                        )}
+                      </div>
                     </>
                   )}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleDownloadPDF}
-                  className="gap-2"
-                >
-                  <FileDown className="h-4 w-4" />
-                  Download PDF
-                </Button>
-                <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={includeCommentsInPDF}
-                    onChange={(e) => setIncludeCommentsInPDF(e.target.checked)}
-                    className="rounded border-gray-300 text-[#285646] focus:ring-[#285646]"
-                  />
-                  Include reviewer notes
-                </label>
+                  
+                  {!activeSection && (
+                    <div className="flex-1 flex items-center justify-center p-12 text-gray-400">
+                        Select a section to view data
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-
-            {/* Search */}
-            <div className="relative max-w-md">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Search className="h-4 w-4 text-gray-400" />
-              </div>
-              <Input
-                type="search"
-                placeholder="Search questions, answers, or reviewer notes..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-
-            {/* Search results summary */}
-            {searchQuery && (
-              <div className="text-sm text-gray-500">
-                Showing {filteredSections.length} of {sections.length} sections
-                {filteredSections.length === 0 && (
-                  <span className="text-amber-600 ml-2">
-                    No matches found
-                  </span>
-                )}
-              </div>
-            )}
           </div>
-
-          {/* Sections List */}
-          <div className="space-y-4">
-            {filteredSections.map((section) => (
-              <SectionCard
-                key={section.key}
-                title={section.title}
-                sectionKey={section.key}
-                data={section.data}
-                expanded={expandedSections.has(section.key)}
-                onToggle={() => toggleSection(section.key)}
-                searchQuery={searchQuery}
-                sectionRef={(el) => {
-                  sectionRefs.current[section.key] = el;
-                }}
-                commentCount={commentCountBySection[section.key] || 0}
-                onCommentClick={() => handleAddComment(section.key, section.title)}
-                commentsByPath={commentsByPath}
-                onAddComment={handleAddComment}
-              />
-            ))}
-          </div>
-
-          {/* No results message */}
-          {filteredSections.length === 0 && searchQuery && (
-            <div className="bg-gray-50 p-8 rounded-xl text-center border border-gray-200">
-              <p className="text-gray-500">No sections match your search.</p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setSearchQuery("")}
-                className="mt-4"
-              >
-                Clear Search
-              </Button>
-            </div>
-          )}
-        </div>
-      </main>
+        </main>
       </div>
 
       {/* Print-Only Q&A Layout */}
       <div className="hidden print:block w-full bg-white text-black max-w-4xl mx-auto">
-        <table className="w-full">
-          <thead>
-            <tr>
-              <td>
-                <div className="flex items-center justify-between border-b-2 border-gray-800 pb-2 mb-4">
-                  <img src="/368e8734-fa6e-41c2-b88a-ccd1d381b50b.png" alt="PlyLegal Logo" className="h-8" />
-                  <div className="text-right">
-                    <p className="text-sm font-medium text-gray-500">Applicant Questionnaire</p>
-                  </div>
-                </div>
-              </td>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>
-                {sections.map((section) => (
-                  <div key={section.key} className="mb-5">
-                    <h3 className="text-lg font-bold text-gray-900 mb-2 mt-4">
-                      {section.title}
-                    </h3>
-                    <div className="text-sm">
-                      <PrintQARenderer
-                        data={section.data}
-                        parentKey={section.key}
-                        commentsByPath={commentsByPath}
-                        includeComments={includeCommentsInPDF}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div className="flex items-center justify-between border-b-2 border-gray-800 pb-2 mb-4">
+          <img src="/368e8734-fa6e-41c2-b88a-ccd1d381b50b.png" alt="PlyLegal Logo" className="h-8" />
+          <div className="text-right">
+            <p className="text-sm font-medium text-gray-500">Applicant Questionnaire</p>
+          </div>
+        </div>
+        
+        {sections.map((section) => (
+          <div key={section.key} className="mb-8">
+            <h2 className="text-xl font-bold text-gray-900 border-b border-gray-200 pb-2 mb-4">
+              {section.title}
+            </h2>
+            <div className="text-sm">
+              <PrintQARenderer
+                data={section.data}
+                parentKey={section.key}
+                commentsByPath={commentsByPath}
+                includeComments={includeCommentsInPDF}
+              />
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Comment Drawer */}
