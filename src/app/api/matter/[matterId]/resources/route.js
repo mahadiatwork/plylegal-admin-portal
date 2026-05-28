@@ -7,7 +7,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
-const WORKDRIVE_FOLDER_FIELD = "WorkDrive_Folder_ID";
+const WORKDRIVE_FOLDER_FIELD = "Workdrive_Folder_ID";
+const WORKDRIVE_FOLDER_FIELD_LEGACY = "WorkDrive_Folder_ID";
 
 function errorResponse(error, status = 500, details = null) {
   return NextResponse.json({ success: false, error, details }, { status });
@@ -135,7 +136,9 @@ async function getWorkDriveFolder(application, matterId) {
     };
   }
 
-  const folderId = normalizeFolderId(dealRecord[WORKDRIVE_FOLDER_FIELD]);
+  const folderId = normalizeFolderId(
+    dealRecord[WORKDRIVE_FOLDER_FIELD] ?? dealRecord[WORKDRIVE_FOLDER_FIELD_LEGACY]
+  );
 
   if (!folderId) {
     return {
