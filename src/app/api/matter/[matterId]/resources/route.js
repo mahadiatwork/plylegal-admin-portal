@@ -126,7 +126,7 @@ async function getWorkDriveFolder(application, matterId) {
   const dealRecord = await zohoClient.getRecord(
     "Deals",
     dealId,
-    `id,${WORKDRIVE_FOLDER_FIELD}`
+    `id,${WORKDRIVE_FOLDER_FIELD},${WORKDRIVE_FOLDER_FIELD_LEGACY}`
   );
 
   if (!dealRecord) {
@@ -265,6 +265,7 @@ export async function POST(request, { params }) {
       title,
       description,
       publicUrl,
+      url: publicUrl,
       status: "active",
       createdAt: now,
       updatedAt: now,

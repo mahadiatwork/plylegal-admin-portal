@@ -31,6 +31,7 @@ class ZohoCRMClient {
     this.datacenter = datacenter;
     this.baseURL = `https://www.zohoapis.${datacenter}/crm/v7`;
     this.workDriveBaseURL = `https://www.zohoapis.${datacenter}/workdrive/api/v1`;
+    this.workDriveDirectBaseURL = `https://workdrive.zoho.${datacenter}/api/v1`;
     this.accessToken = null;
     this.tokenExpiry = null;
     this.workDriveAccessToken = null;
@@ -586,9 +587,10 @@ class ZohoCRMClient {
   }
 
   parseWorkDriveUploadResponse(uploadResponse) {
-    const fileData = Array.isArray(uploadResponse?.data)
-      ? uploadResponse.data[0]
-      : uploadResponse?.data;
+    const responseData = uploadResponse?.data?.data || uploadResponse?.data;
+    const fileData = Array.isArray(responseData)
+      ? responseData[0]
+      : responseData;
     const attributes = fileData?.attributes || {};
     let fileInfo = {};
 
@@ -619,18 +621,23 @@ class ZohoCRMClient {
   }
 
   parseWorkDriveLinkResponse(linkResponse) {
-    const linkData = Array.isArray(linkResponse?.data)
-      ? linkResponse.data[0]
-      : linkResponse?.data;
+    const responseData = linkResponse?.data?.data || linkResponse?.data;
+    const linkData = Array.isArray(responseData)
+      ? responseData[0]
+      : responseData;
     const attributes = linkData?.attributes || {};
 
     return {
       raw: linkResponse,
       linkId: linkData?.id || attributes.id || null,
-      link: attributes.link || null,
-      downloadUrl: attributes.download_url || null,
+      link: attributes.link || attributes.public_url || attributes.share_url || attributes.external_link || null,
+      downloadUrl: attributes.download_url || attributes.downloadUrl || null,
       resourceId: attributes.resource_id || null,
     };
+  }
+
+  getWorkDriveBaseUrls() {
+    return [...new Set([this.workDriveBaseURL, this.workDriveDirectBaseURL].filter(Boolean))];
   }
 
   /**
@@ -710,28 +717,45 @@ class ZohoCRMClient {
         throw new Error('No Zoho WorkDrive access token available');
       }
 
-      const response = await axios.post(
-        `${this.workDriveBaseURL}/links`,
-        {
-          data: {
-            attributes: {
-              resource_id: resourceId,
-              link_name: linkName || 'resource',
-              request_user_data: false,
-              allow_download: true,
-              role_id: '34',
-            },
-            type: 'links',
+      const requestBody = {
+        data: {
+          attributes: {
+            resource_id: resourceId,
+            link_name: linkName || 'resource',
+            request_user_data: false,
+            allow_download: true,
+            role_id: '34',
           },
+          type: 'links',
         },
-        {
-          headers: {
-            Accept: 'application/vnd.api+json',
-            'Content-Type': 'application/vnd.api+json',
-            Authorization: `Zoho-oauthtoken ${token}`,
-          },
+      };
+      const requestConfig = {
+        headers: {
+          Accept: 'application/vnd.api+json',
+          'Content-Type': 'application/vnd.api+json',
+          Authorization: `Zoho-oauthtoken ${token}`,
+        },
+      };
+
+      let response = null;
+      let lastError = null;
+
+      for (const baseUrl of this.getWorkDriveBaseUrls()) {
+        try {
+          response = await axios.post(`${baseUrl}/links`, requestBody, requestConfig);
+          break;
+        } catch (error) {
+          lastError = error;
+          console.warn(
+            `⚠️ WorkDrive public link request failed at ${baseUrl}/links:`,
+            error.response?.data || error.message
+          );
         }
-      );
+      }
+
+      if (!response) {
+        throw lastError || new Error('WorkDrive public link request failed');
+      }
 
       const parsed = this.parseWorkDriveLinkResponse(response.data);
 
