@@ -259,7 +259,8 @@ export default function ResourcesPage() {
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        throw new Error(data.error || "Failed to save resource");
+        const details = data.details ? ` ${data.details}` : "";
+        throw new Error(`${data.error || "Failed to save resource"}${details}`);
       }
 
       setResources((current) => [data.resource, ...current]);

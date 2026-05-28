@@ -754,7 +754,14 @@ class ZohoCRMClient {
       }
 
       if (!response) {
-        throw lastError || new Error('WorkDrive public link request failed');
+        const zohoError = lastError?.response?.data?.errors?.[0];
+        const message = zohoError
+          ? `WorkDrive external share link failed: ${zohoError.title || zohoError.id}`
+          : 'WorkDrive public link request failed';
+        const enhancedError = new Error(message);
+        enhancedError.status = lastError?.response?.status;
+        enhancedError.details = lastError?.response?.data || lastError?.message;
+        throw enhancedError;
       }
 
       const parsed = this.parseWorkDriveLinkResponse(response.data);
