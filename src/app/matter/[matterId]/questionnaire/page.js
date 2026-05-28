@@ -31,6 +31,9 @@ import {
   CollapsibleContent,
 } from "@/components/ui/collapsible";
 import QuestionnaireSidebar from "@/components/QuestionnaireSidebar";
+import SkillsInDemandQuestionnaireReview, {
+  isSkillsInDemandMatter,
+} from "@/components/SkillsInDemandQuestionnaireReview";
 import { buildStructuredSections, formatLabel } from "@/lib/questionnaireSections";
 
 // Count total questions in a section (recursively count leaf values)
@@ -113,9 +116,19 @@ function GridRenderer({ data, parentPath = "", commentsByPath = {}, onAddComment
         if (isObject || isArray) {
             // Recursive for nested objects/arrays but keeping them within the grid if possible
             // or spanning them full width
+            if (isArray && value.length === 0) {
+              return (
+                <div key={key} className="col-span-full mt-2">
+                    <h4 className="text-[10px] font-medium uppercase tracking-wider text-gray-400 mb-2">{formattedKey}</h4>
+                    <div className="pl-4 border-l-2 border-gray-100 text-sm text-gray-400 italic">
+                        Empty list
+                    </div>
+                </div>
+              );
+            }
             return (
                 <div key={key} className="col-span-full mt-2">
-                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">{formattedKey}</h4>
+                    <h4 className="text-[10px] font-medium uppercase tracking-wider text-gray-400 mb-2">{formattedKey}</h4>
                     <div className="pl-4 border-l-2 border-gray-100">
                         <GridRenderer 
                             data={value} 
@@ -136,7 +149,7 @@ function GridRenderer({ data, parentPath = "", commentsByPath = {}, onAddComment
 
         return (
           <div key={key} className="group relative">
-            <label className="text-[13px] font-semibold text-gray-700 mb-1.5 block">
+            <label className="text-[13px] font-medium text-gray-700 mb-1.5 block">
               {formattedKey}
             </label>
             <div className={`
@@ -676,6 +689,7 @@ export default function QuestionnairePage() {
   const params = useParams();
   const matterId = params.matterId;
   const [data, setData] = useState(null);
+  const [matterResult, setMatterResult] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedSections, setExpandedSections] = useState(new Set());
   const [expandAll, setExpandAll] = useState(false);
@@ -697,7 +711,10 @@ export default function QuestionnairePage() {
       try {
         const res = await fetch(`/api/matter/${matterId}`);
         const result = await res.json();
-        if (result.success) setData(result.questionnaire);
+        if (result.success) {
+          setMatterResult(result);
+          setData(result.questionnaire);
+        }
       } catch (e) {
         console.error(e);
       } finally {
@@ -756,7 +773,13 @@ export default function QuestionnairePage() {
   // Auto-set initial profile and section
   useEffect(() => {
     if (sections.length > 0 && !activeProfileKey) {
-      handleCategoryChange("applicants");
+      let cancelled = false;
+      queueMicrotask(() => {
+        if (!cancelled) handleCategoryChange("applicants");
+      });
+      return () => {
+        cancelled = true;
+      };
     }
   }, [sections, activeProfileKey, handleCategoryChange]);
 
@@ -904,8 +927,12 @@ export default function QuestionnairePage() {
     const allExpanded =
       allKeys.length > 0 && allKeys.every((k) => expandedSections.has(k));
     const noneExpanded = expandedSections.size === 0;
-    if (allExpanded && !expandAll) setExpandAll(true);
-    if (noneExpanded && expandAll) setExpandAll(false);
+    let nextExpandAll = null;
+    if (allExpanded && !expandAll) nextExpandAll = true;
+    if (noneExpanded && expandAll) nextExpandAll = false;
+    if (nextExpandAll !== null) {
+      queueMicrotask(() => setExpandAll(nextExpandAll));
+    }
   }, [expandedSections, sections, expandAll]);
 
   if (isLoading) {
@@ -923,6 +950,18 @@ export default function QuestionnairePage() {
           No questionnaire data available for this matter.
         </p>
       </div>
+    );
+  }
+
+  if (isSkillsInDemandMatter(matterResult, data)) {
+    return (
+      <SkillsInDemandQuestionnaireReview
+        questionnaire={data}
+        sections={sections}
+        application={matterResult?.application}
+        completion={matterResult?.completion}
+        percentage={matterResult?.percentage}
+      />
     );
   }
 

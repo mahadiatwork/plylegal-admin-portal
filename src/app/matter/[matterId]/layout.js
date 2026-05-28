@@ -2,13 +2,14 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import { ArrowLeft, Loader2, AlertCircle, Bell, Search, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatVisaApplicationType } from "@/lib/visaDisplay";
 
 export default function MatterLayout({ children }) {
   const params = useParams();
+  const pathname = usePathname();
   const router = useRouter();
   const matterId = params.matterId;
 
@@ -65,6 +66,10 @@ export default function MatterLayout({ children }) {
   }
 
   const { application, percentage } = matterData;
+  const tabs = [
+    { href: `/matter/${matterId}/questionnaire`, label: "Questionnaire" },
+    { href: `/matter/${matterId}/resources`, label: "Resources" },
+  ];
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -148,11 +153,23 @@ export default function MatterLayout({ children }) {
             </div>
           </div>
 
-          {/* Single-tab indicator — Questionnaire only */}
-          <div className="flex mt-2 -mb-px">
-            <span className="py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 border-[#285646] text-[#285646]">
-              Questionnaire
-            </span>
+          <div className="flex mt-2 -mb-px gap-6 overflow-x-auto">
+            {tabs.map((tab) => {
+              const isActive = pathname === tab.href || pathname?.startsWith(`${tab.href}/`);
+              return (
+                <Link
+                  key={tab.href}
+                  href={tab.href}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 whitespace-nowrap transition-colors ${
+                    isActive
+                      ? "border-[#285646] text-[#285646]"
+                      : "border-transparent text-gray-500 hover:text-gray-900"
+                  }`}
+                >
+                  {tab.label}
+                </Link>
+              );
+            })}
           </div>
         </div>
       </header>

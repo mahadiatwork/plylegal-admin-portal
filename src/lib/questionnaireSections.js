@@ -113,14 +113,11 @@ export function buildStructuredSections(data) {
     return (order[a.relationship] ?? 4) - (order[b.relationship] ?? 4);
   });
 
-  let applicantNumber = 0;
-
   sortedProfiles.forEach((profile) => {
-    applicantNumber++;
     const role = relationshipLabel(profile.relationship);
     const name = profileDisplayName(profile);
     const sectionKey = `profile:${profile.id}`;
-    const title = `Applicant ${applicantNumber} (${role}) — ${name}`;
+    const title = name && name !== "Unknown" ? `${name} (${role})` : role;
 
     // Gather data for this profile
     let profileSectionData = profilesData[profile.id] || null;
