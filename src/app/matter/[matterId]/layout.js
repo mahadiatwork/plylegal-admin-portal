@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { ArrowLeft, Loader2, AlertCircle, Bell, Search, ChevronDown } from "lucide-react";
@@ -12,10 +12,12 @@ export default function MatterLayout({ children }) {
   const pathname = usePathname();
   const router = useRouter();
   const matterId = params.matterId;
+  const headerRef = useRef(null);
 
   const [matterData, setMatterData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [headerHeight, setHeaderHeight] = useState(255);
 
   useEffect(() => {
     async function fetchMatter() {
@@ -49,6 +51,26 @@ export default function MatterLayout({ children }) {
     }
     fetchMatter();
   }, [matterId, pathname, router]);
+
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+
+    const updateHeaderHeight = () => {
+      setHeaderHeight(Math.ceil(header.getBoundingClientRect().height));
+    };
+
+    updateHeaderHeight();
+
+    const observer = new ResizeObserver(updateHeaderHeight);
+    observer.observe(header);
+    window.addEventListener("resize", updateHeaderHeight);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateHeaderHeight);
+    };
+  }, [matterData]);
 
 
   if (isLoading) {
@@ -86,9 +108,12 @@ export default function MatterLayout({ children }) {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div
+      className="min-h-screen bg-gray-50 flex flex-col"
+      style={{ "--matter-header-height": `${headerHeight}px` }}
+    >
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-10 print:hidden">
+      <header ref={headerRef} className="bg-white border-b border-gray-200 sticky top-0 z-50 print:hidden">
         {/* Top Navbar (Full Width) */}
         <div className="border-b border-gray-100 px-4 sm:px-8 py-4 flex flex-row items-center justify-between">
           <div className="flex items-center gap-8">

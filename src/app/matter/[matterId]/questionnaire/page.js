@@ -974,7 +974,13 @@ export default function QuestionnairePage() {
     <>
       <div className="flex gap-0 -mx-4 sm:-mx-6 lg:-mx-8 -my-8 min-h-[calc(100vh-180px)] lg:pl-64 print:hidden">
         {/* Category Sidebar */}
-        <aside className="no-print hidden lg:fixed lg:left-[max(0px,calc((100vw-80rem)/2))] lg:top-[205px] lg:z-20 lg:block lg:h-[calc(100vh-205px)] lg:w-64 lg:flex-shrink-0">
+        <aside
+          className="no-print hidden lg:fixed lg:left-[max(0px,calc((100vw-80rem)/2))] lg:z-20 lg:block lg:w-64 lg:flex-shrink-0"
+          style={{
+            top: "var(--matter-header-height, 255px)",
+            height: "calc(100vh - var(--matter-header-height, 255px))",
+          }}
+        >
           <QuestionnaireSidebar
             sections={sections}
             activeCategory={activeCategory}
@@ -983,7 +989,7 @@ export default function QuestionnairePage() {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 min-w-0 bg-[#F8FAFC]">
+        <main className="relative z-0 flex-1 min-w-0 bg-[#F8FAFC]">
           <div className="p-6 lg:p-10 space-y-8 max-w-6xl mx-auto">
             
             {/* Matter Hero (Redesigned Header) */}

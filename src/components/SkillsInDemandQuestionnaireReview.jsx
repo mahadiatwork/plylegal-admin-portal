@@ -403,7 +403,13 @@ function QuestionnaireReviewSidebar({
   const totalCount = Math.max(leafCount + 2, completedCount);
 
   return (
-    <aside className="flex w-full shrink-0 flex-col bg-[#245a46] text-white lg:fixed lg:left-[max(0px,calc((100vw-80rem)/2))] lg:top-[205px] lg:z-20 lg:h-[calc(100vh-205px)] lg:w-[17.5rem]">
+    <aside
+      className="flex w-full shrink-0 flex-col bg-[#245a46] text-white lg:fixed lg:left-[max(0px,calc((100vw-80rem)/2))] lg:z-20 lg:w-[17.5rem]"
+      style={{
+        top: "var(--matter-header-height, 255px)",
+        height: "calc(100vh - var(--matter-header-height, 255px))",
+      }}
+    >
       <div className="border-b border-white/10 px-6 py-7">
         <Image
           src="/Ply_Logo_White.png"
@@ -869,15 +875,15 @@ export default function SkillsInDemandQuestionnaireReview({
           percentage={percentage}
         />
 
-        <main className="relative min-w-0 flex-1 overflow-hidden px-5 py-10 sm:px-8 lg:px-12 lg:py-16">
-          <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 hidden w-[42%] overflow-hidden lg:block">
+        <main className="relative z-0 min-w-0 flex-1 overflow-hidden px-5 py-10 sm:px-8 lg:px-12 lg:py-16">
+          <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 z-0 hidden w-[42%] overflow-hidden lg:block">
             <div className="absolute right-0 top-0 h-full w-full bg-[#f4f1fb]" />
             <div className="absolute right-0 top-[8%] h-28 w-[115%] rounded-l-[999px] bg-[#fffdf8]" />
             <div className="absolute right-0 top-[26%] h-56 w-[118%] rounded-l-[999px] bg-[#fbfaf7]" />
             <div className="absolute right-0 top-[72%] h-36 w-[112%] rounded-l-[999px] bg-[#fffdf8]" />
           </div>
 
-          <div className="relative z-10 mx-auto w-full max-w-[66rem]">
+          <div className="relative z-[1] mx-auto w-full max-w-[66rem]">
             <ReviewCard active={active} />
           </div>
         </main>
