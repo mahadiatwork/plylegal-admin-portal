@@ -26,6 +26,18 @@ export default function MatterLayout({ children }) {
 
         if (data.success) {
           setMatterData(data);
+          const dealId =
+            data.application?.zohoId ||
+            data.application?.zohoDealId ||
+            data.application?.dealId;
+
+          if (
+            dealId &&
+            dealId !== matterId &&
+            pathname?.startsWith(`/matter/${matterId}`)
+          ) {
+            router.replace(pathname.replace(`/matter/${matterId}`, `/matter/${dealId}`));
+          }
         } else {
           setError(data.error + (data.details ? `: ${data.details}` : ""));
         }
@@ -36,7 +48,7 @@ export default function MatterLayout({ children }) {
       }
     }
     fetchMatter();
-  }, [matterId]);
+  }, [matterId, pathname, router]);
 
 
   if (isLoading) {
@@ -66,9 +78,11 @@ export default function MatterLayout({ children }) {
   }
 
   const { application, percentage } = matterData;
+  const canonicalMatterId =
+    application.zohoId || application.zohoDealId || application.dealId || matterId;
   const tabs = [
-    { href: `/matter/${matterId}/questionnaire`, label: "Questionnaire" },
-    { href: `/matter/${matterId}/resources`, label: "Resources" },
+    { href: `/matter/${canonicalMatterId}/questionnaire`, label: "Questionnaire" },
+    { href: `/matter/${canonicalMatterId}/resources`, label: "Resources" },
   ];
 
   return (
@@ -115,9 +129,7 @@ export default function MatterLayout({ children }) {
                   </span>
                 </div>
                 <p className="text-sm text-gray-500 flex items-center gap-2">
-                  <span>Deal ID: {application.zohoId || "N/A"}</span>
-                  <span>•</span>
-                  <span>App ID: {application.id}</span>
+                  <span>Deal ID: {canonicalMatterId || "N/A"}</span>
                 </p>
               </div>
 

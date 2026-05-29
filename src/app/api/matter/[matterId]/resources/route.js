@@ -185,8 +185,8 @@ export async function POST(request, { params }) {
     const titleInput = cleanText(formData.get("title"));
     const description = cleanText(formData.get("description"));
 
-    if (!["file", "link"].includes(type)) {
-      return errorResponse("Resource type must be file or link", 400);
+    if (!["file", "link", "note"].includes(type)) {
+      return errorResponse("Resource type must be file, link, or note", 400);
     }
 
     const now = new Date();
@@ -208,6 +208,30 @@ export async function POST(request, { params }) {
         description,
         url,
         publicUrl: url,
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+        createdBy: "admin",
+      };
+
+      const docRef = await resourcesRef.add(resourceData);
+      return NextResponse.json(
+        { success: true, resource: serializeResource({ id: docRef.id, data: () => resourceData }) },
+        { status: 201 }
+      );
+    }
+
+    if (type === "note") {
+      if (!description) {
+        return errorResponse("Note text is required", 400);
+      }
+
+      const resourceData = {
+        type: "note",
+        title: titleInput || "Note",
+        description,
+        noteText: description,
+        content: description,
         status: "active",
         createdAt: now,
         updatedAt: now,

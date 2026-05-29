@@ -51,6 +51,8 @@ function resourceMatches(resource, query) {
   return [
     resource.title,
     resource.description,
+    resource.noteText,
+    resource.content,
     resource.fileName,
     resource.url,
     resource.publicUrl,
@@ -61,12 +63,15 @@ function resourceMatches(resource, query) {
 
 function ResourceIcon({ type }) {
   const isFile = type === "file";
-  const Icon = isFile ? FileText : Link2;
+  const isNote = type === "note";
+  const Icon = isFile ? FileText : isNote ? StickyNote : Link2;
   return (
     <div
       className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border ${
         isFile
           ? "border-emerald-100 bg-emerald-50 text-[#285646]"
+          : isNote
+            ? "border-amber-100 bg-amber-50 text-amber-700"
           : "border-blue-100 bg-blue-50 text-blue-700"
       }`}
     >
@@ -140,7 +145,7 @@ function ResourceRow({ resource, archiveId, onArchive }) {
 
 const addResourceActions = [
   { id: "file", label: "File", icon: UploadCloud, enabled: true },
-  { id: "note", label: "Note", icon: StickyNote, enabled: false },
+  { id: "note", label: "Note", icon: StickyNote, enabled: true },
   { id: "embed", label: "Embed", icon: Code2, enabled: false },
   { id: "link", label: "Link", icon: Link2, enabled: true },
   { id: "library", label: "Library", icon: Library, enabled: false },
@@ -239,6 +244,11 @@ export default function ResourcesPage() {
       return;
     }
 
+    if (mode === "note" && !description.trim()) {
+      setError("Add note text before saving.");
+      return;
+    }
+
     const formData = new FormData();
     formData.append("type", mode);
     formData.append("title", title.trim());
@@ -246,7 +256,7 @@ export default function ResourcesPage() {
 
     if (mode === "file") {
       formData.append("file", file);
-    } else {
+    } else if (mode === "link") {
       formData.append("url", url.trim());
     }
 
@@ -264,7 +274,13 @@ export default function ResourcesPage() {
       }
 
       setResources((current) => [data.resource, ...current]);
-      setSuccessMessage(mode === "file" ? "File resource uploaded." : "Link resource saved.");
+      setSuccessMessage(
+        mode === "file"
+          ? "File resource uploaded."
+          : mode === "note"
+            ? "Note resource saved."
+            : "Link resource saved."
+      );
       resetForm();
     } catch (err) {
       setError(err.message);
@@ -412,7 +428,7 @@ export default function ResourcesPage() {
                   onChange={(event) => handleFileSelect(event.target.files?.[0])}
                 />
               </label>
-            ) : (
+            ) : mode === "link" ? (
               <div className="space-y-2">
                 <label htmlFor="resource-url" className="text-sm font-medium text-gray-700">
                   URL
@@ -426,6 +442,16 @@ export default function ResourcesPage() {
                   className="h-10 bg-white"
                 />
               </div>
+            ) : (
+              <div className="flex min-h-40 flex-col items-center justify-center rounded-lg border border-amber-100 bg-amber-50/60 px-5 py-6 text-center">
+                <StickyNote className="mb-3 h-8 w-8 text-amber-700" />
+                <span className="text-sm font-semibold text-gray-900">
+                  Write a client note
+                </span>
+                <span className="mt-1 text-xs text-gray-500">
+                  Notes appear in the client resources list.
+                </span>
+              </div>
             )}
 
             <div className="space-y-2">
@@ -436,21 +462,21 @@ export default function ResourcesPage() {
                 id="resource-title"
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
-                placeholder="Resource title"
+                placeholder={mode === "note" ? "Note title" : "Resource title"}
                 className="h-10 bg-white"
               />
             </div>
 
             <div className="space-y-2">
               <label htmlFor="resource-description" className="text-sm font-medium text-gray-700">
-                Description
+                {mode === "note" ? "Note" : "Description"}
               </label>
               <Textarea
                 id="resource-description"
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
-                placeholder="Optional note"
-                rows={3}
+                placeholder={mode === "note" ? "Write the note for the client" : "Optional note"}
+                rows={mode === "note" ? 5 : 3}
                 className="bg-white"
               />
             </div>
@@ -473,6 +499,8 @@ export default function ResourcesPage() {
                 </>
               ) : mode === "file" ? (
                 "Upload resource"
+              ) : mode === "note" ? (
+                "Save note"
               ) : (
                 "Save link"
               )}

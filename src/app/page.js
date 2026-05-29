@@ -32,7 +32,7 @@ export default function Home() {
           <form onSubmit={handleSearch} className="space-y-6">
             <div className="space-y-2">
               <label htmlFor="matterId" className="text-sm font-medium text-gray-700">
-                Deal ID or Firebase App ID
+                Zoho Deal ID
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -41,7 +41,7 @@ export default function Home() {
                 <Input
                   id="matterId"
                   type="text"
-                  placeholder="e.g. 51839400000..."
+                  placeholder="e.g. 102555000001798002"
                   value={matterId}
                   onChange={(e) => setMatterId(e.target.value)}
                   className="pl-10 h-12 text-base"
@@ -69,7 +69,7 @@ export default function Home() {
         
         <div className="px-8 py-4 bg-gray-50 border-t border-gray-100 text-center">
           <p className="text-xs text-gray-500">
-            Read-only access to matter questionnaire, documents, and messages.
+            Read-only access to matter questionnaire, resources, and messages.
           </p>
         </div>
       </div>

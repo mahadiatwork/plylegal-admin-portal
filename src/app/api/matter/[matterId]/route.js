@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db, initResult } from '@/lib/firebase-admin';
 import { getAllRoutes } from '@/lib/routes';
+import { resolveMatterApplication } from '@/lib/matterResolver';
 
 export async function GET(request, { params }) {
   try {
@@ -20,25 +21,10 @@ export async function GET(request, { params }) {
         }, { status: 500 });
     }
 
-    let appDoc = null;
-    let appId = matterId;
-    const appsRef = db.collection('applications');
+    let resolved = null;
 
     try {
-      // 1. Check if it's a Zoho Deal ID
-      const snapshot = await appsRef.where('zohoId', '==', matterId).get();
-      
-      if (!snapshot.empty) {
-        appDoc = snapshot.docs[0];
-        appId = appDoc.id;
-      } else {
-        // 2. Fallback to direct Firebase doc ID lookup
-        const docSnap = await appsRef.doc(matterId).get();
-        if (docSnap.exists) {
-          appDoc = docSnap;
-          appId = docSnap.id;
-        }
-      }
+      resolved = await resolveMatterApplication(db, matterId);
     } catch (queryError) {
       console.error('Firestore query error:', queryError);
       return NextResponse.json({ 
@@ -48,9 +34,13 @@ export async function GET(request, { params }) {
       }, { status: 500 });
     }
 
-    if (!appDoc) {
+    if (!resolved) {
       return NextResponse.json({ success: false, error: 'Matter not found' }, { status: 404 });
     }
+
+    const appsRef = db.collection('applications');
+    const appDoc = resolved.appDoc;
+    const appId = resolved.appId;
 
     // Fetch subcollections: questionnaire and completion
     const [questionnaireSnap, completionSnap] = await Promise.all([
@@ -74,8 +64,11 @@ export async function GET(request, { params }) {
     const allRoutes = getAllRoutes(visaTypeCode, visaContext, profiles);
     const totalSections = allRoutes.length;
     
-    // Count how many keys are true
-    const completedSections = Object.values(completionData).filter(Boolean).length;
+    // Count only actual completed section flags. Metadata fields such as
+    // updatedAt are truthy too and should not inflate the progress.
+    const completedSections = Object.entries(completionData).filter(
+      ([key, value]) => key !== 'updatedAt' && value === true
+    ).length;
     
     if (totalSections > 0) {
       percentage = Math.round((completedSections / totalSections) * 100);

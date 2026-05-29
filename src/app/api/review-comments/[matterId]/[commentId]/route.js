@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/firebase-admin";
+import { resolveMatterApplication } from "@/lib/matterResolver";
 
 // PATCH /api/review-comments/[matterId]/[commentId] — update a comment (resolve, edit)
 export async function PATCH(request, { params }) {
@@ -79,28 +80,11 @@ export async function DELETE(request, { params }) {
   }
 }
 
-// Helper: resolve matterId (Zoho Deal ID or Firebase doc ID) to Firebase doc ID
+// Helper: resolve Deal ID to Firebase doc ID. Firebase doc IDs are a fallback for
+// older links, but deal fields are always checked first.
 async function resolveAppId(matterId) {
   if (!matterId) return null;
 
-  const directDoc = await db.collection("applications").doc(matterId).get();
-  if (directDoc.exists) return matterId;
-
-  const byZoho = await db
-    .collection("applications")
-    .where("zohoDealId", "==", matterId)
-    .limit(1)
-    .get();
-
-  if (!byZoho.empty) return byZoho.docs[0].id;
-
-  const byDealId = await db
-    .collection("applications")
-    .where("dealId", "==", matterId)
-    .limit(1)
-    .get();
-
-  if (!byDealId.empty) return byDealId.docs[0].id;
-
-  return null;
+  const resolved = await resolveMatterApplication(db, matterId);
+  return resolved?.appId || null;
 }
