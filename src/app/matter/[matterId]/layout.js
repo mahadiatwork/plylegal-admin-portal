@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
-import { ArrowLeft, Loader2, AlertCircle, Bell, Search, ChevronDown } from "lucide-react";
+import { ArrowLeft, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatVisaApplicationType } from "@/lib/visaDisplay";
 
@@ -122,16 +122,6 @@ export default function MatterLayout({ children }) {
               <ArrowLeft className="h-4 w-4 mr-1" />
               Back to Search
             </Link>
-          </div>
-          <div className="flex items-center gap-4 text-gray-600">
-            <Search className="h-5 w-5 cursor-pointer hover:text-gray-900 hidden sm:block" />
-            <Bell className="h-5 w-5 cursor-pointer hover:text-gray-900 hidden sm:block" />
-            <div className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 sm:px-2 py-1 rounded-md transition-colors">
-              <div className="h-8 w-8 rounded-full bg-blue-100 text-blue-800 flex items-center justify-center text-xs font-semibold">
-                MH
-              </div>
-              <ChevronDown className="h-4 w-4 text-gray-400 hidden sm:block" />
-            </div>
           </div>
         </div>
 
