@@ -1,6 +1,50 @@
 @import "tailwindcss";
 
-@theme {
+@font-face {
+  font-family: "Season Mix";
+  src:
+    local("Season Mix"),
+    local("Season Mix Regular"),
+    local("Season Mix-TRIAL Regular"),
+    local("SeasonMix");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 100 900;
+}
+
+@font-face {
+  font-family: "Season Mix";
+  src:
+    local("Season Mix Italic"),
+    local("Season Mix-TRIAL Italic"),
+    local("SeasonMix Italic");
+  font-display: swap;
+  font-style: italic;
+  font-weight: 100 900;
+}
+
+@font-face {
+  font-family: "Standerd";
+  src:
+    local("Standerd"),
+    local("Standerd Regular"),
+    local("Standerd-Regular");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 100 900;
+}
+
+@font-face {
+  font-family: "Standerd";
+  src:
+    local("Standerd Italic"),
+    local("Standerd-Italic");
+  font-display: swap;
+  font-style: italic;
+  font-weight: 100 900;
+}
+
+@theme inline {
   /* BACKGROUNDS / FOREGROUNDS */
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
@@ -48,9 +92,9 @@
   --color-sidebar-ring: hsl(var(--sidebar-ring));
 
   /* FONTS */
-  --font-sans: var(--font-sans);
-  --font-serif: var(--font-serif);
-  --font-mono: var(--font-mono);
+  --font-sans: var(--font-standerd);
+  --font-serif: var(--font-season-mix);
+  --font-mono: var(--font-brand-mono);
 
   /* RADIUS */
   --radius-lg: var(--radius);
@@ -107,9 +151,12 @@
   --input: 228 25% 75%;
   --ring: 158 48% 31%;
 
-  --font-sans: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-serif: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: Menlo, Monaco, "Courier New", monospace;
+  --font-season-mix: "Season Mix", "Standerd", Georgia, "Times New Roman", serif;
+  --font-standerd: "Standerd", Aptos, "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-brand-mono: Menlo, Monaco, Consolas, "Courier New", monospace;
+  --font-sans: var(--font-standerd);
+  --font-serif: var(--font-season-mix);
+  --font-mono: var(--font-brand-mono);
   --radius: .5rem;
   --shadow-2xs: 0px 1px 2px 0px hsl(228 60% 20% / 0.05);
   --shadow-xs: 0px 1px 3px 0px hsl(228 60% 20% / 0.08);
@@ -166,12 +213,46 @@
 @layer base {
   * {
     @apply border-border;
-    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif !important;
+    font-family: inherit;
+  }
+
+  *::before,
+  *::after {
+    font-family: inherit;
+  }
+
+  html {
+    font-family: var(--font-standerd) !important;
   }
 
   body {
     @apply bg-background text-foreground;
-    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif !important;
+    font-family: var(--font-standerd) !important;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  .font-serif {
+    font-family: var(--font-season-mix) !important;
+  }
+
+  code,
+  kbd,
+  samp,
+  pre,
+  .font-mono {
+    font-family: var(--font-brand-mono) !important;
   }
 }
 

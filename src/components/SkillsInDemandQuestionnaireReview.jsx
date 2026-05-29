@@ -2,12 +2,7 @@
 
 import Image from "next/image";
 import { useMemo, useState } from "react";
-import {
-  Check,
-  ChevronDown,
-  FileText,
-  Users,
-} from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -61,6 +56,15 @@ const DETAIL_PERSONAL_KEYS = [
   "date_of_birth_month",
   "date_of_birth_year",
   "marital_status",
+  "marriage_day",
+  "marriage_month",
+  "marriage_year",
+  "date_of_marriage_day",
+  "date_of_marriage_month",
+  "date_of_marriage_year",
+  "marital_status_date_day",
+  "marital_status_date_month",
+  "marital_status_date_year",
 ];
 
 const DETAIL_BIRTHPLACE_KEYS = [
@@ -89,6 +93,21 @@ const INTERNAL_KEYS = new Set([
 const DETAIL_GROUPS = [
   { title: "Personal Information", keys: DETAIL_PERSONAL_KEYS },
   { title: "Birthplace Information", keys: DETAIL_BIRTHPLACE_KEYS },
+];
+
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
 ];
 
 export function isSkillsInDemandMatter(matterResult, questionnaire) {
@@ -384,7 +403,7 @@ function QuestionnaireReviewSidebar({
   const totalCount = Math.max(leafCount + 2, completedCount);
 
   return (
-    <aside className="flex w-full shrink-0 flex-col bg-[#245a46] text-white lg:sticky lg:top-[205px] lg:h-[calc(100vh-205px)] lg:w-[17.5rem]">
+    <aside className="flex w-full shrink-0 flex-col bg-[#245a46] text-white lg:fixed lg:left-[max(0px,calc((100vw-80rem)/2))] lg:top-[205px] lg:z-20 lg:h-[calc(100vh-205px)] lg:w-[17.5rem]">
       <div className="border-b border-white/10 px-6 py-7">
         <Image
           src="/Ply_Logo_White.png"
@@ -441,6 +460,15 @@ function displayValue(value) {
   return String(value);
 }
 
+function displayMonthValue(value) {
+  const text = displayValue(value).trim();
+  const monthNumber = Number(text);
+  if (Number.isInteger(monthNumber) && monthNumber >= 1 && monthNumber <= 12) {
+    return MONTH_NAMES[monthNumber - 1];
+  }
+  return text;
+}
+
 function normalComparable(value) {
   return displayValue(value).trim().toLowerCase();
 }
@@ -487,27 +515,29 @@ function fieldLabel(key) {
     birth_country: "Country of Birth",
     birth_city: "City or Town of Birth",
     birth_state: "State or Province of Birth",
+    city_of_birth: "City or Town of Birth",
+    state_of_birth: "State or Province of Birth",
   };
   return overrides[key] || formatLabel(key);
 }
 
 function ReadOnlyRadioField({ label, value, options }) {
   return (
-    <div className="space-y-2">
-      <p className="text-sm font-semibold text-[#17392f]">{label}</p>
+    <div className="space-y-2 md:col-span-2">
+      <p className="text-[15px] font-medium text-[#123d33]">{label}</p>
       <div className="flex flex-wrap gap-x-6 gap-y-2">
         {options.map((option) => {
           const checked = valuesMatch(option, value);
           return (
-            <div key={option} className="flex items-center gap-2 text-sm text-[#17392f]">
+            <div key={option} className="flex items-center gap-2 text-[15px] text-[#123d33]">
               <span
                 aria-hidden="true"
                 className={cn(
-                  "flex h-4 w-4 items-center justify-center rounded-full border",
-                  checked ? "border-[#245a46]" : "border-[#5b8574]"
+                  "flex h-5 w-5 items-center justify-center rounded-full border",
+                  checked ? "border-[#245a46]" : "border-[#5b8574]/80"
                 )}
               >
-                {checked && <span className="h-2 w-2 rounded-full bg-[#245a46]" />}
+                {checked && <span className="h-2.5 w-2.5 rounded-full bg-[#245a46]" />}
               </span>
               <span>{option}</span>
             </div>
@@ -523,20 +553,20 @@ function ReadOnlyTextField({ label, value }) {
   const useTextarea = text.length > 110 || text.includes("\n");
 
   return (
-    <label className="block space-y-2">
-      <span className="text-sm font-semibold text-[#17392f]">{label}</span>
+    <label className="block space-y-1.5 md:col-span-2">
+      <span className="text-[15px] font-medium text-[#123d33]">{label}</span>
       {useTextarea ? (
         <textarea
           readOnly
           value={text}
           rows={4}
-          className="min-h-[6rem] w-full resize-none rounded-md border border-[#bdd2c8] bg-[#f3faf6] px-3 py-2 text-sm text-[#17392f] outline-none"
+          className="min-h-[6rem] w-full resize-none rounded-lg border border-[#bdd2c8] bg-[#f3f8f5] px-3.5 py-2.5 text-[15px] text-[#123d33] shadow-inner shadow-white/70 outline-none"
         />
       ) : (
         <input
           readOnly
           value={text}
-          className="h-11 w-full rounded-md border border-[#bdd2c8] bg-[#f3faf6] px-3 text-sm text-[#17392f] outline-none"
+          className="h-11 w-full rounded-lg border border-[#bdd2c8] bg-[#f3f8f5] px-3.5 text-[15px] text-[#123d33] shadow-inner shadow-white/70 outline-none"
         />
       )}
     </label>
@@ -545,9 +575,9 @@ function ReadOnlyTextField({ label, value }) {
 
 function ReadOnlySelectLikeField({ label, value }) {
   return (
-    <label className="block space-y-2">
-      <span className="text-sm font-semibold text-[#17392f]">{label}</span>
-      <span className="flex h-11 w-full items-center justify-between rounded-md border border-[#bdd2c8] bg-[#f3faf6] px-3 text-sm text-[#17392f]">
+    <label className="block space-y-1.5">
+      <span className="text-[15px] font-medium text-[#123d33]">{label}</span>
+      <span className="flex h-11 w-full items-center justify-between rounded-lg border border-[#bdd2c8] bg-[#f3f8f5] px-3.5 text-[15px] text-[#123d33] shadow-inner shadow-white/70">
         <span className="truncate">{displayValue(value)}</span>
         <ChevronDown className="h-4 w-4 shrink-0 text-[#6f8f82]" />
       </span>
@@ -558,10 +588,10 @@ function ReadOnlySelectLikeField({ label, value }) {
 function DatePartFields({ label, group }) {
   return (
     <div className="space-y-2 md:col-span-2">
-      <p className="text-sm font-semibold text-[#17392f]">{label}</p>
+      <p className="text-[15px] font-medium text-[#123d33]">{label}</p>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <ReadOnlySelectLikeField label="Day" value={group.day} />
-        <ReadOnlySelectLikeField label="Month" value={group.month} />
+        <ReadOnlySelectLikeField label="Month" value={displayMonthValue(group.month)} />
         <ReadOnlySelectLikeField label="Year" value={group.year} />
       </div>
     </div>
@@ -594,6 +624,12 @@ function dateGroupLabel(prefix) {
   if (prefix === "birth" || prefix === "date_of_birth" || prefix === "dob") {
     return "Date of Birth";
   }
+  if (prefix === "marriage" || prefix === "date_of_marriage") {
+    return "Date of Marriage";
+  }
+  if (prefix === "marital_status_date") {
+    return "Date of Marriage";
+  }
   return formatLabel(prefix);
 }
 
@@ -619,13 +655,13 @@ function ReadOnlyArrayField({ fieldKey, value }) {
   if (value.every((item) => typeof item !== "object" || item === null)) {
     return (
       <div className="space-y-3 md:col-span-2">
-        <p className="text-sm font-semibold text-[#17392f]">{fieldLabel(fieldKey)}</p>
+        <p className="text-[15px] font-medium text-[#123d33]">{fieldLabel(fieldKey)}</p>
         {value.map((item, index) => (
           <input
             key={`${fieldKey}-${index}`}
             readOnly
             value={displayValue(item)}
-            className="h-11 w-full rounded-md border border-[#bdd2c8] bg-[#f3faf6] px-3 text-sm text-[#17392f] outline-none"
+            className="h-11 w-full rounded-lg border border-[#bdd2c8] bg-[#f3f8f5] px-3.5 text-[15px] text-[#123d33] shadow-inner shadow-white/70 outline-none"
           />
         ))}
       </div>
@@ -634,12 +670,12 @@ function ReadOnlyArrayField({ fieldKey, value }) {
 
   return (
     <div className="space-y-4 md:col-span-2">
-      <h3 className="border-b border-[#d7e4dd] pb-2 text-lg font-medium text-[#17392f]">
+      <h3 className="border-b border-[#dde8e1] pb-2 text-lg font-medium text-[#123d33]">
         {fieldLabel(fieldKey)}
       </h3>
       {value.map((item, index) => (
-        <div key={`${fieldKey}-${index}`} className="rounded-md border border-[#d7e4dd] p-4">
-          <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-[#6f8f82]">
+        <div key={`${fieldKey}-${index}`} className="rounded-lg border border-[#dde8e1] bg-[#fbfdfb] p-4">
+          <p className="mb-4 text-xs font-semibold uppercase text-[#6f8f82]">
             Item {index + 1}
           </p>
           <ReadOnlyFieldGrid data={item} />
@@ -652,7 +688,7 @@ function ReadOnlyArrayField({ fieldKey, value }) {
 function ReadOnlyObjectField({ fieldKey, value }) {
   return (
     <div className="space-y-4 md:col-span-2">
-      <h3 className="border-b border-[#d7e4dd] pb-2 text-lg font-medium text-[#17392f]">
+      <h3 className="border-b border-[#dde8e1] pb-2 text-lg font-medium text-[#123d33]">
         {fieldLabel(fieldKey)}
       </h3>
       <ReadOnlyFieldGrid data={value} />
@@ -674,7 +710,7 @@ function ReadOnlyFieldGrid({ data }) {
   }
 
   return (
-    <div className="grid grid-cols-1 gap-x-5 gap-y-6 md:grid-cols-2">
+    <div className="grid grid-cols-1 gap-x-5 gap-y-7 md:grid-cols-2">
       {entries.map(([key, value]) => {
         const dateGroupEntry = [...dateGroups.entries()].find(([, group]) => group.keys.has(key));
         if (dateGroupEntry) {
@@ -737,7 +773,7 @@ function splitIntoDisplayGroups(item) {
 
 function EmptyAnswers() {
   return (
-    <div className="rounded-md border border-dashed border-[#bdd2c8] bg-[#f7fbf9] px-4 py-6 text-sm text-[#5f746b]">
+    <div className="rounded-lg border border-dashed border-[#bdd2c8] bg-[#f7fbf9] px-4 py-6 text-sm text-[#5f746b]">
       No answers recorded for this section yet.
     </div>
   );
@@ -746,16 +782,16 @@ function EmptyAnswers() {
 function sectionDescription(group, item) {
   const key = normalizeKey(item?.title);
   if (group?.type === "allApplicants") {
-    return "Review answers that apply across everyone included in this application.";
+    return "Review answers that apply across every person included in this application.";
   }
   if (key === "details" && group?.subtitle === "Spouse/Partner") {
-    return "Provide details for the spouse or partner included in this application.";
+    return "In the Spouse or Partner section, please review the details for the partner included in this application.";
   }
   if (key === "details" && group?.subtitle === "Dependent Child") {
-    return "Review details for the dependent child included in this application.";
+    return "In the Dependent Child section, please review the details for the child included in this application.";
   }
   if (key === "details") {
-    return "Review the nominated worker's personal details.";
+    return "In the Main Applicant section, please provide details about the person who is intending to be the primary applicant.";
   }
   if (key === "identity") {
     return "Review identity, passport, and citizenship answers for this applicant.";
@@ -769,26 +805,21 @@ function ReviewCard({ active }) {
   const { group, item } = active;
   const groups = splitIntoDisplayGroups(item);
   const description = sectionDescription(group, item);
-  const heading =
-    group.type === "submit"
-      ? "Submit"
-      : `${item.title} - ${group.title}`;
 
   return (
-    <div className="mx-auto w-full max-w-4xl rounded-2xl border border-[#dce7e1] bg-white p-6 shadow-md sm:p-8">
+    <div className="mx-auto w-full max-w-[66rem] rounded-lg border border-[#dfe8e2] bg-white px-6 py-7 shadow-[0_24px_80px_rgba(25,55,43,0.10)] sm:px-8 sm:py-8 lg:px-10">
       <div className="mb-8">
-        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#edf4f1] text-[#245a46]">
-          {group.type === "allApplicants" ? (
-            <Users className="h-6 w-6" />
+        <h1 className="text-[26px] font-bold leading-tight text-[#123d33] sm:text-[28px]">
+          {group.type === "submit" ? (
+            "Submit"
           ) : (
-            <FileText className="h-6 w-6" />
+            <>
+              {item.title} <span className="font-semibold">&mdash;</span> {group.title}
+            </>
           )}
-        </div>
-        <h1 className="text-2xl font-semibold tracking-tight text-[#17392f]">
-          {heading}
         </h1>
         {description && (
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-[#51635d]">
+          <p className="mt-3 max-w-4xl text-[15px] leading-6 text-[#38475f]">
             {description}
           </p>
         )}
@@ -799,8 +830,8 @@ function ReviewCard({ active }) {
       ) : (
         <div className="space-y-8">
           {groups.map((groupItem) => (
-            <section key={groupItem.title} className="space-y-5">
-              <h2 className="border-b border-[#d7e4dd] pb-3 text-lg font-medium text-[#17392f]">
+            <section key={groupItem.title} className="space-y-6">
+              <h2 className="border-b border-[#dde8e1] pb-3 text-xl font-medium text-[#123d33]">
                 {groupItem.title}
               </h2>
               <ReadOnlyFieldGrid data={groupItem.data} />
@@ -815,7 +846,6 @@ function ReviewCard({ active }) {
 export default function SkillsInDemandQuestionnaireReview({
   questionnaire,
   sections,
-  application,
   completion,
   percentage,
 }) {
@@ -829,8 +859,8 @@ export default function SkillsInDemandQuestionnaireReview({
   const active = flatNavigation.find(({ item }) => item.key === activeKey) || flatNavigation[0];
 
   return (
-    <div className="-mx-4 -my-8 min-h-[calc(100vh-210px)] bg-[#edf4f1] sm:-mx-6 lg:-mx-8 print:hidden">
-      <div className="flex min-h-[calc(100vh-210px)] flex-col lg:flex-row">
+    <div className="-mx-4 -my-8 min-h-[calc(100vh-210px)] bg-[#fbfaf7] sm:-mx-6 lg:-mx-8 print:hidden">
+      <div className="flex min-h-[calc(100vh-210px)] flex-col lg:block lg:pl-[17.5rem]">
         <QuestionnaireReviewSidebar
           groups={groups}
           activeKey={active?.item.key}
@@ -839,16 +869,17 @@ export default function SkillsInDemandQuestionnaireReview({
           percentage={percentage}
         />
 
-        <main className="min-w-0 flex-1 px-5 py-8 sm:px-8 lg:px-12">
-          <div className="mx-auto mb-5 max-w-4xl">
-            <p className="text-xs font-semibold uppercase tracking-wider text-[#6f8f82]">
-              Skills in Demand (Subclass 482)
-            </p>
-            <h2 className="mt-1 text-xl font-semibold text-[#17392f]">
-              {application?.reference || "Questionnaire Review"}
-            </h2>
+        <main className="relative min-w-0 flex-1 overflow-hidden px-5 py-10 sm:px-8 lg:px-12 lg:py-16">
+          <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 hidden w-[42%] overflow-hidden lg:block">
+            <div className="absolute right-0 top-0 h-full w-full bg-[#f4f1fb]" />
+            <div className="absolute right-0 top-[8%] h-28 w-[115%] rounded-l-[999px] bg-[#fffdf8]" />
+            <div className="absolute right-0 top-[26%] h-56 w-[118%] rounded-l-[999px] bg-[#fbfaf7]" />
+            <div className="absolute right-0 top-[72%] h-36 w-[112%] rounded-l-[999px] bg-[#fffdf8]" />
           </div>
-          <ReviewCard active={active} />
+
+          <div className="relative z-10 mx-auto w-full max-w-[66rem]">
+            <ReviewCard active={active} />
+          </div>
         </main>
       </div>
     </div>

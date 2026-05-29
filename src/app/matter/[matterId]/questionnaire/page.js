@@ -972,9 +972,9 @@ export default function QuestionnairePage() {
 
   return (
     <>
-      <div className="flex gap-0 -mx-4 sm:-mx-6 lg:-mx-8 -my-8 min-h-[calc(100vh-180px)] print:hidden">
+      <div className="flex gap-0 -mx-4 sm:-mx-6 lg:-mx-8 -my-8 min-h-[calc(100vh-180px)] lg:pl-64 print:hidden">
         {/* Category Sidebar */}
-        <aside className="no-print hidden lg:block sticky top-[137px] h-[calc(100vh-137px)] flex-shrink-0">
+        <aside className="no-print hidden lg:fixed lg:left-[max(0px,calc((100vw-80rem)/2))] lg:top-[205px] lg:z-20 lg:block lg:h-[calc(100vh-205px)] lg:w-64 lg:flex-shrink-0">
           <QuestionnaireSidebar
             sections={sections}
             activeCategory={activeCategory}
