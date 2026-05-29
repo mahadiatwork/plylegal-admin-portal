@@ -711,12 +711,6 @@ class ZohoCRMClient {
    */
   async createWorkDrivePublicLink(resourceId, linkName) {
     try {
-      const token = await this.getWorkDriveAccessToken();
-
-      if (!token) {
-        throw new Error('No Zoho WorkDrive access token available');
-      }
-
       const requestBody = {
         data: {
           attributes: {
@@ -729,28 +723,46 @@ class ZohoCRMClient {
           type: 'links',
         },
       };
-      const requestConfig = {
-        headers: {
-          Accept: 'application/vnd.api+json',
-          'Content-Type': 'application/vnd.api+json',
-          Authorization: `Zoho-oauthtoken ${token}`,
-        },
+
+      const tryCreateLink = async (forceRefresh = false) => {
+        const token = await this.getWorkDriveAccessToken(forceRefresh);
+
+        if (!token) {
+          throw new Error('No Zoho WorkDrive access token available');
+        }
+
+        const requestConfig = {
+          headers: {
+            Accept: 'application/vnd.api+json',
+            'Content-Type': 'application/vnd.api+json',
+            Authorization: `Zoho-oauthtoken ${token}`,
+          },
+        };
+
+        let response = null;
+        let lastError = null;
+
+        for (const baseUrl of this.getWorkDriveBaseUrls()) {
+          try {
+            response = await axios.post(`${baseUrl}/links`, requestBody, requestConfig);
+            break;
+          } catch (error) {
+            lastError = error;
+            console.warn(
+              `⚠️ WorkDrive public link request failed at ${baseUrl}/links:`,
+              error.response?.data || error.message
+            );
+          }
+        }
+
+        return { response, lastError };
       };
 
-      let response = null;
-      let lastError = null;
+      let { response, lastError } = await tryCreateLink(false);
 
-      for (const baseUrl of this.getWorkDriveBaseUrls()) {
-        try {
-          response = await axios.post(`${baseUrl}/links`, requestBody, requestConfig);
-          break;
-        } catch (error) {
-          lastError = error;
-          console.warn(
-            `⚠️ WorkDrive public link request failed at ${baseUrl}/links:`,
-            error.response?.data || error.message
-          );
-        }
+      if (!response && lastError?.response?.status === 401) {
+        console.log('⚠️ WorkDrive link request was unauthorized, refreshing token and retrying...');
+        ({ response, lastError } = await tryCreateLink(true));
       }
 
       if (!response) {
