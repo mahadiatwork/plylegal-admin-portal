@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, LibraryBig, Loader2, Search } from "lucide-react";
+import { LibraryBig, Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -73,20 +72,12 @@ export default function Home() {
                 <LibraryBig className="h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-semibold text-[#17372e]">Shared resources now have a dedicated admin library</p>
-                <p className="mt-1 text-sm leading-6 text-[#587267]">
-                  Manage portal-wide files, links, and notes from one place instead of uploading them into individual matters.
+                <p className="text-sm font-semibold text-[#17372e]">
+                  Shared resources now live inside each matter&apos;s resources page
                 </p>
-                <Button
-                  asChild
-                  variant="outline"
-                  className="mt-4 w-full border-[#d0dfd7] bg-white text-[#285646] hover:text-[#1f4236]"
-                >
-                  <Link href="/admin/resources">
-                    Open Shared Resource Library
-                    <ArrowUpRight className="h-4 w-4" />
-                  </Link>
-                </Button>
+                <p className="mt-1 text-sm leading-6 text-[#587267]">
+                  Open any matter and go to `Resources` to switch between `Shared` resources for everyone and `Individual` resources for that specific matter.
+                </p>
               </div>
             </div>
           </div>

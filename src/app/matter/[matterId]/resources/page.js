@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
   AlertCircle,
@@ -22,6 +21,30 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+
+const RESOURCE_TABS = [
+  {
+    id: "shared",
+    label: "Shared",
+    subtitle: "Visible in every matter",
+    icon: Library,
+  },
+  {
+    id: "individual",
+    label: "Individual",
+    subtitle: "Visible only in this matter",
+    icon: FileText,
+  },
+];
+
+const addResourceActions = [
+  { id: "file", label: "File", icon: UploadCloud, enabled: true },
+  { id: "note", label: "Note", icon: StickyNote, enabled: true },
+  { id: "embed", label: "Embed", icon: Code2, enabled: false },
+  { id: "link", label: "Link", icon: Link2, enabled: true },
+  { id: "library", label: "Library", icon: Library, enabled: false },
+  { id: "folder", label: "Folder", icon: FolderPlus, enabled: false },
+];
 
 function formatFileSize(bytes) {
   if (!bytes) return "";
@@ -73,7 +96,7 @@ function ResourceIcon({ type }) {
           ? "border-emerald-100 bg-emerald-50 text-[#285646]"
           : isNote
             ? "border-amber-100 bg-amber-50 text-amber-700"
-          : "border-blue-100 bg-blue-50 text-blue-700"
+            : "border-blue-100 bg-blue-50 text-blue-700"
       }`}
     >
       <Icon className="h-5 w-5" />
@@ -81,9 +104,9 @@ function ResourceIcon({ type }) {
   );
 }
 
-function ResourceRow({ resource, archiveId, onArchive }) {
+function ResourceRow({ resource, archiveId, onArchive, tabId }) {
   const url = resource.publicUrl || resource.url;
-  const isArchiving = archiveId === resource.id;
+  const isArchiving = archiveId === `${tabId}:${resource.id}`;
 
   return (
     <div className="flex flex-col gap-4 border-b border-gray-100 px-5 py-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
@@ -96,6 +119,9 @@ function ResourceRow({ resource, archiveId, onArchive }) {
             </h3>
             <span className="rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-gray-500">
               {resource.type}
+            </span>
+            <span className="rounded-md border border-[#d9e7e0] bg-[#f5faf7] px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-[#4d6f62]">
+              {tabId === "shared" ? "All matters" : "This matter"}
             </span>
           </div>
           {resource.description && (
@@ -144,21 +170,15 @@ function ResourceRow({ resource, archiveId, onArchive }) {
   );
 }
 
-const addResourceActions = [
-  { id: "file", label: "File", icon: UploadCloud, enabled: true },
-  { id: "note", label: "Note", icon: StickyNote, enabled: true },
-  { id: "embed", label: "Embed", icon: Code2, enabled: false },
-  { id: "link", label: "Link", icon: Link2, enabled: true },
-  { id: "library", label: "Library", icon: Library, enabled: false },
-  { id: "folder", label: "Folder", icon: FolderPlus, enabled: false },
-];
-
 export default function ResourcesPage() {
   const params = useParams();
   const matterId = params.matterId;
 
-  const [resources, setResources] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("shared");
+  const [individualResources, setIndividualResources] = useState([]);
+  const [sharedResources, setSharedResources] = useState([]);
+  const [isIndividualLoading, setIsIndividualLoading] = useState(true);
+  const [isSharedLoading, setIsSharedLoading] = useState(true);
   const [mode, setMode] = useState("file");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -169,43 +189,90 @@ export default function ResourcesPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [archiveId, setArchiveId] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [individualError, setIndividualError] = useState(null);
+  const [sharedError, setSharedError] = useState(null);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState("");
 
   useEffect(() => {
     let isMounted = true;
 
-    async function fetchResources() {
+    async function fetchIndividualResources() {
       try {
-        setIsLoading(true);
-        setError(null);
-        const res = await fetch(`/api/matter/${matterId}/resources`);
-        const data = await res.json();
+        setIsIndividualLoading(true);
+        setIndividualError(null);
+        const response = await fetch(`/api/matter/${matterId}/resources`);
+        const data = await response.json();
 
-        if (!res.ok || !data.success) {
-          throw new Error(data.error || "Failed to load resources");
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || "Failed to load individual resources");
         }
 
         if (isMounted) {
-          setResources(data.resources || []);
+          setIndividualResources(data.resources || []);
         }
-      } catch (err) {
-        if (isMounted) setError(err.message);
+      } catch (fetchError) {
+        if (isMounted) {
+          setIndividualError(fetchError.message);
+        }
       } finally {
-        if (isMounted) setIsLoading(false);
+        if (isMounted) {
+          setIsIndividualLoading(false);
+        }
       }
     }
 
-    if (matterId) fetchResources();
+    if (matterId) {
+      fetchIndividualResources();
+    }
 
     return () => {
       isMounted = false;
     };
   }, [matterId]);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    async function fetchSharedResources() {
+      try {
+        setIsSharedLoading(true);
+        setSharedError(null);
+        const response = await fetch("/api/resources?scope=shared&status=active");
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || "Failed to load shared resources");
+        }
+
+        if (isMounted) {
+          setSharedResources(data.resources || []);
+        }
+      } catch (fetchError) {
+        if (isMounted) {
+          setSharedError(fetchError.message);
+        }
+      } finally {
+        if (isMounted) {
+          setIsSharedLoading(false);
+        }
+      }
+    }
+
+    fetchSharedResources();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const currentResources = activeTab === "shared" ? sharedResources : individualResources;
+  const currentLoading = activeTab === "shared" ? isSharedLoading : isIndividualLoading;
+  const currentError = activeTab === "shared" ? sharedError : individualError;
+
   const filteredResources = useMemo(
-    () => resources.filter((resource) => resourceMatches(resource, searchQuery)),
-    [resources, searchQuery]
+    () => currentResources.filter((resource) => resourceMatches(resource, searchQuery)),
+    [currentResources, searchQuery]
   );
 
   const resetForm = () => {
@@ -250,10 +317,17 @@ export default function ResourcesPage() {
       return;
     }
 
+    const isSharedTab = activeTab === "shared";
     const formData = new FormData();
     formData.append("type", mode);
     formData.append("title", title.trim());
     formData.append("description", description.trim());
+    formData.append("noteText", description.trim());
+
+    if (isSharedTab) {
+      formData.append("scope", "shared");
+      formData.append("status", "active");
+    }
 
     if (mode === "file") {
       formData.append("file", file);
@@ -261,61 +335,95 @@ export default function ResourcesPage() {
       formData.append("url", url.trim());
     }
 
+    const endpoint = isSharedTab
+      ? "/api/resources"
+      : `/api/matter/${matterId}/resources`;
+
     try {
       setIsSubmitting(true);
-      const res = await fetch(`/api/matter/${matterId}/resources`, {
+      const response = await fetch(endpoint, {
         method: "POST",
         body: formData,
       });
-      const data = await res.json();
+      const data = await response.json();
 
-      if (!res.ok || !data.success) {
+      if (!response.ok || !data.success) {
         const details = data.details ? ` ${data.details}` : "";
         throw new Error(`${data.error || "Failed to save resource"}${details}`);
       }
 
-      setResources((current) => [data.resource, ...current]);
+      if (isSharedTab) {
+        setSharedResources((current) => [data.resource, ...current]);
+      } else {
+        setIndividualResources((current) => [data.resource, ...current]);
+      }
+
       setSuccessMessage(
-        mode === "file"
-          ? "File resource uploaded."
-          : mode === "note"
-            ? "Note resource saved."
-            : "Link resource saved."
+        isSharedTab
+          ? mode === "file"
+            ? "Shared file uploaded for all matters."
+            : mode === "note"
+              ? "Shared note saved for all matters."
+              : "Shared link saved for all matters."
+          : mode === "file"
+            ? "File resource uploaded."
+            : mode === "note"
+              ? "Note resource saved."
+              : "Link resource saved."
       );
       resetForm();
-    } catch (err) {
-      setError(err.message);
+    } catch (submitError) {
+      setError(submitError.message);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleArchive = async (resource) => {
-    const confirmed = window.confirm(`Archive "${resource.title || resource.fileName}"?`);
+    const isSharedTab = activeTab === "shared";
+    const confirmed = window.confirm(
+      `Archive "${resource.title || resource.fileName}"${
+        isSharedTab ? " for all matters" : ""
+      }?`
+    );
     if (!confirmed) return;
 
+    const currentArchiveId = `${activeTab}:${resource.id}`;
+
     try {
-      setArchiveId(resource.id);
+      setArchiveId(currentArchiveId);
       setError(null);
-      const res = await fetch(`/api/matter/${matterId}/resources/${resource.id}`, {
+
+      const endpoint = isSharedTab
+        ? `/api/resources/${resource.id}`
+        : `/api/matter/${matterId}/resources/${resource.id}`;
+
+      const response = await fetch(endpoint, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "archived" }),
       });
-      const data = await res.json();
+      const data = await response.json();
 
-      if (!res.ok || !data.success) {
+      if (!response.ok || !data.success) {
         throw new Error(data.error || "Failed to archive resource");
       }
 
-      setResources((current) => current.filter((item) => item.id !== resource.id));
-      setSuccessMessage("Resource archived.");
-    } catch (err) {
-      setError(err.message);
+      if (isSharedTab) {
+        setSharedResources((current) => current.filter((item) => item.id !== resource.id));
+        setSuccessMessage("Shared resource archived for all matters.");
+      } else {
+        setIndividualResources((current) => current.filter((item) => item.id !== resource.id));
+        setSuccessMessage("Resource archived.");
+      }
+    } catch (archiveError) {
+      setError(archiveError.message);
     } finally {
       setArchiveId(null);
     }
   };
+
+  const activeTabMeta = RESOURCE_TABS.find((tab) => tab.id === activeTab);
 
   return (
     <div className="space-y-6">
@@ -330,7 +438,7 @@ export default function ResourcesPage() {
             type="search"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Search resources"
+            placeholder={`Search ${activeTabMeta?.label.toLowerCase()} resources`}
             className="h-10 bg-white pl-9"
           />
         </div>
@@ -345,23 +453,91 @@ export default function ResourcesPage() {
         </p>
       </section>
 
-      <section className="rounded-lg border border-[#dbe5e0] bg-[#f5f9f6] px-5 py-4 shadow-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-[#17372e]">Shared resource library is now the primary admin workflow</p>
-            <p className="mt-1 text-sm text-[#587267]">
-              New portal-wide resources should be created from the shared admin library. This matter-level screen stays available during migration so older entries can be reviewed safely.
-            </p>
-          </div>
+      <section className="rounded-lg border border-gray-200 bg-white p-2 shadow-sm">
+        <div className="grid gap-2 sm:grid-cols-2">
+          {RESOURCE_TABS.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            const count = tab.id === "shared" ? sharedResources.length : individualResources.length;
 
-          <Button asChild variant="outline" className="border-[#d0dfd7] bg-white text-[#285646] hover:text-[#1f4236]">
-            <Link href="/admin/resources">
-              Open shared library
-              <ExternalLink className="h-4 w-4" />
-            </Link>
-          </Button>
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  setError(null);
+                  setSuccessMessage("");
+                }}
+                className={`flex items-center justify-between rounded-lg border px-4 py-3 text-left transition-colors ${
+                  isActive
+                    ? "border-[#285646] bg-[#285646] text-white"
+                    : "border-gray-200 bg-white text-gray-700 hover:border-[#8ac6ad]"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`flex h-9 w-9 items-center justify-center rounded-md ${
+                      isActive ? "bg-white/15" : "bg-[#edf5f1] text-[#285646]"
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">{tab.label}</p>
+                    <p className={`text-xs ${isActive ? "text-white/75" : "text-gray-500"}`}>
+                      {tab.subtitle}
+                    </p>
+                  </div>
+                </div>
+                <span
+                  className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                    isActive ? "bg-white/15 text-white" : "bg-gray-100 text-gray-600"
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </section>
+
+      <section
+        className={`rounded-lg border px-5 py-4 shadow-sm ${
+          activeTab === "shared"
+            ? "border-[#d9e7e0] bg-[#f4faf6]"
+            : "border-[#dfe5ef] bg-[#f7f9fc]"
+        }`}
+      >
+        <p className="text-sm font-semibold text-gray-900">
+          {activeTab === "shared"
+            ? "Shared resources are visible in every matter."
+            : "Individual resources stay attached only to this matter."}
+        </p>
+        <p className="mt-1 text-sm text-gray-600">
+          {activeTab === "shared"
+            ? "Upload here once and the resource will be available everywhere in the client portal."
+            : "Use individual resources when a file, note, or link should only belong to this specific matter."}
+        </p>
+      </section>
+
+      {(error || successMessage || currentError) && (
+        <div
+          className={`flex items-start gap-2 rounded-lg border px-4 py-3 text-sm ${
+            error || currentError
+              ? "border-red-200 bg-red-50 text-red-700"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700"
+          }`}
+        >
+          {error || currentError ? (
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          ) : (
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+          )}
+          <span>{error || currentError || successMessage}</span>
+        </div>
+      )}
 
       <section className="space-y-2">
         <p className="text-sm font-medium text-gray-400">Add new</p>
@@ -396,23 +572,6 @@ export default function ResourcesPage() {
           })}
         </div>
       </section>
-
-      {(error || successMessage) && (
-        <div
-          className={`flex items-start gap-2 rounded-lg border px-4 py-3 text-sm ${
-            error
-              ? "border-red-200 bg-red-50 text-red-700"
-              : "border-emerald-200 bg-emerald-50 text-emerald-700"
-          }`}
-        >
-          {error ? (
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          ) : (
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-          )}
-          <span>{error || successMessage}</span>
-        </div>
-      )}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(320px,420px)_1fr]">
         <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
@@ -465,10 +624,12 @@ export default function ResourcesPage() {
               <div className="flex min-h-40 flex-col items-center justify-center rounded-lg border border-amber-100 bg-amber-50/60 px-5 py-6 text-center">
                 <StickyNote className="mb-3 h-8 w-8 text-amber-700" />
                 <span className="text-sm font-semibold text-gray-900">
-                  Write a client note
+                  {activeTab === "shared" ? "Write a shared note" : "Write a client note"}
                 </span>
                 <span className="mt-1 text-xs text-gray-500">
-                  Notes appear in the client resources list.
+                  {activeTab === "shared"
+                    ? "Shared notes appear in every matter's resources list."
+                    : "Notes appear in this matter's resources list."}
                 </span>
               </div>
             )}
@@ -494,7 +655,13 @@ export default function ResourcesPage() {
                 id="resource-description"
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
-                placeholder={mode === "note" ? "Write the note for the client" : "Optional note"}
+                placeholder={
+                  mode === "note"
+                    ? activeTab === "shared"
+                      ? "Write the shared note for all matters"
+                      : "Write the note for this matter"
+                    : "Optional note"
+                }
                 rows={mode === "note" ? 5 : 3}
                 className="bg-white"
               />
@@ -516,6 +683,8 @@ export default function ResourcesPage() {
                   <Loader2 className="h-4 w-4 animate-spin" />
                   {mode === "file" ? "Uploading" : "Saving"}
                 </>
+              ) : activeTab === "shared" ? (
+                mode === "file" ? "Upload shared resource" : mode === "note" ? "Save shared note" : "Save shared link"
               ) : mode === "file" ? (
                 "Upload resource"
               ) : mode === "note" ? (
@@ -530,14 +699,16 @@ export default function ResourcesPage() {
         <section className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
           <div className="flex flex-col gap-2 border-b border-gray-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-base font-semibold text-gray-900">Resource list</h2>
+              <h2 className="text-base font-semibold text-gray-900">
+                {activeTab === "shared" ? "Shared resource list" : "Individual resource list"}
+              </h2>
               <p className="text-sm text-gray-500">
-                {filteredResources.length} active {filteredResources.length === 1 ? "resource" : "resources"}
+                {filteredResources.length} active {activeTab} {filteredResources.length === 1 ? "resource" : "resources"}
               </p>
             </div>
           </div>
 
-          {isLoading ? (
+          {currentLoading ? (
             <div className="flex items-center justify-center p-12 text-[#285646]">
               <Loader2 className="h-7 w-7 animate-spin" />
             </div>
@@ -549,6 +720,7 @@ export default function ResourcesPage() {
                   resource={resource}
                   archiveId={archiveId}
                   onArchive={handleArchive}
+                  tabId={activeTab}
                 />
               ))}
             </div>
@@ -561,7 +733,11 @@ export default function ResourcesPage() {
                 No resources found
               </h3>
               <p className="mt-1 max-w-sm text-sm text-gray-500">
-                {searchQuery ? "Try a different search term." : "Add the first resource for this matter."}
+                {searchQuery
+                  ? "Try a different search term."
+                  : activeTab === "shared"
+                    ? "Add the first shared resource for all matters."
+                    : "Add the first resource for this matter."}
               </p>
             </div>
           )}

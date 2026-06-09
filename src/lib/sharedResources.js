@@ -5,6 +5,8 @@ export const RESOURCE_TYPES = ["file", "link", "note"];
 export const RESOURCE_STATUSES = ["draft", "active", "inactive", "archived"];
 export const RESOURCE_SCOPES = ["shared", "group", "application"];
 export const DEFAULT_RESOURCE_CATEGORY = "General";
+const DEFAULT_SHARED_WORKDRIVE_FOLDER_URL =
+  "https://workdrive.zoho.com.au/darpt4bf78c59b8684d9bb6b479804432d247/teams/darpt4bf78c59b8684d9bb6b479804432d247/ws/hf3e609480d012c3c4244bc51956d41cb7925/folders/files";
 
 export function cleanText(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -100,8 +102,19 @@ export function normalizeFolderId(rawValue) {
   value = cleanText(value);
   if (!value) return null;
 
-  const folderUrlMatch = value.match(/\/folders\/([^/?#]+)/);
-  return folderUrlMatch?.[1] || value;
+  const folderUrlPatterns = [
+    /\/folders\/([^/?#]+)/,
+    /\/ws\/([^/?#]+)\/folders(?:\/files)?(?:[/?#]|$)/,
+  ];
+
+  for (const pattern of folderUrlPatterns) {
+    const match = value.match(pattern);
+    if (match?.[1] && match[1] !== "files") {
+      return match[1];
+    }
+  }
+
+  return value;
 }
 
 export function getSharedWorkDriveFolderId() {
@@ -119,7 +132,7 @@ export function getSharedWorkDriveFolderId() {
     }
   }
 
-  return null;
+  return normalizeFolderId(DEFAULT_SHARED_WORKDRIVE_FOLDER_URL);
 }
 
 export async function uploadSharedResourceFile(file, title) {

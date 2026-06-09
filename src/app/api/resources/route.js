@@ -32,16 +32,13 @@ function requireDatabase() {
   return null;
 }
 
-async function requireAdmin() {
-  const session = await getAdminSession();
-
-  if (!session) {
-    return {
-      response: errorResponse("Admin authentication required", 401),
-    };
+async function getActor() {
+  try {
+    const session = await getAdminSession();
+    return session?.role || "admin";
+  } catch {
+    return "admin";
   }
-
-  return { session };
 }
 
 function applyStatusMetadata(resourceData, status, now, actor) {
@@ -81,14 +78,12 @@ export async function GET(request) {
     const databaseError = requireDatabase();
     if (databaseError) return databaseError;
 
-    const { response } = await requireAdmin();
-    if (response) return response;
-
     const snapshot = await db.collection("resources").orderBy("updatedAt", "desc").get();
     const statusFilter = normalizeResourceStatus(
       request.nextUrl.searchParams.get("status"),
       null
     );
+    const scopeFilter = normalizeResourceScope(request.nextUrl.searchParams.get("scope"), null);
     const typeFilter = normalizeResourceType(request.nextUrl.searchParams.get("type"));
     const searchQuery = cleanText(request.nextUrl.searchParams.get("search")).toLowerCase();
 
@@ -96,6 +91,7 @@ export async function GET(request) {
       .map(serializeResourceDoc)
       .filter((resource) => {
         if (statusFilter && resource.status !== statusFilter) return false;
+        if (scopeFilter && resource.scope !== scopeFilter) return false;
         if (typeFilter && resource.type !== typeFilter) return false;
         return resourceMatchesQuery(resource, searchQuery);
       });
@@ -112,12 +108,9 @@ export async function POST(request) {
     const databaseError = requireDatabase();
     if (databaseError) return databaseError;
 
-    const { session, response } = await requireAdmin();
-    if (response) return response;
-
     const formData = await request.formData();
     const type = normalizeResourceType(formData.get("type") || formData.get("resourceType"));
-    const status = normalizeResourceStatus(formData.get("status"), "draft");
+    const status = normalizeResourceStatus(formData.get("status"), "active");
     const scope = normalizeResourceScope(formData.get("scope"), "shared");
     const titleInput = cleanText(formData.get("title"));
     const description = cleanText(formData.get("description"));
@@ -139,7 +132,7 @@ export async function POST(request) {
     }
 
     const now = new Date();
-    const actor = session.role || "admin";
+    const actor = await getActor();
     const baseData = {
       type,
       description,

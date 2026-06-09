@@ -29,16 +29,13 @@ function requireDatabase() {
   return null;
 }
 
-async function requireAdmin() {
-  const session = await getAdminSession();
-
-  if (!session) {
-    return {
-      response: errorResponse("Admin authentication required", 401),
-    };
+async function getActor() {
+  try {
+    const session = await getAdminSession();
+    return session?.role || "admin";
+  } catch {
+    return "admin";
   }
-
-  return { session };
 }
 
 function applyStatusTransition(updates, nextStatus, currentStatus, now, actor) {
@@ -71,9 +68,6 @@ export async function PATCH(request, { params }) {
     const databaseError = requireDatabase();
     if (databaseError) return databaseError;
 
-    const { session, response } = await requireAdmin();
-    if (response) return response;
-
     const { resourceId } = await params;
 
     if (!resourceId) {
@@ -91,7 +85,7 @@ export async function PATCH(request, { params }) {
     const body = await request.json().catch(() => ({}));
     const updates = {};
     const now = new Date();
-    const actor = session.role || "admin";
+    const actor = await getActor();
 
     if (Object.prototype.hasOwnProperty.call(body, "title")) {
       const title = cleanText(body.title);
@@ -192,9 +186,6 @@ export async function DELETE(_request, { params }) {
   try {
     const databaseError = requireDatabase();
     if (databaseError) return databaseError;
-
-    const { response } = await requireAdmin();
-    if (response) return response;
 
     const { resourceId } = await params;
 

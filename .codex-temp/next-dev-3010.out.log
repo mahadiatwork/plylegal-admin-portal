@@ -1,0 +1,14 @@
+
+> validifypro-visa-admin-portal@0.1.0 dev
+> next dev --hostname 127.0.0.1 --port 3010
+
+▲ Next.js 16.2.4 (Turbopack)
+- Local:         http://127.0.0.1:3010
+- Network:       http://127.0.0.1:3010
+- Environments: .env.local, .env
+✓ Ready in 443ms
+
+ GET / 200 in 1020ms (next.js: 657ms, application-code: 364ms)
+ GET /matter/102555000001354231/resources 404 in 159ms (next.js: 39ms, application-code: 120ms)
+ GET /api/matter/102555000001354231 404 in 75ms (next.js: 10ms, application-code: 66ms)
+ GET /matter/102555000000489132/resources 404 in 141ms (next.js: 14ms, application-code: 127ms)

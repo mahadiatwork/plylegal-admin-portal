@@ -1,0 +1,12 @@
+
+> validifypro-visa-admin-portal@0.1.0 start
+> next start --hostname 127.0.0.1 --port 3011
+
+▲ Next.js 16.2.4
+- Local:         http://127.0.0.1:3011
+- Network:       http://127.0.0.1:3011
+✓ Ready in 266ms
+🔧 Initializing Firebase Admin SDK...
+✅ Loaded credentials from FIREBASE_SERVICE_ACCOUNT_KEY
+✅ Target Project ID: validify-pro-test
+✅ Firebase Admin SDK initialized
