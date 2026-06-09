@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "migrate:shared-resources": "node scripts/migrate-shared-resources.js"
   },
   "dependencies": {
     "@radix-ui/react-collapsible": "^1.1.12",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
   AlertCircle,
@@ -342,6 +343,24 @@ export default function ResourcesPage() {
         <p className="mt-1 text-sm font-medium text-gray-600">
           We&apos;re thrilled to have you onboard. Inside this portal, you&apos;ll find all the essential resources and latest updates to streamline our collaboration.
         </p>
+      </section>
+
+      <section className="rounded-lg border border-[#dbe5e0] bg-[#f5f9f6] px-5 py-4 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-[#17372e]">Shared resource library is now the primary admin workflow</p>
+            <p className="mt-1 text-sm text-[#587267]">
+              New portal-wide resources should be created from the shared admin library. This matter-level screen stays available during migration so older entries can be reviewed safely.
+            </p>
+          </div>
+
+          <Button asChild variant="outline" className="border-[#d0dfd7] bg-white text-[#285646] hover:text-[#1f4236]">
+            <Link href="/admin/resources">
+              Open shared library
+              <ExternalLink className="h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
       </section>
 
       <section className="space-y-2">

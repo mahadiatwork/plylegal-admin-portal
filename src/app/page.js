@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Search, Loader2 } from "lucide-react";
+import { ArrowUpRight, LibraryBig, Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -65,6 +66,30 @@ export default function Home() {
               )}
             </Button>
           </form>
+
+          <div className="mt-6 rounded-2xl border border-[#dbe5e0] bg-[#f5f9f6] p-4">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#285646] text-white">
+                <LibraryBig className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-[#17372e]">Shared resources now have a dedicated admin library</p>
+                <p className="mt-1 text-sm leading-6 text-[#587267]">
+                  Manage portal-wide files, links, and notes from one place instead of uploading them into individual matters.
+                </p>
+                <Button
+                  asChild
+                  variant="outline"
+                  className="mt-4 w-full border-[#d0dfd7] bg-white text-[#285646] hover:text-[#1f4236]"
+                >
+                  <Link href="/admin/resources">
+                    Open Shared Resource Library
+                    <ArrowUpRight className="h-4 w-4" />
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
         
         <div className="px-8 py-4 bg-gray-50 border-t border-gray-100 text-center">
