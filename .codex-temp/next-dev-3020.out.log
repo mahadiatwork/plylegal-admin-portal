@@ -24,3 +24,24 @@
  GET /api/resource-templates/partner 200 in 1978ms (next.js: 1616ms, application-code: 361ms)
  GET /api/resource-templates 200 in 1106ms (next.js: 9ms, application-code: 1097ms)
  GET /api/resource-templates 200 in 1093ms (next.js: 6ms, application-code: 1088ms)
+ GET /admin/resource-templates 200 in 6.9s (next.js: 870ms, application-code: 6.0s)
+✅ Using existing Firebase Admin app
+ GET /matter/102555000001354231/resources 200 in 3.2s (next.js: 2.9s, application-code: 292ms)
+ GET /api/resource-templates 200 in 4.4s (next.js: 545ms, application-code: 3.8s)
+ GET /api/matter/102555000001354231 200 in 1146ms
+🔧 Initializing Firebase Admin SDK...
+✅ Loaded credentials from FIREBASE_SERVICE_ACCOUNT_KEY
+✅ Target Project ID: validify-pro-test
+✅ Firebase Admin SDK initialized
+ GET /matter/102555000001354231/resources 200 in 77ms (next.js: 15ms, application-code: 61ms)
+ GET /api/matter/102555000001354231 200 in 440ms (next.js: 17ms, application-code: 423ms)
+ GET /api/resources?scope=shared&status=active 200 in 724ms (next.js: 704ms, application-code: 20ms)
+ GET /api/matter/102555000001354231/resources 200 in 754ms
+🔧 Initializing Firebase Admin SDK...
+✅ Loaded credentials from FIREBASE_SERVICE_ACCOUNT_KEY
+✅ Target Project ID: validify-pro-test
+✅ Firebase Admin SDK initialized
+🔧 Initializing Firebase Admin SDK...
+✅ Loaded credentials from FIREBASE_SERVICE_ACCOUNT_KEY
+✅ Target Project ID: validify-pro-test
+✅ Firebase Admin SDK initialized

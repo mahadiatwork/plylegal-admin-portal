@@ -161,6 +161,25 @@ export async function PATCH(request, { params }) {
       updates.externalUrl = externalUrl;
     }
 
+    const noteTextWasProvided =
+      Object.prototype.hasOwnProperty.call(body, "noteText") ||
+      Object.prototype.hasOwnProperty.call(body, "content") ||
+      Object.prototype.hasOwnProperty.call(body, "description");
+
+    if (noteTextWasProvided) {
+      if (currentItem.kind !== "note") {
+        return errorResponse("Only note items can update noteText", 400);
+      }
+
+      const noteText = cleanText(body.noteText || body.content || body.description);
+      if (!noteText) {
+        return errorResponse("Note text is required", 400);
+      }
+
+      updates.noteText = noteText;
+      updates.content = noteText;
+    }
+
     if (!Object.keys(updates).length) {
       return errorResponse("No supported fields were provided", 400);
     }

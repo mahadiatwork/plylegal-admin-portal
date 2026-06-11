@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
   AlertCircle,
@@ -432,15 +433,24 @@ export default function ResourcesPage() {
           Resources
         </h1>
 
-        <div className="relative w-full max-w-sm">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8ac6ad]" />
-          <Input
-            type="search"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder={`Search ${activeTabMeta?.label.toLowerCase()} resources`}
-            className="h-10 bg-white pl-9"
-          />
+        <div className="flex w-full flex-col gap-3 sm:max-w-xl sm:flex-row sm:items-center">
+          <Button asChild variant="outline" className="h-10 shrink-0 bg-white">
+            <Link href="/admin/resource-templates">
+              <Library className="h-4 w-4" />
+              Visa templates
+            </Link>
+          </Button>
+
+          <div className="relative w-full">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8ac6ad]" />
+            <Input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder={`Search ${activeTabMeta?.label.toLowerCase()} resources`}
+              className="h-10 bg-white pl-9"
+            />
+          </div>
         </div>
       </section>
 

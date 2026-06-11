@@ -77,7 +77,7 @@ export async function POST(request, { params }) {
     const nameInput = cleanText(formData.get("name") || formData.get("title"));
 
     if (!kind) {
-      return errorResponse("Item kind must be folder, file, or link", 400);
+      return errorResponse("Item kind must be folder, file, link, or note", 400);
     }
 
     if (!status) {
@@ -127,6 +127,27 @@ export async function POST(request, { params }) {
 
       itemData.name = nameInput || new URL(externalUrl).hostname;
       itemData.externalUrl = externalUrl;
+    }
+
+    if (kind === "note") {
+      const noteText = cleanText(
+        formData.get("noteText") ||
+          formData.get("content") ||
+          formData.get("description")
+      );
+
+      if (!nameInput) {
+        return errorResponse("Note name is required", 400);
+      }
+
+      if (!noteText) {
+        return errorResponse("Note text is required", 400);
+      }
+
+      Object.assign(itemData, {
+        noteText,
+        content: noteText,
+      });
     }
 
     if (kind === "file") {

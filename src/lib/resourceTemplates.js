@@ -9,7 +9,7 @@ import {
 
 export const MAX_RESOURCE_TEMPLATE_FILE_SIZE = 50 * 1024 * 1024;
 export const RESOURCE_TEMPLATE_STATUSES = ["active", "draft", "archived"];
-export const RESOURCE_TEMPLATE_ITEM_KINDS = ["folder", "file", "link"];
+export const RESOURCE_TEMPLATE_ITEM_KINDS = ["folder", "file", "link", "note"];
 export const RESOURCE_TEMPLATE_ITEM_STATUSES = ["active", "hidden"];
 
 const RESOURCE_TEMPLATE_DEFINITIONS = [

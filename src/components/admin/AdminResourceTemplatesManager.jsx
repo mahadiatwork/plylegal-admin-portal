@@ -16,11 +16,13 @@ import {
   Plus,
   RefreshCcw,
   Save,
+  StickyNote,
   UploadCloud,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 
 const templateStatusOptions = [
   { value: "active", label: "Active" },
@@ -36,6 +38,7 @@ const itemStatusOptions = [
 const kindOptions = [
   { value: "folder", label: "Folder" },
   { value: "file", label: "File" },
+  { value: "note", label: "Note" },
   { value: "link", label: "Link" },
 ];
 
@@ -46,6 +49,7 @@ const emptyForm = {
   order: "0",
   status: "active",
   externalUrl: "",
+  noteText: "",
 };
 
 function formatDate(value) {
@@ -163,6 +167,7 @@ function buildFolderOptions(items, editingItem) {
 function KindIcon({ kind, className }) {
   if (kind === "folder") return <Folder className={className} />;
   if (kind === "link") return <Link2 className={className} />;
+  if (kind === "note") return <StickyNote className={className} />;
   return <FileText className={className} />;
 }
 
@@ -221,6 +226,7 @@ function TreeNode({ item, activeMutationId, onEdit, onStatusToggle }) {
               {item.fileName ? <span>{item.fileName}</span> : null}
               {item.size ? <span>{formatFileSize(item.size)}</span> : null}
               {item.mimeType ? <span>{item.mimeType}</span> : null}
+              {item.noteText ? <span>{item.noteText}</span> : null}
               {hasChildren ? <span>{item.children.length} nested</span> : null}
               <span>Updated {formatDate(item.updatedAt)}</span>
             </div>
@@ -474,7 +480,7 @@ export default function AdminResourceTemplatesManager() {
           summary[item.status] = (summary[item.status] || 0) + 1;
           return summary;
         },
-        { total: 0, folder: 0, file: 0, link: 0, active: 0, hidden: 0 }
+        { total: 0, folder: 0, file: 0, link: 0, note: 0, active: 0, hidden: 0 }
       ),
     [currentItems]
   );
@@ -492,6 +498,7 @@ export default function AdminResourceTemplatesManager() {
       order: String(item.order ?? 0),
       status: item.status || "active",
       externalUrl: item.externalUrl || "",
+      noteText: item.noteText || item.content || "",
     });
     setFile(null);
     setFileInputKey((current) => current + 1);
@@ -552,6 +559,11 @@ export default function AdminResourceTemplatesManager() {
       return;
     }
 
+    if (form.kind === "note" && !form.noteText.trim()) {
+      setError("Add note text before saving.");
+      return;
+    }
+
     try {
       setIsSubmittingItem(true);
 
@@ -565,6 +577,10 @@ export default function AdminResourceTemplatesManager() {
 
         if (editingItem.kind === "link") {
           payload.externalUrl = form.externalUrl;
+        }
+
+        if (editingItem.kind === "note") {
+          payload.noteText = form.noteText;
         }
 
         const response = await fetch(
@@ -590,6 +606,7 @@ export default function AdminResourceTemplatesManager() {
         payload.append("order", form.order);
         payload.append("status", form.status);
         payload.append("externalUrl", form.externalUrl);
+        payload.append("noteText", form.noteText);
 
         if (file) {
           payload.append("file", file);
@@ -725,7 +742,7 @@ export default function AdminResourceTemplatesManager() {
             <form onSubmit={handleSubmit} className="mt-5 space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-[#224238]">Type</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {kindOptions.map((option) => {
                     const active = form.kind === option.value;
 
@@ -789,6 +806,22 @@ export default function AdminResourceTemplatesManager() {
                     onChange={(event) => updateFormField("externalUrl", event.target.value)}
                     placeholder="https://example.com/resource"
                     className="h-10 border-[#cfded7] bg-white"
+                  />
+                </div>
+              ) : null}
+
+              {form.kind === "note" ? (
+                <div className="space-y-2">
+                  <label htmlFor="template-note-text" className="text-sm font-medium text-[#224238]">
+                    Note
+                  </label>
+                  <Textarea
+                    id="template-note-text"
+                    value={form.noteText}
+                    onChange={(event) => updateFormField("noteText", event.target.value)}
+                    placeholder="Write the note shown in the portal"
+                    rows={5}
+                    className="border-[#cfded7] bg-white"
                   />
                 </div>
               ) : null}
@@ -900,6 +933,10 @@ export default function AdminResourceTemplatesManager() {
                 <span className="font-semibold text-[#17372e]">{stats.link}</span>
               </div>
               <div className="rounded-md border border-[#e2ebe6] bg-[#f8fbf9] px-3 py-2">
+                <span className="block text-xs text-[#71857d]">Notes</span>
+                <span className="font-semibold text-[#17372e]">{stats.note}</span>
+              </div>
+              <div className="rounded-md border border-[#e2ebe6] bg-[#f8fbf9] px-3 py-2">
                 <span className="block text-xs text-[#71857d]">Hidden</span>
                 <span className="font-semibold text-[#17372e]">{stats.hidden}</span>
               </div>
@@ -950,7 +987,7 @@ export default function AdminResourceTemplatesManager() {
               </div>
               <h3 className="text-sm font-semibold text-[#17372e]">No template items</h3>
               <p className="mt-1 max-w-sm text-sm text-[#60786f]">
-                Create a folder, file, or link for this visa template.
+                Create a folder, file, note, or link for this visa template.
               </p>
             </div>
           )}

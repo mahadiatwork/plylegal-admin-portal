@@ -7,7 +7,7 @@ Project: `validify-pro-admin-portal`
 
 Implemented a dedicated admin workflow for visa-type resource templates. The new feature lets admins manage live resource template trees for Partner, Protection, Subclass 482, and Subclass 186 visa applications without changing the existing legacy shared-resource library.
 
-Files are uploaded to the configured Zoho WorkDrive root folder for each visa type. Folder nesting is represented in Firestore only, using `folder` item records in each template's `items` subcollection.
+Files are uploaded to the configured Zoho WorkDrive root folder for each visa type. Folder nesting is represented in Firestore only, using `folder` item records in each template's `items` subcollection. Notes are stored directly in Firestore as `note` items.
 
 ## Implemented Changes
 
@@ -34,7 +34,7 @@ Added the following admin-protected API routes:
 | --- | --- | --- |
 | `/api/resource-templates` | `GET` | Seed/upsert the four template docs and return template summaries. |
 | `/api/resource-templates/[visaSlug]` | `GET`, `PATCH` | Fetch one template with sorted items, or update template title/status. |
-| `/api/resource-templates/[visaSlug]/items` | `POST` | Create folder, file, or link items under a template. |
+| `/api/resource-templates/[visaSlug]/items` | `POST` | Create folder, file, note, or link items under a template. |
 | `/api/resource-templates/[visaSlug]/items/[itemId]` | `PATCH` | Edit item metadata, move items, reorder items, update link URL, or hide/show items. |
 
 API behavior implemented:
@@ -43,6 +43,7 @@ API behavior implemented:
 - Uses Next 16 route-handler conventions with `runtime = "nodejs"` and awaited dynamic `params`.
 - Seeds missing `resourceTemplates/{visaSlug}` docs as `active`.
 - Stores client-facing fields: `parentId`, `kind`, `name`, `order`, `status`, `externalUrl`, `workdriveId`, `mimeType`, and `size`.
+- Stores note items with `kind: "note"` plus `noteText` and `content`.
 - Stores admin metadata such as `fileName`, `workDriveFolderId`, `workDrivePublicLinkId`, timestamps, and actor fields.
 - Validates that `parentId` points to a folder in the same template.
 - Prevents folder move cycles.
@@ -58,12 +59,16 @@ The new UI includes:
 - Visa template tabs for Partner, Protection, Subclass 482, and Subclass 186.
 - Template status control for `active`, `draft`, and `archived`.
 - Tree view of nested folders, files, and links.
-- Create/edit form for folder, file, and link items.
+- Create/edit form for folder, file, note, and link items.
 - Parent folder selector for nesting.
 - Numeric ordering field.
 - Hide/show actions for each item.
 - External open action for files and links.
-- Admin-visible counts for folders, files, links, hidden items, and visible items.
+- Admin-visible counts for folders, files, notes, links, hidden items, and visible items.
+
+### Matter Resources Entry Point
+
+Updated `src/app/matter/[matterId]/resources/page.js` to include a visible `Visa templates` action in the Resources header. This connects the existing per-matter Resources workflow to the new visa-template manager, where admins select the visa type and publish reusable template resources.
 
 ### Admin Navigation
 
@@ -95,7 +100,7 @@ Item documents follow the planned client contract:
 
 ```txt
 parentId: string | null
-kind: "folder" | "file" | "link"
+kind: "folder" | "file" | "link" | "note"
 name: string
 order: number
 status: "active" | "hidden"
@@ -103,6 +108,13 @@ externalUrl: string | null
 workdriveId: string | null
 mimeType: string | null
 size: number | null
+```
+
+Note items also store:
+
+```txt
+noteText: string
+content: string
 ```
 
 ## Verification
