@@ -1,0 +1,26 @@
+
+> validifypro-visa-admin-portal@0.1.0 dev
+> next dev --hostname 127.0.0.1 --port 3020
+
+▲ Next.js 16.2.4 (Turbopack)
+- Local:         http://127.0.0.1:3020
+- Network:       http://127.0.0.1:3020
+- Environments: .env.local, .env
+✓ Ready in 2.5s
+
+ GET /login?next=%2Fadmin%2Fresource-templates 200 in 2.4s (next.js: 2.0s, application-code: 372ms)
+ POST /api/admin/session 200 in 755ms (next.js: 711ms, application-code: 44ms)
+ GET /admin/resource-templates 200 in 1142ms (next.js: 1066ms, application-code: 76ms)
+🔧 Initializing Firebase Admin SDK...
+✅ Loaded credentials from FIREBASE_SERVICE_ACCOUNT_KEY
+✅ Target Project ID: validify-pro-test
+✅ Firebase Admin SDK initialized
+ GET /api/resource-templates 200 in 6.3s (next.js: 2.9s, application-code: 3.3s)
+ GET /api/resource-templates 200 in 1212ms (next.js: 4ms, application-code: 1208ms)
+🔧 Initializing Firebase Admin SDK...
+✅ Loaded credentials from FIREBASE_SERVICE_ACCOUNT_KEY
+✅ Target Project ID: validify-pro-test
+✅ Firebase Admin SDK initialized
+ GET /api/resource-templates/partner 200 in 1978ms (next.js: 1616ms, application-code: 361ms)
+ GET /api/resource-templates 200 in 1106ms (next.js: 9ms, application-code: 1097ms)
+ GET /api/resource-templates 200 in 1093ms (next.js: 6ms, application-code: 1088ms)

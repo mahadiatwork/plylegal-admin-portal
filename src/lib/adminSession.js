@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 export const ADMIN_SESSION_COOKIE = "vp_admin_session";
 const ADMIN_ROLE = "admin";
 const ADMIN_SESSION_MAX_AGE_SECONDS = 60 * 60 * 12;
-const DEFAULT_ADMIN_PATH = "/admin/resources";
+const DEFAULT_ADMIN_PATH = "/admin/resource-templates";
 
 function getSessionSecret() {
   const secret = process.env.SESSION_SECRET;

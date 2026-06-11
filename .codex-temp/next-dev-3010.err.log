@@ -1,0 +1,29 @@
+
+<--- Last few GCs --->
+
+[26132:000001D69F137000] 27437704 ms: Scavenge 14135.6 (14156.9) -> 14128.0 (14157.9) MB, pooled: 0.0 MB, 15.23 / 0.00 ms (average mu = 0.398, current mu = 0.444) task; 
+[26132:000001D69F137000] 27456638 ms: Mark-Compact (reduce) 14163.4 (14181.9) -> 14104.4 (14113.2) MB, pooled: 0.0 MB, 12478.14 / 52.12 ms (+ 1987.8 ms in 1439 steps since start of marking, biggest step 5.5 ms, walltime since start of marking 14756 ms) (a
+FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory
+----- Native stack trace -----
+
+ 1: 00007FF74EA12846 node::OnFatalError+1318
+ 2: 00007FF74F5B2627 v8::Function::NewInstance+423
+ 3: 00007FF74F3C0A37 v8::base::AddressSpaceReservation::AddressSpaceReservation+328087
+ 4: 00007FF74F3C4947 v8::base::AddressSpaceReservation::AddressSpaceReservation+344231
+ 5: 00007FF74F3D6548 v8::internal::StrongRootAllocatorBase::deallocate_impl+19176
+ 6: 00007FF74F3D5D7B v8::internal::StrongRootAllocatorBase::deallocate_impl+17179
+ 7: 00007FF750B591ED v8::platform::DelayedTaskQueue::Terminate+10478861
+ 8: 00007FF74F3BE368 v8::base::AddressSpaceReservation::AddressSpaceReservation+318152
+ 9: 00007FF74F3C7870 v8::base::AddressSpaceReservation::AddressSpaceReservation+356304
+10: 00007FF74F3B728F v8::base::AddressSpaceReservation::AddressSpaceReservation+289263
+11: 00007FF74E95EE1F v8::base::VirtualAddressSubspace::ActiveMemoryProtectionKey+43727
+12: 00007FF74E95D5C0 v8::base::VirtualAddressSubspace::ActiveMemoryProtectionKey+37488
+13: 00007FF74F61B89B uv_run+1867
+14: 00007FF74F61B40F uv_run+703
+15: 00007FF74EB3155F node::DecodeWrite+367
+16: 00007FF74E99FB40 node::MultiIsolatePlatform::DisposeIsolate+263072
+17: 00007FF74EA7117B node::Start+1227
+18: 00007FF74F9E3142 AES_cbc_encrypt+2546
+19: 00007FF750B62B74 v8::platform::DelayedTaskQueue::Terminate+10518164
+20: 00007FFFA04CE957 BaseThreadInitThunk+23
+21: 00007FFFA1487C1C RtlUserThreadStart+44
