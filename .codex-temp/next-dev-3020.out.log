@@ -45,3 +45,6 @@
 ✅ Loaded credentials from FIREBASE_SERVICE_ACCOUNT_KEY
 ✅ Target Project ID: validify-pro-test
 ✅ Firebase Admin SDK initialized
+✅ Using existing Firebase Admin app
+ GET /admin/resource-templates 200 in 315ms (next.js: 106ms, application-code: 209ms)
+ GET /api/resource-templates 200 in 3.4s (next.js: 107ms, application-code: 3.3s)

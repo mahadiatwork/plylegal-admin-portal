@@ -39,7 +39,7 @@ Added the following admin-protected API routes:
 
 API behavior implemented:
 
-- Requires the existing signed admin session cookie.
+- Does not require an admin access key or signed admin session cookie in this portal.
 - Uses Next 16 route-handler conventions with `runtime = "nodejs"` and awaited dynamic `params`.
 - Seeds missing `resourceTemplates/{visaSlug}` docs as `active`.
 - Stores client-facing fields: `parentId`, `kind`, `name`, `order`, `status`, `externalUrl`, `workdriveId`, `mimeType`, and `size`.
@@ -75,7 +75,7 @@ Updated `src/app/matter/[matterId]/resources/page.js` to include a visible `Visa
 Updated the admin shell:
 
 - `/admin` now redirects to `/admin/resource-templates`.
-- The default admin login redirect now targets `/admin/resource-templates`.
+- Admin access is open; `requireAdminSession` now returns an admin actor without redirecting to `/login`.
 - Header navigation now links to:
   - `Visa templates`
   - `Legacy library`
