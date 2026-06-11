@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const FormData = require('form-data');
+const WORKDRIVE_PUBLIC_LINK_NAME_MAX_LENGTH = 30;
 
 function extractAccessToken(responseData) {
   let token = null;
@@ -21,6 +22,18 @@ function extractAccessToken(responseData) {
   }
 
   return token;
+}
+
+function normalizeWorkDrivePublicLinkName(name) {
+  const value = typeof name === 'string' ? name.trim() : '';
+
+  return (
+    value
+      .replace(/[^a-zA-Z0-9 ._-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .slice(0, WORKDRIVE_PUBLIC_LINK_NAME_MAX_LENGTH)
+      .trim() || 'resource'
+  );
 }
 
 class ZohoCRMClient {
@@ -711,11 +724,12 @@ class ZohoCRMClient {
    */
   async createWorkDrivePublicLink(resourceId, linkName) {
     try {
+      const safeLinkName = normalizeWorkDrivePublicLinkName(linkName);
       const requestBody = {
         data: {
           attributes: {
             resource_id: resourceId,
-            link_name: linkName || 'resource',
+            link_name: safeLinkName,
             request_user_data: false,
             allow_download: true,
             role_id: '34',
@@ -790,6 +804,89 @@ class ZohoCRMClient {
       console.error('Error details:', error.response?.data || error);
       throw error;
     }
+  }
+
+  /**
+   * Delete a WorkDrive file/folder resource by moving it to deleted status.
+   * @param {string} resourceId - WorkDrive file/folder resource ID
+   * @returns {Promise<Object>} Delete response metadata
+   */
+  async deleteWorkDriveResource(resourceId) {
+    if (!resourceId) {
+      return { skipped: true };
+    }
+
+    const requestBody = {
+      data: {
+        attributes: {
+          status: '51',
+        },
+        type: 'files',
+      },
+    };
+
+    const tryDelete = async (forceRefresh = false) => {
+      const token = await this.getWorkDriveAccessToken(forceRefresh);
+
+      if (!token) {
+        throw new Error('No Zoho WorkDrive access token available');
+      }
+
+      const requestConfig = {
+        headers: {
+          Accept: 'application/vnd.api+json',
+          'Content-Type': 'application/vnd.api+json',
+          Authorization: `Zoho-oauthtoken ${token}`,
+        },
+      };
+
+      let response = null;
+      let lastError = null;
+
+      for (const baseUrl of this.getWorkDriveBaseUrls()) {
+        try {
+          response = await axios.patch(
+            `${baseUrl}/files/${resourceId}`,
+            requestBody,
+            requestConfig
+          );
+          break;
+        } catch (error) {
+          lastError = error;
+          console.warn(
+            `⚠️ WorkDrive delete request failed at ${baseUrl}/files/${resourceId}:`,
+            error.response?.data || error.message
+          );
+        }
+      }
+
+      return { response, lastError };
+    };
+
+    let { response, lastError } = await tryDelete(false);
+
+    if (!response && lastError?.response?.status === 401) {
+      console.log('⚠️ WorkDrive delete request was unauthorized, refreshing token and retrying...');
+      ({ response, lastError } = await tryDelete(true));
+    }
+
+    if (!response && lastError?.response?.status === 404) {
+      return { missing: true, resourceId };
+    }
+
+    if (!response) {
+      const zohoError = lastError?.response?.data?.errors?.[0];
+      const message = zohoError
+        ? `WorkDrive delete failed: ${zohoError.title || zohoError.id}`
+        : 'WorkDrive delete request failed';
+      const enhancedError = new Error(message);
+      enhancedError.status = lastError?.response?.status;
+      enhancedError.details = lastError?.response?.data || lastError?.message;
+      throw enhancedError;
+    }
+
+    console.log(`✅ WorkDrive resource deleted: ${resourceId}`);
+    return { deleted: true, resourceId, raw: response.data };
   }
 
   /**

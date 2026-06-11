@@ -7,6 +7,7 @@ import {
 import {
   ensureResourceTemplate,
   getTemplateItems,
+  normalizeTemplateCategories,
   normalizeTemplateStatus,
   normalizeVisaSlug,
   serializeTemplateDoc,
@@ -114,6 +115,15 @@ export async function PATCH(request, { params }) {
         updates.archivedAt = now;
         updates.archivedBy = actor;
       }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, "categories")) {
+      const categories = normalizeTemplateCategories(body.categories);
+      if (!categories.length) {
+        return errorResponse("At least one category is required", 400);
+      }
+
+      updates.categories = categories;
     }
 
     if (!Object.keys(updates).length) {

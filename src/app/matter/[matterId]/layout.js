@@ -113,7 +113,7 @@ export default function MatterLayout({ children }) {
       style={{ "--matter-header-height": `${headerHeight}px` }}
     >
       {/* Header */}
-      <header ref={headerRef} className="bg-white border-b border-gray-200 sticky top-0 z-50 print:hidden">
+      <header ref={headerRef} className="bg-white border-b border-gray-200 print:hidden">
         {/* Top Navbar (Full Width) */}
         <div className="border-b border-gray-100 px-4 sm:px-8 py-4 flex flex-row items-center justify-between">
           <div className="flex items-center gap-8">
@@ -125,7 +125,7 @@ export default function MatterLayout({ children }) {
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-[100rem] px-4 sm:px-6 lg:px-8">
           <div className="pt-6 pb-2">
             <Link href="/" className="inline-flex sm:hidden items-center text-sm text-gray-500 hover:text-gray-900 mb-4 transition-colors">
               <ArrowLeft className="h-4 w-4 mr-1" />
@@ -180,7 +180,7 @@ export default function MatterLayout({ children }) {
             </div>
           </div>
 
-          <div className="flex mt-2 -mb-px gap-6 overflow-x-auto">
+          <div className="flex flex-wrap mt-2 -mb-px gap-6">
             {tabs.map((tab) => {
               const isActive = pathname === tab.href || pathname?.startsWith(`${tab.href}/`);
               return (
@@ -202,7 +202,7 @@ export default function MatterLayout({ children }) {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="mx-auto w-full max-w-[100rem] flex-1 px-4 py-8 sm:px-6 lg:px-8">
         {children}
       </main>
     </div>

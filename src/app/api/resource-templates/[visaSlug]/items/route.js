@@ -7,6 +7,7 @@ import {
   normalizeResourceUrl,
   normalizeTemplateItemKind,
   normalizeTemplateItemStatus,
+  normalizeTemplateCategory,
   normalizeTemplateOrder,
   normalizeTemplateParentId,
   normalizeVisaSlug,
@@ -74,6 +75,7 @@ export async function POST(request, { params }) {
     const status = normalizeTemplateItemStatus(formData.get("status"), "active");
     const parentId = normalizeTemplateParentId(formData.get("parentId"));
     const order = normalizeTemplateOrder(formData.get("order"), 0);
+    const category = normalizeTemplateCategory(formData.get("category"));
     const nameInput = cleanText(formData.get("name") || formData.get("title"));
 
     if (!kind) {
@@ -98,6 +100,7 @@ export async function POST(request, { params }) {
       parentId,
       kind,
       name: nameInput,
+      category,
       order,
       status,
       externalUrl: null,

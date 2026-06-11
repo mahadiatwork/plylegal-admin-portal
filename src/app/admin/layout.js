@@ -34,12 +34,6 @@ export default function AdminLayout({ children }) {
           <div className="flex items-center gap-3">
             <nav className="hidden items-center gap-2 lg:flex">
               <Link
-                href="/admin/resource-templates"
-                className="rounded-md border border-[#d8e4de] bg-white px-3 py-2 text-sm font-medium text-[#38564b] transition-colors hover:border-[#8ac6ad] hover:text-[#17372e]"
-              >
-                Visa templates
-              </Link>
-              <Link
                 href="/admin/resources"
                 className="rounded-md border border-[#d8e4de] bg-white px-3 py-2 text-sm font-medium text-[#38564b] transition-colors hover:border-[#8ac6ad] hover:text-[#17372e]"
               >

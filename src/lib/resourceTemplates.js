@@ -11,8 +11,47 @@ export const MAX_RESOURCE_TEMPLATE_FILE_SIZE = 50 * 1024 * 1024;
 export const RESOURCE_TEMPLATE_STATUSES = ["active", "draft", "archived"];
 export const RESOURCE_TEMPLATE_ITEM_KINDS = ["folder", "file", "link", "note"];
 export const RESOURCE_TEMPLATE_ITEM_STATUSES = ["active", "hidden"];
+export const DEFAULT_RESOURCE_TEMPLATE_CATEGORY = "Uncategorized";
+export const RESOURCE_TEMPLATE_CATEGORY_ICONS = [
+  "folder",
+  "guide",
+  "policy",
+  "link",
+  "file",
+  "note",
+  "shield",
+  "scale",
+];
+export const DEFAULT_RESOURCE_TEMPLATE_CATEGORIES = [
+  { name: "Uncategorized", icon: "folder" },
+  { name: "Guides", icon: "guide" },
+  { name: "Policies", icon: "policy" },
+  { name: "Helpful Links", icon: "link" },
+];
 
 const RESOURCE_TEMPLATE_DEFINITIONS = [
+  {
+    visaSlug: "186",
+    title: "Subclass 186",
+    workDriveFolderId: "hf3e66da96e2822c344cfb9927deb2ab9f216",
+    workDriveFolderUrl:
+      "https://workdrive.zoho.com.au/folder/hf3e66da96e2822c344cfb9927deb2ab9f216?layout=list",
+    envKeys: [
+      "RESOURCE_TEMPLATE_186_WORKDRIVE_FOLDER_ID",
+      "VISA_186_RESOURCE_TEMPLATE_WORKDRIVE_FOLDER_ID",
+    ],
+  },
+  {
+    visaSlug: "482",
+    title: "Subclass 482",
+    workDriveFolderId: "hf3e63bcec93d5faf412cb6fbcb3075f4f2e2",
+    workDriveFolderUrl:
+      "https://workdrive.zoho.com.au/folder/hf3e63bcec93d5faf412cb6fbcb3075f4f2e2?layout=list",
+    envKeys: [
+      "RESOURCE_TEMPLATE_482_WORKDRIVE_FOLDER_ID",
+      "VISA_482_RESOURCE_TEMPLATE_WORKDRIVE_FOLDER_ID",
+    ],
+  },
   {
     visaSlug: "partner",
     title: "Partner Visa",
@@ -33,28 +72,6 @@ const RESOURCE_TEMPLATE_DEFINITIONS = [
     envKeys: [
       "RESOURCE_TEMPLATE_PROTECTION_WORKDRIVE_FOLDER_ID",
       "PROTECTION_RESOURCE_TEMPLATE_WORKDRIVE_FOLDER_ID",
-    ],
-  },
-  {
-    visaSlug: "482",
-    title: "Subclass 482",
-    workDriveFolderId: "hf3e63bcec93d5faf412cb6fbcb3075f4f2e2",
-    workDriveFolderUrl:
-      "https://workdrive.zoho.com.au/folder/hf3e63bcec93d5faf412cb6fbcb3075f4f2e2?layout=list",
-    envKeys: [
-      "RESOURCE_TEMPLATE_482_WORKDRIVE_FOLDER_ID",
-      "VISA_482_RESOURCE_TEMPLATE_WORKDRIVE_FOLDER_ID",
-    ],
-  },
-  {
-    visaSlug: "186",
-    title: "Subclass 186",
-    workDriveFolderId: "hf3e66da96e2822c344cfb9927deb2ab9f216",
-    workDriveFolderUrl:
-      "https://workdrive.zoho.com.au/folder/hf3e66da96e2822c344cfb9927deb2ab9f216?layout=list",
-    envKeys: [
-      "RESOURCE_TEMPLATE_186_WORKDRIVE_FOLDER_ID",
-      "VISA_186_RESOURCE_TEMPLATE_WORKDRIVE_FOLDER_ID",
     ],
   },
 ];
@@ -147,6 +164,36 @@ export function normalizeTemplateParentId(rawValue) {
   return value;
 }
 
+export function normalizeTemplateCategory(rawValue) {
+  return cleanText(rawValue) || DEFAULT_RESOURCE_TEMPLATE_CATEGORY;
+}
+
+export function normalizeTemplateCategoryIcon(rawValue) {
+  const value = cleanText(rawValue).toLowerCase();
+  return RESOURCE_TEMPLATE_CATEGORY_ICONS.includes(value) ? value : "folder";
+}
+
+export function normalizeTemplateCategories(rawValue) {
+  const values = Array.isArray(rawValue) ? rawValue : [];
+  const categoriesByName = new Map();
+
+  for (const value of values) {
+    const name =
+      typeof value === "string" ? cleanText(value) : cleanText(value?.name);
+    if (!name) continue;
+
+    categoriesByName.set(name.toLowerCase(), {
+      name,
+      icon:
+        typeof value === "string"
+          ? "folder"
+          : normalizeTemplateCategoryIcon(value?.icon),
+    });
+  }
+
+  return [...categoriesByName.values()];
+}
+
 export function normalizeTemplateOrder(rawValue, fallback = 0) {
   if (rawValue === null || rawValue === undefined || rawValue === "") {
     return fallback;
@@ -208,6 +255,7 @@ export async function ensureResourceTemplate(db, visaSlug, actor = "admin") {
       visaSlug: definition.visaSlug,
       title: definition.title,
       status: "active",
+      categories: DEFAULT_RESOURCE_TEMPLATE_CATEGORIES,
       workDriveFolderId: definition.workDriveFolderId,
       workDriveFolderUrl: definition.workDriveFolderUrl,
       createdAt: now,
@@ -235,6 +283,9 @@ export async function ensureResourceTemplate(db, visaSlug, actor = "admin") {
   if (!existingData.visaSlug) backfill.visaSlug = definition.visaSlug;
   if (!existingData.title) backfill.title = definition.title;
   if (!existingData.status) backfill.status = "active";
+  if (!Array.isArray(existingData.categories)) {
+    backfill.categories = DEFAULT_RESOURCE_TEMPLATE_CATEGORIES;
+  }
   if (existingData.workDriveFolderId !== definition.workDriveFolderId) {
     backfill.workDriveFolderId = definition.workDriveFolderId;
   }
@@ -325,10 +376,23 @@ export async function uploadResourceTemplateFile(file, title, folderId) {
     originalFileName,
     file.type || "application/octet-stream"
   );
-  const publicLink = await zohoClient.createWorkDrivePublicLink(
-    upload.resourceId,
-    sanitizeLinkName(title || originalFileName)
-  );
+
+  let publicLink;
+  try {
+    publicLink = await zohoClient.createWorkDrivePublicLink(
+      upload.resourceId,
+      sanitizeLinkName(title || originalFileName)
+    );
+  } catch (error) {
+    await zohoClient.deleteWorkDriveResource(upload.resourceId).catch((deleteError) => {
+      console.error(
+        "Failed to clean up WorkDrive file after public link creation failed:",
+        deleteError.message
+      );
+    });
+
+    throw error;
+  }
   const externalUrl =
     publicLink.link ||
     publicLink.downloadUrl ||
@@ -356,6 +420,15 @@ export async function uploadResourceTemplateFile(file, title, folderId) {
       downloadUrl: publicLink.downloadUrl || upload.downloadUrl || externalUrl,
     },
   };
+}
+
+export async function deleteResourceTemplateWorkDriveResource(item) {
+  const resourceId = cleanText(item?.workDriveResourceId || item?.workdriveId);
+  if (!resourceId) {
+    return { skipped: true };
+  }
+
+  return zohoClient.deleteWorkDriveResource(resourceId);
 }
 
 export { normalizeResourceUrl };

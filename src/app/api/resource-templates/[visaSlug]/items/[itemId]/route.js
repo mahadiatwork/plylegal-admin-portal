@@ -3,9 +3,11 @@ import { getAdminSession } from "@/lib/adminSession";
 import { db, initResult } from "@/lib/firebase-admin";
 import { cleanText } from "@/lib/sharedResources";
 import {
+  deleteResourceTemplateWorkDriveResource,
   ensureResourceTemplate,
   getTemplateItems,
   normalizeResourceUrl,
+  normalizeTemplateCategory,
   normalizeTemplateItemStatus,
   normalizeTemplateOrder,
   normalizeTemplateParentId,
@@ -118,6 +120,10 @@ export async function PATCH(request, { params }) {
       updates.parentId = parentId;
     }
 
+    if (Object.prototype.hasOwnProperty.call(body, "category")) {
+      updates.category = normalizeTemplateCategory(body.category);
+    }
+
     if (Object.prototype.hasOwnProperty.call(body, "order")) {
       const order = normalizeTemplateOrder(body.order, currentItem.order || 0);
       if (order === null) {
@@ -201,5 +207,46 @@ export async function PATCH(request, { params }) {
   } catch (error) {
     console.error("Error updating resource template item:", error);
     return errorResponse("Failed to update resource template item", 500, error.message);
+  }
+}
+
+export async function DELETE(_request, { params }) {
+  try {
+    const databaseError = requireDatabase();
+    if (databaseError) return databaseError;
+
+    const { actor, response: adminError } = await requireAdmin();
+    if (adminError) return adminError;
+
+    const { itemId } = await params;
+    if (!itemId) {
+      return errorResponse("Item ID is required", 400);
+    }
+
+    const { ref: templateRef, response } = await resolveTemplate(params, actor);
+    if (response) return response;
+
+    const itemRef = templateRef.collection("items").doc(itemId);
+    const itemSnap = await itemRef.get();
+
+    if (!itemSnap.exists) {
+      return errorResponse("Template item not found", 404);
+    }
+
+    const item = { id: itemSnap.id, ...itemSnap.data() };
+    await deleteResourceTemplateWorkDriveResource(item);
+    await itemRef.delete();
+    await templateRef.update({
+      updatedAt: new Date(),
+      updatedBy: actor,
+    });
+
+    return NextResponse.json({
+      success: true,
+      deletedId: itemId,
+    });
+  } catch (error) {
+    console.error("Error deleting resource template item:", error);
+    return errorResponse("Failed to delete resource template item", 500, error.message);
   }
 }
