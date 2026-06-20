@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useMemo, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -404,7 +404,7 @@ function QuestionnaireReviewSidebar({
 
   return (
     <aside
-      className="flex w-full shrink-0 flex-col bg-[#245a46] text-white lg:fixed lg:left-[max(0px,calc((100vw-80rem)/2))] lg:z-20 lg:w-[17.5rem]"
+      className="flex w-full shrink-0 flex-col bg-[#245a46] text-white lg:sticky lg:z-20 lg:w-[17.5rem]"
       style={{
         top: "var(--matter-header-height, 255px)",
         height: "calc(100vh - var(--matter-header-height, 255px))",
@@ -861,12 +861,15 @@ export default function SkillsInDemandQuestionnaireReview({
   );
   const flatNavigation = useMemo(() => flattenNavigation(groups), [groups]);
   const [activeKey, setActiveKey] = useState(flatNavigation[0]?.item.key || null);
+  const activeIndex = flatNavigation.findIndex(({ item }) => item.key === activeKey);
+  const active = activeIndex !== -1 ? flatNavigation[activeIndex] : flatNavigation[0];
 
-  const active = flatNavigation.find(({ item }) => item.key === activeKey) || flatNavigation[0];
+  const prevItem = activeIndex > 0 ? flatNavigation[activeIndex - 1] : null;
+  const nextItem = activeIndex !== -1 && activeIndex < flatNavigation.length - 1 ? flatNavigation[activeIndex + 1] : null;
 
   return (
     <div className="-mx-4 -my-8 min-h-[calc(100vh-210px)] bg-[#fbfaf7] sm:-mx-6 lg:-mx-8 print:hidden">
-      <div className="flex min-h-[calc(100vh-210px)] flex-col lg:block lg:pl-[17.5rem]">
+      <div className="flex min-h-[calc(100vh-210px)] flex-col lg:flex-row items-start">
         <QuestionnaireReviewSidebar
           groups={groups}
           activeKey={active?.item.key}
@@ -875,7 +878,7 @@ export default function SkillsInDemandQuestionnaireReview({
           percentage={percentage}
         />
 
-        <main className="relative z-0 min-w-0 flex-1 overflow-hidden px-5 py-10 sm:px-8 lg:px-12 lg:py-16">
+        <main className="relative z-0 min-w-0 flex-1 overflow-x-hidden px-5 py-10 sm:px-8 lg:px-12 lg:py-16">
           <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 z-0 hidden w-[42%] overflow-hidden lg:block">
             <div className="absolute right-0 top-0 h-full w-full bg-[#f4f1fb]" />
             <div className="absolute right-0 top-[8%] h-28 w-[115%] rounded-l-[999px] bg-[#fffdf8]" />
@@ -885,6 +888,34 @@ export default function SkillsInDemandQuestionnaireReview({
 
           <div className="relative z-[1] mx-auto w-full max-w-[66rem]">
             <ReviewCard active={active} />
+            
+            <div className="mt-8 flex items-center justify-between pb-10">
+              {prevItem ? (
+                <button
+                  onClick={() => {
+                    setActiveKey(prevItem.item.key);
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  className="flex items-center gap-2 rounded-lg border border-[#dfe8e2] bg-white px-5 py-2.5 text-[15px] font-medium text-[#123d33] shadow-sm transition-colors hover:bg-gray-50 focus:outline-none"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Previous: {prevItem.item.title}
+                </button>
+              ) : <div />}
+
+              {nextItem ? (
+                <button
+                  onClick={() => {
+                    setActiveKey(nextItem.item.key);
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  className="flex items-center gap-2 rounded-lg border border-[#dfe8e2] bg-[#245a46] px-5 py-2.5 text-[15px] font-medium text-white shadow-sm transition-colors hover:bg-[#1a4434] focus:outline-none"
+                >
+                  Next: {nextItem.item.title}
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              ) : <div />}
+            </div>
           </div>
         </main>
       </div>

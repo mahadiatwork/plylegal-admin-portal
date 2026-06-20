@@ -972,10 +972,10 @@ export default function QuestionnairePage() {
 
   return (
     <>
-      <div className="flex gap-0 -mx-4 sm:-mx-6 lg:-mx-8 -my-8 min-h-[calc(100vh-180px)] lg:pl-64 print:hidden">
+      <div className="flex flex-col lg:flex-row items-start gap-0 -mx-4 sm:-mx-6 lg:-mx-8 -my-8 min-h-[calc(100vh-180px)] print:hidden">
         {/* Category Sidebar */}
         <aside
-          className="no-print hidden lg:fixed lg:left-[max(0px,calc((100vw-80rem)/2))] lg:z-20 lg:block lg:w-64 lg:flex-shrink-0"
+          className="no-print hidden lg:sticky lg:top-[var(--matter-header-height,255px)] lg:z-20 lg:block lg:w-64 lg:flex-shrink-0"
           style={{
             top: "var(--matter-header-height, 255px)",
             height: "calc(100vh - var(--matter-header-height, 255px))",

@@ -19,6 +19,16 @@ export default function MatterLayout({ children }) {
   const [error, setError] = useState(null);
   const [headerHeight, setHeaderHeight] = useState(255);
 
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 40);
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
   useEffect(() => {
     async function fetchMatter() {
       try {
@@ -70,8 +80,7 @@ export default function MatterLayout({ children }) {
       observer.disconnect();
       window.removeEventListener("resize", updateHeaderHeight);
     };
-  }, [matterData]);
-
+  }, [matterData, isScrolled]);
 
   if (isLoading) {
     return (
@@ -113,7 +122,7 @@ export default function MatterLayout({ children }) {
       style={{ "--matter-header-height": `${headerHeight}px` }}
     >
       {/* Header */}
-      <header ref={headerRef} className="bg-white border-b border-gray-200 print:hidden">
+      <header ref={headerRef} className="bg-white border-b border-gray-200 print:hidden sticky top-0 z-30 transition-all duration-200 shadow-sm">
         {/* Top Navbar (Full Width) */}
         <div className="border-b border-gray-100 px-4 sm:px-8 py-4 flex flex-row items-center justify-between">
           <div className="flex items-center gap-8">
@@ -126,7 +135,7 @@ export default function MatterLayout({ children }) {
         </div>
 
         <div className="mx-auto max-w-[100rem] px-4 sm:px-6 lg:px-8">
-          <div className="pt-6 pb-2">
+          <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isScrolled ? 'max-h-0 opacity-0' : 'max-h-[300px] opacity-100 pt-6 pb-2'}`}>
             <Link href="/" className="inline-flex sm:hidden items-center text-sm text-gray-500 hover:text-gray-900 mb-4 transition-colors">
               <ArrowLeft className="h-4 w-4 mr-1" />
               Back to Search
