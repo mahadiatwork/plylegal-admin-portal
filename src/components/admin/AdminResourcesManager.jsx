@@ -183,7 +183,7 @@ function ResourceRow({
     <article className="rounded-3xl border border-white/75 bg-white/85 p-5 shadow-sm backdrop-blur">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex gap-4">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#dcebe4] bg-[#eff7f3] text-[#285646]">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#dcebe4] bg-[#eff7f3] text-[#4F726B]">
             {resource.type === "file" ? (
               <FileText className="h-5 w-5" />
             ) : resource.type === "note" ? (
@@ -601,7 +601,7 @@ export default function AdminResourcesManager() {
 
   return (
     <div className="space-y-8">
-      <section className="relative overflow-hidden rounded-[32px] border border-white/70 bg-[linear-gradient(135deg,_rgba(21,53,44,0.97),_rgba(40,86,70,0.9)_48%,_rgba(63,109,92,0.88)_100%)] px-6 py-7 text-white shadow-xl sm:px-8">
+      <section className="relative overflow-hidden rounded-[32px] border border-white/70 bg-[#4F726B] px-6 py-7 text-white shadow-xl sm:px-8">
         <div className="pointer-events-none absolute right-[-8%] top-[-18%] h-52 w-52 rounded-full bg-white/10 blur-3xl" />
         <div className="pointer-events-none absolute bottom-[-22%] left-[-6%] h-56 w-56 rounded-full bg-[#8ac6ad]/25 blur-3xl" />
 
@@ -702,8 +702,8 @@ export default function AdminResourcesManager() {
                         type="button"
                         className={`flex items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-medium transition-colors ${
                           active
-                            ? "border-[#285646] bg-[#285646] text-white"
-                            : "border-[#d8e4de] bg-white text-[#466055] hover:border-[#8ac6ad] hover:text-[#285646]"
+                            ? "border-[#4F726B] bg-[#4F726B] text-white"
+                            : "border-[#d8e4de] bg-white text-[#466055] hover:border-[#8ac6ad] hover:text-[#4F726B]"
                         }`}
                         onClick={() => {
                           updateFormField("type", option.value);
@@ -733,7 +733,7 @@ export default function AdminResourcesManager() {
                     htmlFor="shared-resource-file"
                     className="flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-[24px] border border-dashed border-[#cfe0d8] bg-[#f6faf8] px-5 py-6 text-center transition-colors hover:border-[#8ac6ad] hover:bg-[#f0f8f4]"
                   >
-                    <UploadCloud className="mb-3 h-8 w-8 text-[#285646]" />
+                    <UploadCloud className="mb-3 h-8 w-8 text-[#4F726B]" />
                     <span className="text-sm font-semibold text-[#17372e]">
                       {file?.name || editingResource?.fileName || "Choose a shared file"}
                     </span>
@@ -887,14 +887,14 @@ export default function AdminResourcesManager() {
               </div>
 
               <div className="rounded-2xl border border-[#dce9e3] bg-[#f7faf8] px-4 py-3 text-sm text-[#60786f]">
-                Draft resources stay hidden until you switch them to <span className="font-semibold text-[#285646]">Active</span>.
+                Draft resources stay hidden until you switch them to <span className="font-semibold text-[#4F726B]">Active</span>.
                 Targeting fields are stored now so the client portal can filter them later.
               </div>
 
               <Button
                 type="submit"
                 disabled={isSaving}
-                className="h-12 w-full rounded-2xl bg-[#285646] text-white hover:bg-[#1f4236]"
+                className="h-12 w-full rounded-2xl bg-[#4F726B] text-white hover:bg-[#4F726B]"
               >
                 {isSaving ? (
                   <>
@@ -977,7 +977,7 @@ export default function AdminResourcesManager() {
 
           {isLoading ? (
             <div className="flex min-h-[420px] items-center justify-center rounded-[28px] border border-white/75 bg-white/85 shadow-sm backdrop-blur">
-              <div className="text-center text-[#285646]">
+              <div className="text-center text-[#4F726B]">
                 <Loader2 className="mx-auto h-8 w-8 animate-spin" />
                 <p className="mt-4 text-sm text-[#567066]">Loading shared resources...</p>
               </div>
@@ -998,7 +998,7 @@ export default function AdminResourcesManager() {
             </div>
           ) : (
             <div className="flex min-h-[420px] flex-col items-center justify-center rounded-[28px] border border-dashed border-[#d5e2dc] bg-white/80 px-6 text-center shadow-sm backdrop-blur">
-              <div className="flex h-16 w-16 items-center justify-center rounded-3xl border border-[#dbe7e1] bg-[#f6faf8] text-[#285646]">
+              <div className="flex h-16 w-16 items-center justify-center rounded-3xl border border-[#dbe7e1] bg-[#f6faf8] text-[#4F726B]">
                 <LibraryBig className="h-7 w-7" />
               </div>
               <h3 className="mt-5 text-xl font-semibold text-[#17372e]">No shared resources match these filters</h3>

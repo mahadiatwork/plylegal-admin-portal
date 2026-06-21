@@ -731,7 +731,7 @@ export default function AdminResourceTemplatesManager() {
       <section className="rounded-lg border border-[#dbe7e1] bg-white p-6 shadow-sm">
         <div className="grid gap-6 xl:grid-cols-[1fr_auto] xl:items-center">
           <div className="flex min-w-0 items-center gap-4">
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg bg-[#eff7f3] text-[#285646]">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg bg-[#eff7f3] text-[#4F726B]">
               <Folder className="h-8 w-8" />
             </div>
             <div>
@@ -808,7 +808,7 @@ export default function AdminResourceTemplatesManager() {
                     href={link.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex h-8 max-w-full items-center gap-2 rounded-md border border-emerald-200 bg-white px-3 text-xs font-semibold text-[#285646] shadow-sm hover:border-[#8ac6ad]"
+                    className="inline-flex h-8 max-w-full items-center gap-2 rounded-md border border-emerald-200 bg-white px-3 text-xs font-semibold text-[#4F726B] shadow-sm hover:border-[#8ac6ad]"
                   >
                     <Link2 className="h-3.5 w-3.5" />
                     <span className="truncate">Open {link.name}</span>
@@ -835,7 +835,7 @@ export default function AdminResourceTemplatesManager() {
               }}
               className={`rounded-md border px-5 py-4 text-left shadow-sm transition-colors ${
                 active
-                  ? "border-[#285646] bg-[#285646] text-white"
+                  ? "border-[#4F726B] bg-[#4F726B] text-white"
                   : "border-[#dbe7e1] bg-white text-[#17372e] hover:border-[#8ac6ad]"
               }`}
             >
@@ -881,7 +881,7 @@ export default function AdminResourceTemplatesManager() {
                   }}
                   className={`flex w-full items-center justify-between rounded-md px-3 py-3 text-sm font-medium transition-colors ${
                     active
-                      ? "bg-[#e8f4ee] text-[#285646]"
+                      ? "bg-[#e8f4ee] text-[#4F726B]"
                       : "bg-white text-[#38564b] hover:bg-[#f7faf8]"
                   }`}
                 >
@@ -917,7 +917,7 @@ export default function AdminResourceTemplatesManager() {
                           onClick={() => setNewCategoryIcon(option.value)}
                           className={`flex h-9 items-center justify-center rounded-md border transition-colors ${
                             selected
-                              ? "border-[#285646] bg-[#e8f4ee] text-[#285646]"
+                              ? "border-[#4F726B] bg-[#e8f4ee] text-[#4F726B]"
                               : "border-[#dbe7e1] bg-white text-[#60786f] hover:border-[#8ac6ad]"
                           }`}
                         >
@@ -930,7 +930,7 @@ export default function AdminResourceTemplatesManager() {
                 <div className="grid grid-cols-2 gap-2">
                   <Button
                     type="button"
-                    className="h-9 bg-[#285646] text-white hover:bg-[#1f4236]"
+                    className="h-9 bg-[#4F726B] text-white hover:bg-[#4F726B]"
                     disabled={isCategorySaving}
                     onClick={handleNewCategory}
                   >
@@ -956,7 +956,7 @@ export default function AdminResourceTemplatesManager() {
               <Button
                 type="button"
                 variant="outline"
-                className="h-10 w-full border-[#d7e4de] bg-white text-[#285646]"
+                className="h-10 w-full border-[#d7e4de] bg-white text-[#4F726B]"
                 onClick={() => setShowNewCategory(true)}
               >
                 <Plus className="h-4 w-4" />
@@ -996,16 +996,16 @@ export default function AdminResourceTemplatesManager() {
                 onDrop={handleDrop}
                 className={`rounded-lg border border-dashed px-5 py-8 text-center transition-colors ${
                   isDragging
-                    ? "border-[#285646] bg-[#285646]/5"
+                    ? "border-[#4F726B] bg-[#4F726B]/5"
                     : "border-[#d7e4de] bg-[#fbfdfc]"
                 }`}
               >
-                <UploadCloud className="mx-auto h-9 w-9 text-[#285646]" />
+                <UploadCloud className="mx-auto h-9 w-9 text-[#4F726B]" />
                 <p className="mt-3 text-sm font-semibold text-[#17372e]">
                   Drag and drop files here
                 </p>
                 <p className="my-2 text-xs text-[#71857d]">or</p>
-                <label className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md bg-[#285646] px-4 text-sm font-medium text-white hover:bg-[#1f4236]">
+                <label className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md bg-[#4F726B] px-4 text-sm font-medium text-white hover:bg-[#4F726B]">
                   Choose files to upload
                   <input
                     key={fileInputKey}
@@ -1019,7 +1019,7 @@ export default function AdminResourceTemplatesManager() {
                   Maximum file size: 50 MB per file
                 </p>
                 {files.length ? (
-                  <p className="mt-2 text-xs font-medium text-[#285646]">
+                  <p className="mt-2 text-xs font-medium text-[#4F726B]">
                     {files.length} selected
                   </p>
                 ) : null}
@@ -1134,7 +1134,7 @@ export default function AdminResourceTemplatesManager() {
               <Button
                 type="submit"
                 disabled={isSubmitting || isLoading}
-                className="h-10 bg-[#285646] text-white hover:bg-[#1f4236]"
+                className="h-10 bg-[#4F726B] text-white hover:bg-[#4F726B]"
               >
                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
                 {editingItem ? "Save resource" : form.kind === "file" ? "Upload file" : "Add resource"}
@@ -1184,7 +1184,7 @@ export default function AdminResourceTemplatesManager() {
           </div>
 
           {isLoading ? (
-            <div className="flex min-h-[420px] items-center justify-center text-[#285646]">
+            <div className="flex min-h-[420px] items-center justify-center text-[#4F726B]">
               <Loader2 className="h-7 w-7 animate-spin" />
             </div>
           ) : tableItems.length ? (
@@ -1205,7 +1205,7 @@ export default function AdminResourceTemplatesManager() {
                       className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_130px_100px_64px_52px] md:items-center md:gap-4"
                     >
                       <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#dbe7e1] bg-[#f7faf8] text-[#285646]">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#dbe7e1] bg-[#f7faf8] text-[#4F726B]">
                           <KindIcon kind={item.kind} className="h-4 w-4" />
                         </div>
                         <p className="min-w-0 truncate font-semibold text-[#17372e]">
@@ -1231,7 +1231,7 @@ export default function AdminResourceTemplatesManager() {
                             variant="ghost"
                             size="icon"
                             title="Open external link"
-                            className="text-[#285646] hover:bg-[#e8f4ee] hover:text-[#17372e]"
+                            className="text-[#4F726B] hover:bg-[#e8f4ee] hover:text-[#17372e]"
                           >
                             <a
                               href={item.externalUrl}

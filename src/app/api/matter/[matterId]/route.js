@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db, initResult } from '@/lib/firebase-admin';
+import { calculateTemporaryWorkProgress, countTrueCompletionKeys } from '@/lib/questionnaireProgress';
 import { getAllRoutes } from '@/lib/routes';
 import { resolveMatterApplication } from '@/lib/matterResolver';
 
@@ -54,26 +55,31 @@ export async function GET(request, { params }) {
     const questionnaireData = questionnaireSnap.exists ? questionnaireSnap.data() : {};
     const completionData = completionSnap.exists ? completionSnap.data() : {};
 
-    // Calculate percentage
+    // Calculate percentage using the same section model as the client portal
+    // for temporary-work questionnaires.
     let percentage = 0;
     const visaTypeCode = applicationData.visaTypeCode?.toLowerCase() || 'partner'; // default fallback
     const visaContext = questionnaireData?.visaContext || null;
+    let completedSections = 0;
+    let totalSections = 0;
     
-    // We get the total possible routes for this visa type
-    const profiles = questionnaireData?.profiles || [];
-    const allRoutes = getAllRoutes(visaTypeCode, visaContext, profiles);
-    const totalSections = allRoutes.length;
-    
-    // Count only actual completed section flags. Metadata fields such as
-    // updatedAt are truthy too and should not inflate the progress.
-    const completedSections = Object.entries(completionData).filter(
-      ([key, value]) => key !== 'updatedAt' && value === true
-    ).length;
-    
-    if (totalSections > 0) {
-      percentage = Math.round((completedSections / totalSections) * 100);
-      // Cap at 100% just in case there are extra keys
-      if (percentage > 100) percentage = 100;
+    if (visaTypeCode === 'temporary-work') {
+      const progress = calculateTemporaryWorkProgress(completionData, questionnaireData);
+      completedSections = progress.completedSections;
+      totalSections = progress.totalSections;
+      percentage = progress.percentage;
+    } else {
+      // Legacy non-temporary-work calculation.
+      const profiles = questionnaireData?.profiles || [];
+      const allRoutes = getAllRoutes(visaTypeCode, visaContext, profiles);
+      totalSections = allRoutes.length;
+      completedSections = countTrueCompletionKeys(completionData);
+
+      if (totalSections > 0) {
+        percentage = Math.round((completedSections / totalSections) * 100);
+        // Cap at 100% just in case there are extra keys
+        if (percentage > 100) percentage = 100;
+      }
     }
 
     // Remove any firebase-specific server timestamps from the payload
@@ -86,6 +92,13 @@ export async function GET(request, { params }) {
       questionnaire: questionnaireData,
       completion: completionData,
       percentage,
+      progress: {
+        completedSections,
+        totalSections,
+      },
+      matchedBy: resolved.matchedBy,
+      duplicateCount: resolved.duplicateCount || 1,
+      duplicateIds: resolved.duplicateIds || [appId],
     });
   } catch (error) {
     console.error('Error fetching matter data:', error);

@@ -7,12 +7,17 @@ import { ArrowLeft, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatVisaApplicationType } from "@/lib/visaDisplay";
 
+const HEADER_COLLAPSE_SCROLL_Y = 120;
+const HEADER_EXPAND_SCROLL_Y = 24;
+
 export default function MatterLayout({ children }) {
   const params = useParams();
   const pathname = usePathname();
   const router = useRouter();
   const matterId = params.matterId;
   const headerRef = useRef(null);
+  const headerHeightFrameRef = useRef(null);
+  const isScrolledRef = useRef(false);
 
   const [matterData, setMatterData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -23,8 +28,17 @@ export default function MatterLayout({ children }) {
 
   useEffect(() => {
     const handleScroll = () => {
-      setIsScrolled(window.scrollY > 40);
+      const nextIsScrolled = isScrolledRef.current
+        ? window.scrollY > HEADER_EXPAND_SCROLL_Y
+        : window.scrollY > HEADER_COLLAPSE_SCROLL_Y;
+
+      if (nextIsScrolled !== isScrolledRef.current) {
+        isScrolledRef.current = nextIsScrolled;
+        setIsScrolled(nextIsScrolled);
+      }
     };
+
+    handleScroll();
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
@@ -38,17 +52,16 @@ export default function MatterLayout({ children }) {
 
         if (data.success) {
           setMatterData(data);
-          const dealId =
-            data.application?.zohoId ||
-            data.application?.zohoDealId ||
-            data.application?.dealId;
+          const canonicalApplicationId = data.application?.id;
 
           if (
-            dealId &&
-            dealId !== matterId &&
+            canonicalApplicationId &&
+            canonicalApplicationId !== matterId &&
             pathname?.startsWith(`/matter/${matterId}`)
           ) {
-            router.replace(pathname.replace(`/matter/${matterId}`, `/matter/${dealId}`));
+            router.replace(
+              pathname.replace(`/matter/${matterId}`, `/matter/${canonicalApplicationId}`)
+            );
           }
         } else {
           setError(data.error + (data.details ? `: ${data.details}` : ""));
@@ -67,7 +80,17 @@ export default function MatterLayout({ children }) {
     if (!header) return;
 
     const updateHeaderHeight = () => {
-      setHeaderHeight(Math.ceil(header.getBoundingClientRect().height));
+      if (headerHeightFrameRef.current !== null) return;
+
+      headerHeightFrameRef.current = window.requestAnimationFrame(() => {
+        headerHeightFrameRef.current = null;
+        const nextHeaderHeight = Math.ceil(header.getBoundingClientRect().height);
+        setHeaderHeight((currentHeaderHeight) =>
+          currentHeaderHeight === nextHeaderHeight
+            ? currentHeaderHeight
+            : nextHeaderHeight
+        );
+      });
     };
 
     updateHeaderHeight();
@@ -77,16 +100,20 @@ export default function MatterLayout({ children }) {
     window.addEventListener("resize", updateHeaderHeight);
 
     return () => {
+      if (headerHeightFrameRef.current !== null) {
+        window.cancelAnimationFrame(headerHeightFrameRef.current);
+        headerHeightFrameRef.current = null;
+      }
       observer.disconnect();
       window.removeEventListener("resize", updateHeaderHeight);
     };
-  }, [matterData, isScrolled]);
+  }, [matterData]);
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-[#E4E9FF] flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto text-[#285646] mb-4" />
+          <Loader2 className="h-8 w-8 animate-spin mx-auto text-[#4F726B] mb-4" />
           <p className="text-gray-500">Loading matter data...</p>
         </div>
       </div>
@@ -95,7 +122,7 @@ export default function MatterLayout({ children }) {
 
   if (error || !matterData) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+      <div className="min-h-screen bg-[#E4E9FF] flex flex-col items-center justify-center p-4">
         <div className="bg-white p-8 rounded-xl shadow-sm text-center max-w-md w-full">
           <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
           <h2 className="text-xl font-semibold mb-2">Error Loading Matter</h2>
@@ -109,8 +136,8 @@ export default function MatterLayout({ children }) {
   }
 
   const { application, percentage } = matterData;
-  const canonicalMatterId =
-    application.zohoId || application.zohoDealId || application.dealId || matterId;
+  const canonicalMatterId = application.id || matterId;
+  const dealId = application.zohoId || application.zohoDealId || application.dealId;
   const tabs = [
     { href: `/matter/${canonicalMatterId}/questionnaire`, label: "Questionnaire" },
     { href: `/matter/${canonicalMatterId}/resources`, label: "Resources" },
@@ -118,11 +145,15 @@ export default function MatterLayout({ children }) {
 
   return (
     <div
-      className="min-h-screen bg-gray-50 flex flex-col"
+      className="min-h-screen bg-[#E4E9FF] flex flex-col"
       style={{ "--matter-header-height": `${headerHeight}px` }}
     >
       {/* Header */}
-      <header ref={headerRef} className="bg-white border-b border-gray-200 print:hidden sticky top-0 z-30 transition-all duration-200 shadow-sm">
+      <header
+        ref={headerRef}
+        className="bg-white border-b border-gray-200 print:hidden sticky top-0 z-30 transition-all duration-200 shadow-sm"
+        style={{ overflowAnchor: "none" }}
+      >
         {/* Top Navbar (Full Width) */}
         <div className="border-b border-gray-100 px-4 sm:px-8 py-4 flex flex-row items-center justify-between">
           <div className="flex items-center gap-8">
@@ -153,7 +184,8 @@ export default function MatterLayout({ children }) {
                   </span>
                 </div>
                 <p className="text-sm text-gray-500 flex items-center gap-2">
-                  <span>Deal ID: {canonicalMatterId || "N/A"}</span>
+                  <span>Application ID: {canonicalMatterId || "N/A"}</span>
+                  {dealId && <span>Deal ID: {dealId}</span>}
                 </p>
               </div>
 
@@ -169,7 +201,7 @@ export default function MatterLayout({ children }) {
                       strokeWidth="3"
                     />
                     <path
-                      className="text-[#285646]"
+                      className="text-[#4F726B]"
                       strokeDasharray={`${percentage || 0}, 100`}
                       d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                       fill="none"
@@ -177,7 +209,7 @@ export default function MatterLayout({ children }) {
                       strokeWidth="3"
                     />
                   </svg>
-                  <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-[#285646]">
+                  <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-[#4F726B]">
                     {percentage || 0}%
                   </div>
                 </div>
@@ -198,7 +230,7 @@ export default function MatterLayout({ children }) {
                   href={tab.href}
                   className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 whitespace-nowrap transition-colors ${
                     isActive
-                      ? "border-[#285646] text-[#285646]"
+                      ? "border-[#4F726B] text-[#4F726B]"
                       : "border-transparent text-gray-500 hover:text-gray-900"
                   }`}
                 >

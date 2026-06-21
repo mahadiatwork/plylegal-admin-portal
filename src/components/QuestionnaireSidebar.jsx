@@ -32,11 +32,11 @@ export default function QuestionnaireSidebar({
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#F8FAFC] border-r border-gray-200 w-64">
+    <div className="flex flex-col h-full bg-[#E4E9FF] border-r border-gray-200 w-64">
       {/* Sidebar Header */}
       <div className="px-6 py-6 border-b border-gray-200/50">
         <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-          <FileText className="h-4 w-4 text-[#285646]" />
+          <FileText className="h-4 w-4 text-[#4F726B]" />
           Questionnaire
         </h3>
         <p className="text-[11px] text-gray-500 mt-1 uppercase tracking-wider font-medium">
@@ -57,12 +57,12 @@ export default function QuestionnaireSidebar({
                   w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200
                   ${
                     isActive
-                      ? "bg-white shadow-sm border border-gray-200 text-[#285646]"
+                      ? "bg-white shadow-sm border border-gray-200 text-[#4F726B]"
                       : "text-gray-500 hover:bg-gray-100 hover:text-gray-900"
                   }
                 `}
               >
-                <Icon className={`h-4 w-4 ${isActive ? "text-[#285646]" : "text-gray-400"}`} />
+                <Icon className={`h-4 w-4 ${isActive ? "text-[#4F726B]" : "text-gray-400"}`} />
                 {cat.label}
               </button>
             );

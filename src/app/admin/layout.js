@@ -4,7 +4,7 @@ import AdminLogoutButton from "@/components/admin/AdminLogoutButton";
 
 export default function AdminLayout({ children }) {
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,_#f4f8f6_0%,_#eef2f7_100%)]">
+    <div className="min-h-screen bg-[#E4E9FF]">
       <header className="border-b border-white/70 bg-white/75 backdrop-blur">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-4">
@@ -17,7 +17,7 @@ export default function AdminLayout({ children }) {
             </Link>
             <div className="hidden h-6 w-px bg-[#dce6e1] sm:block" />
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#285646] text-white shadow-sm">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#4F726B] text-white shadow-sm">
                 <LibraryBig className="h-5 w-5" />
               </div>
               <div className="min-w-0">

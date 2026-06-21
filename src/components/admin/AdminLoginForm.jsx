@@ -49,7 +49,7 @@ export default function AdminLoginForm({ nextPath }) {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(40,86,70,0.22),_transparent_36%),linear-gradient(135deg,_#f7fbf8_0%,_#eef6f2_42%,_#eef0ff_100%)] px-4 py-8 sm:px-6 lg:px-8">
+    <div className="relative min-h-screen overflow-hidden bg-[#E4E9FF] px-4 py-8 sm:px-6 lg:px-8">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute left-[-10%] top-[-12%] h-72 w-72 rounded-full bg-[#8ac6ad]/25 blur-3xl" />
         <div className="absolute bottom-[-10%] right-[-12%] h-96 w-96 rounded-full bg-[#d7e5ff]/55 blur-3xl" />
@@ -58,7 +58,7 @@ export default function AdminLoginForm({ nextPath }) {
       <div className="relative mx-auto flex min-h-[calc(100vh-4rem)] max-w-5xl items-center justify-center">
         <div className="grid w-full gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <section className="space-y-6 text-center lg:text-left">
-            <div className="inline-flex items-center justify-center rounded-full border border-white/70 bg-white/70 px-4 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-[#285646] shadow-sm backdrop-blur lg:justify-start">
+            <div className="inline-flex items-center justify-center rounded-full border border-white/70 bg-white/70 px-4 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-[#4F726B] shadow-sm backdrop-blur lg:justify-start">
               ValidifyPro Admin Portal
             </div>
 
@@ -73,14 +73,14 @@ export default function AdminLoginForm({ nextPath }) {
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-2xl border border-white/75 bg-white/70 p-4 text-left shadow-sm backdrop-blur">
-                <ShieldCheck className="h-5 w-5 text-[#285646]" />
+                <ShieldCheck className="h-5 w-5 text-[#4F726B]" />
                 <p className="mt-3 text-sm font-semibold text-[#16362d]">Protected admin entry</p>
                 <p className="mt-1 text-sm text-[#5c746b]">
                   Shared-resource APIs and screens stay behind a signed admin session.
                 </p>
               </div>
               <div className="rounded-2xl border border-white/75 bg-white/70 p-4 text-left shadow-sm backdrop-blur">
-                <KeyRound className="h-5 w-5 text-[#285646]" />
+                <KeyRound className="h-5 w-5 text-[#4F726B]" />
                 <p className="mt-3 text-sm font-semibold text-[#16362d]">Session-based access</p>
                 <p className="mt-1 text-sm text-[#5c746b]">
                   The session is stored in an HTTP-only cookie so the client never touches the secret.
@@ -91,7 +91,7 @@ export default function AdminLoginForm({ nextPath }) {
 
           <section className="login-glass-panel rounded-[28px] p-6 sm:p-8">
             <div className="mb-6 flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#285646] text-white shadow-sm">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#4F726B] text-white shadow-sm">
                 <KeyRound className="h-5 w-5" />
               </div>
               <div>
@@ -132,7 +132,7 @@ export default function AdminLoginForm({ nextPath }) {
               <Button
                 type="submit"
                 disabled={isSubmitting}
-                className="h-12 w-full rounded-xl bg-[#285646] text-white hover:bg-[#1f4236]"
+                className="h-12 w-full rounded-xl bg-[#4F726B] text-white hover:bg-[#4F726B]"
               >
                 {isSubmitting ? (
                   <>

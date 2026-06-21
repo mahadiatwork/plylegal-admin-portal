@@ -167,7 +167,7 @@ function GridRenderer({ data, parentPath = "", commentsByPath = {}, onAddComment
             {onAddComment && (
               <button
                 onClick={() => onAddComment(fieldPath, formattedKey)}
-                className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity p-1 text-gray-400 hover:text-[#285646]"
+                className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity p-1 text-gray-400 hover:text-[#4F726B]"
               >
                 <MessageSquarePlus className="h-4 w-4" />
               </button>
@@ -292,7 +292,7 @@ function RenderQuestions({ data, parentPath = "", commentsByPath = {}, onAddComm
             {isLeaf && onAddComment && (
               <button
                 onClick={() => onAddComment(fieldPath, formattedKey)}
-                className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity p-1 text-gray-400 hover:text-[#285646]"
+                className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity p-1 text-gray-400 hover:text-[#4F726B]"
                 title="Add reviewer note"
               >
                 <MessageSquarePlus className="h-4 w-4" />
@@ -485,7 +485,7 @@ function CommentDrawer({
                 </span>
                 <button
                   onClick={() => onResolveComment(comment.id)}
-                  className="text-[10px] font-medium text-[#285646] hover:underline"
+                  className="text-[10px] font-medium text-[#4F726B] hover:underline"
                 >
                   Mark resolved
                 </button>
@@ -529,7 +529,7 @@ function CommentDrawer({
               size="sm"
               onClick={handleSubmit}
               disabled={!body.trim()}
-              className="bg-[#285646] hover:bg-[#1e4035] text-white"
+              className="bg-[#4F726B] hover:bg-[#4F726B] text-white"
             >
               Save Note
             </Button>
@@ -566,19 +566,19 @@ function SectionCard({
           <div
             className={`flex items-center justify-between px-5 py-3.5 cursor-pointer transition-all duration-200 ${
               expanded
-                ? "bg-[#285646]/8 border-b border-[#285646]/15"
+                ? "bg-[#4F726B]/8 border-b border-[#4F726B]/15"
                 : "bg-gray-50/80 border-b border-gray-100 hover:bg-gray-100/80"
             }`}
           >
             <div className="flex items-center gap-3">
               <div
                 className={`w-1 h-6 rounded-full transition-colors duration-200 ${
-                  expanded ? "bg-[#285646]" : "bg-transparent"
+                  expanded ? "bg-[#4F726B]" : "bg-transparent"
                 }`}
               />
               <h3
                 className={`font-semibold text-[15px] ${
-                  expanded ? "text-[#285646]" : "text-gray-800"
+                  expanded ? "text-[#4F726B]" : "text-gray-800"
                 }`}
               >
                 {title}
@@ -640,13 +640,13 @@ function ProfileTabs({ profiles, activeKey, onChange }) {
               flex-1 min-w-[200px] px-6 py-4 text-sm font-semibold transition-all duration-200 border-b-2
               ${
                 isActive
-                  ? "border-[#285646] text-[#285646] bg-[#285646]/5"
+                  ? "border-[#4F726B] text-[#4F726B] bg-[#4F726B]/5"
                   : "border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50"
               }
             `}
           >
             <div className="flex items-center justify-center gap-2">
-              <User className={`h-4 w-4 ${isActive ? "text-[#285646]" : "text-gray-400"}`} />
+              <User className={`h-4 w-4 ${isActive ? "text-[#4F726B]" : "text-gray-400"}`} />
               {p.title}
             </div>
           </button>
@@ -671,12 +671,12 @@ function SectionSidebar({ subSections, activeKey, onChange }) {
               w-full flex items-center gap-3 px-6 py-4 text-sm font-medium transition-all duration-200 border-l-4
               ${
                 isActive
-                  ? "bg-[#285646]/5 border-[#285646] text-[#285646]"
+                  ? "bg-[#4F726B]/5 border-[#4F726B] text-[#4F726B]"
                   : "bg-transparent border-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-700"
               }
             `}
           >
-            <Icon className={`h-4 w-4 ${isActive ? "text-[#285646]" : "text-gray-400"}`} />
+            <Icon className={`h-4 w-4 ${isActive ? "text-[#4F726B]" : "text-gray-400"}`} />
             <span className="truncate">{s.title}</span>
           </button>
         );
@@ -938,7 +938,7 @@ export default function QuestionnairePage() {
   if (isLoading) {
     return (
       <div className="flex justify-center p-12">
-        <Loader2 className="h-8 w-8 animate-spin text-[#285646]" />
+        <Loader2 className="h-8 w-8 animate-spin text-[#4F726B]" />
       </div>
     );
   }
@@ -989,7 +989,7 @@ export default function QuestionnairePage() {
         </aside>
 
         {/* Main Content */}
-        <main className="relative z-0 flex-1 min-w-0 bg-[#F8FAFC]">
+        <main className="relative z-0 flex-1 min-w-0 bg-[#E4E9FF]">
           <div className="p-6 lg:p-10 space-y-8 max-w-6xl mx-auto">
             
             {/* Matter Hero (Redesigned Header) */}
@@ -998,7 +998,7 @@ export default function QuestionnairePage() {
                 <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
                   {data?.mainApplicant?.details?.given_names} {data?.mainApplicant?.details?.family_name} - Skills in Demand (Subclass 482)
                 </h1>
-                <Badge className="bg-[#285646]/10 text-[#285646] border-[#285646]/20 hover:bg-[#285646]/10 px-3 py-1 text-xs">
+                <Badge className="bg-[#4F726B]/10 text-[#4F726B] border-[#4F726B]/20 hover:bg-[#4F726B]/10 px-3 py-1 text-xs">
                   Skills in Demand (Subclass 482)
                 </Badge>
                 <Badge variant="secondary" className="bg-gray-100 text-gray-500 hover:bg-gray-100 px-3 py-1 text-xs font-normal">
@@ -1007,7 +1007,7 @@ export default function QuestionnairePage() {
               </div>
               <div className="flex items-center gap-6 text-sm text-gray-500 font-medium">
                 <div className="flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-[#285646]" />
+                  <FileText className="h-4 w-4 text-[#4F726B]" />
                   Questionnaire
                 </div>
                 <div className="flex items-center gap-2">
@@ -1046,7 +1046,7 @@ export default function QuestionnairePage() {
                   {activeSection && (
                     <>
                       {/* Dark Green Section Header */}
-                      <div className="bg-[#4a675d] text-white px-6 py-4 flex items-center justify-between shadow-sm">
+                      <div className="bg-[#4F726B] text-white px-6 py-4 flex items-center justify-between shadow-sm">
                         <h2 className="text-sm font-semibold tracking-wide uppercase">
                           {activeProfile?.title?.toUpperCase()} - {activeSection?.title?.toUpperCase()}
                         </h2>
@@ -1056,7 +1056,7 @@ export default function QuestionnairePage() {
                                     type="checkbox"
                                     checked={includeCommentsInPDF}
                                     onChange={(e) => setIncludeCommentsInPDF(e.target.checked)}
-                                    className="rounded border-white/30 bg-transparent text-[#285646] focus:ring-offset-0 focus:ring-0"
+                                    className="rounded border-white/30 bg-transparent text-[#4F726B] focus:ring-offset-0 focus:ring-0"
                                 />
                                 Include notes in PDF
                             </label>

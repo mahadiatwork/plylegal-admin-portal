@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -12,6 +12,7 @@ import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { formatLabel } from "@/lib/questionnaireSections";
+import { calculateTemporaryWorkProgress } from "@/lib/questionnaireProgress";
 
 const MAIN_APPLICANT_SUBPAGES = [
   { key: "details", title: "Details" },
@@ -28,6 +29,14 @@ const SPOUSE_SUBPAGES = [
   { key: "details", title: "Details" },
   { key: "other_names", title: "Other Names" },
   { key: "identity", title: "Identity" },
+];
+
+const EMPLOYER_NOMINATION_SPOUSE_SUBPAGES = [
+  { key: "details", title: "Details" },
+  { key: "other_names", title: "Other Names" },
+  { key: "identity", title: "Identity" },
+  { key: "education", title: "Education" },
+  { key: "language", title: "Language" },
 ];
 
 const CHILD_SUBPAGES = [
@@ -116,14 +125,14 @@ export function isSkillsInDemandMatter(matterResult, questionnaire) {
   const visaTypeCode = String(application.visaTypeCode || "").toLowerCase();
   const visaContext = String(questionnaire?.visaContext || "").toLowerCase();
 
-  if (visaContext === "186" || type.includes("186") || type.includes("employer nomination")) {
-    return false;
-  }
-
   return (
+    visaContext === "186" ||
     visaContext === "482" ||
+    visaTypeCode === "temporary-work" ||
     (visaTypeCode === "temporary-work" && !visaContext) ||
+    type.includes("186") ||
     type.includes("482") ||
+    type.includes("employer nomination") ||
     type.includes("skills in demand")
   );
 }
@@ -182,7 +191,121 @@ function normalizeTitle(title) {
   return normalizeKey(title);
 }
 
-function getProfileSubpages(profile) {
+function slugifyRouteSegment(value) {
+  return normalizeKey(value).replace(/_/g, "-");
+}
+
+function getSubpageRouteAliases(subpage) {
+  const aliases = new Set([
+    slugifyRouteSegment(subpage.key),
+    slugifyRouteSegment(subpage.title),
+  ]);
+
+  if (subpage.key === "other_names") {
+    aliases.add("other");
+    aliases.add("other-names");
+    aliases.add("other-details");
+  }
+  if (subpage.key === "travel") {
+    aliases.add("travel-history");
+  }
+
+  return [...aliases].filter(Boolean);
+}
+
+function normalizeCompletionKey(key) {
+  const raw = String(key || "").trim();
+  if (!raw || raw === "updatedAt") return [];
+
+  const [pathPart, queryPart = ""] = raw.replace(/^\/+/, "").split("?", 2);
+  const path = pathPart.replace(/^intake\//, "");
+  const variants = new Set([raw, raw.replace(/^\/+/, ""), pathPart, path]);
+
+  if (queryPart) {
+    const params = new URLSearchParams(queryPart);
+    const profileId = params.get("profileId");
+    if (profileId) {
+      variants.add(`${pathPart}?profileId=${profileId}`);
+      variants.add(`${path}?profileId=${profileId}`);
+    }
+  }
+
+  return [...variants].filter(Boolean);
+}
+
+function getCompletedKeys(completion) {
+  const keys = new Set();
+  Object.entries(completion || {}).forEach(([key, value]) => {
+    if (value !== true) return;
+    normalizeCompletionKey(key).forEach((variant) => keys.add(variant));
+  });
+  return keys;
+}
+
+function isCandidateCompleted(candidate, completedKeys) {
+  const variants = normalizeCompletionKey(candidate);
+  return variants.some((variant) => {
+    if (completedKeys.has(variant)) return true;
+    for (const completedKey of completedKeys) {
+      if (completedKey.startsWith(`${variant}__`)) return true;
+    }
+    return false;
+  });
+}
+
+function isItemCompleted(item, completedKeys) {
+  return (item.completionCandidates || []).some((candidate) =>
+    isCandidateCompleted(candidate, completedKeys)
+  );
+}
+
+function getProfileCompletionCandidates(profile, subpage) {
+  const routeAliases = getSubpageRouteAliases(subpage);
+  const candidates = [];
+
+  routeAliases.forEach((alias) => {
+    if (profile.relationship === "child") {
+      candidates.push(`/intake/temporary-work/children/${profile.id}/${alias}`);
+      candidates.push(`temporary-work/children/${profile.id}/${alias}`);
+    } else {
+      const profilePath =
+        profile.relationship === "spouse" || profile.relationship === "de_facto"
+          ? "spouse-partner"
+          : "main-applicant";
+      candidates.push(`/intake/temporary-work/${profilePath}/${alias}`);
+      candidates.push(`/intake/temporary-work/${profilePath}/${alias}?profileId=${profile.id}`);
+      candidates.push(`temporary-work/${profilePath}/${alias}`);
+      candidates.push(`temporary-work/${profilePath}/${alias}?profileId=${profile.id}`);
+    }
+  });
+
+  candidates.push(`temporary_work_${subpage.key}__${profile.id}`);
+  candidates.push(`temporary_work_${subpage.key}__profileId=${profile.id}`);
+  if (profile.relationship === "main_applicant") {
+    candidates.push(`temporary_work_${subpage.key}`);
+  }
+
+  return candidates;
+}
+
+function getAllApplicantsCompletionCandidates(subpage) {
+  const candidates = [];
+  getSubpageRouteAliases(subpage).forEach((alias) => {
+    candidates.push(`/intake/temporary-work/all-applicants/${alias}`);
+    candidates.push(`temporary-work/all-applicants/${alias}`);
+  });
+  candidates.push(`temporary_work_${subpage.key}`);
+  candidates.push(`allApplicants.${subpage.key}`);
+  return candidates;
+}
+
+function getProfileSubpages(profile, visaContext) {
+  if (
+    visaContext === "186" &&
+    (profile.relationship === "spouse" || profile.relationship === "de_facto")
+  ) {
+    return EMPLOYER_NOMINATION_SPOUSE_SUBPAGES;
+  }
   if (profile.relationship === "spouse" || profile.relationship === "de_facto") {
     return SPOUSE_SUBPAGES;
   }
@@ -252,7 +375,34 @@ function findAllApplicantsData(allApplicantsSection, questionnaire, subpage) {
   );
 }
 
+function buildIncludedApplicantsData(questionnaire) {
+  const profiles = sortProfiles(getQuestionnaireProfiles(questionnaire));
+  const nonMigratingMembers = Array.isArray(questionnaire?.non_migrating_members)
+    ? questionnaire.non_migrating_members
+    : [];
+
+  return {
+    applicants: profiles.map((profile) => ({
+      name: profileDisplayName(profile),
+      role: relationshipLabel(profile.relationship),
+      gender: profile.gender || "",
+      date_of_birth: [profile.birth_day, displayMonthValue(profile.birth_month), profile.birth_year]
+        .filter(Boolean)
+        .join(" "),
+    })),
+    non_migrating_family_members: nonMigratingMembers.map((member) => ({
+      name:
+        [member.given_names, member.family_name].filter(Boolean).join(" ") ||
+        relationshipLabel(member.relationship),
+      role: relationshipLabel(member.relationship),
+      relationship_status: member.relationship_status || "",
+      has_current_passport: member.has_current_passport || "",
+    })),
+  };
+}
+
 function buildNavigation(questionnaire, sections) {
+  const visaContext = String(questionnaire?.visaContext || "");
   const profiles = sortProfiles(getQuestionnaireProfiles(questionnaire));
   const profileSections = new Map();
   sections
@@ -261,12 +411,44 @@ function buildNavigation(questionnaire, sections) {
       if (section.profileId) profileSections.set(section.profileId, section);
     });
 
-  const groups = profiles.map((profile) => {
+  const groups = [
+    {
+      key: "start",
+      type: "standalone",
+      title: "Getting Started",
+      items: [
+        {
+          key: "start",
+          title: "Getting Started",
+          data: { status: questionnaire?.started ? "Started" : "Not started" },
+          completionCandidates: ["/intake/temporary-work/start", "temporary-work/start"],
+          groupTitle: "Getting Started",
+        },
+      ],
+    },
+    {
+      key: "applicationProfile",
+      type: "standalone",
+      title: "Included Applicants",
+      items: [
+        {
+          key: "applicationProfile",
+          title: "Included Applicants",
+          data: buildIncludedApplicantsData(questionnaire),
+          completionCandidates: ["/intake/temporary-work/profile", "temporary-work/profile"],
+          groupTitle: "Application Profile",
+          view: "includedApplicants",
+        },
+      ],
+    },
+  ];
+
+  profiles.forEach((profile) => {
     const profileSection = profileSections.get(profile.id);
     const role = relationshipLabel(profile.relationship);
-    const subpages = getProfileSubpages(profile);
+    const subpages = getProfileSubpages(profile, visaContext);
 
-    return {
+    groups.push({
       key: `profile:${profile.id}`,
       type: "profile",
       title: profileDisplayName(profile),
@@ -275,10 +457,11 @@ function buildNavigation(questionnaire, sections) {
         ...subpage,
         key: `profile:${profile.id}:${subpage.key}`,
         data: findProfileSectionData(profile, profileSection, questionnaire, subpage),
+        completionCandidates: getProfileCompletionCandidates(profile, subpage),
         relationship: profile.relationship,
         groupTitle: profileDisplayName(profile),
       })),
-    };
+    });
   });
 
   const allApplicantsSection = sections.find((section) => section.category === "allApplicants");
@@ -290,6 +473,7 @@ function buildNavigation(questionnaire, sections) {
       ...subpage,
       key: `allApplicants:${subpage.key}`,
       data: findAllApplicantsData(allApplicantsSection, questionnaire, subpage),
+      completionCandidates: getAllApplicantsCompletionCandidates(subpage),
       groupTitle: "All Applicants",
     })),
   });
@@ -315,24 +499,25 @@ function flattenNavigation(groups) {
   return groups.flatMap((group) => group.items.map((item) => ({ group, item })));
 }
 
-function countCompletedSections(completion) {
-  return Object.entries(completion || {}).filter(([key, value]) => {
-    return key !== "updatedAt" && value === true;
-  }).length;
-}
-
-function SectionBullet({ active }) {
+function SectionStatusMarker({ active, completed }) {
   return (
-    <span
-      className={cn(
-        "mt-0.5 h-1 w-1 rounded-full",
-        active ? "bg-[#4FD1C7]" : "bg-white/60"
+    <span className="mt-0.5 grid w-11 shrink-0 grid-cols-[0.5rem_1rem] items-center gap-3">
+      <span
+        className={cn(
+          "h-1.5 w-1.5 rounded-full",
+          active ? "bg-[#ffe58c]" : "bg-[#ffe58c]/90"
+        )}
+      />
+      {completed ? (
+        <Check className="h-4 w-4 text-white/70" strokeWidth={2.5} />
+      ) : (
+        <span aria-hidden="true" className="h-4 w-4" />
       )}
-    />
+    </span>
   );
 }
 
-function SidebarGroup({ group, activeKey, onSelect }) {
+function SidebarGroup({ group, activeKey, onSelect, completedKeys }) {
   const activeInGroup = group.items.some((item) => item.key === activeKey);
 
   if (group.type === "submit") {
@@ -343,10 +528,32 @@ function SidebarGroup({ group, activeKey, onSelect }) {
         onClick={() => onSelect(submitItem.key)}
         className={cn(
           "w-full rounded-md px-3 py-2 text-left text-sm font-semibold text-white transition-colors",
-          activeInGroup ? "bg-[#4FD1C7]/15 text-[#4FD1C7]" : "hover:bg-white/10"
+          activeInGroup ? "bg-white/10 text-white" : "hover:bg-white/10"
         )}
       >
         {group.title}
+      </button>
+    );
+  }
+
+  if (group.type === "standalone") {
+    const item = group.items[0];
+    const active = item.key === activeKey;
+    const completed = isItemCompleted(item, completedKeys);
+    return (
+      <button
+        type="button"
+        onClick={() => onSelect(item.key)}
+        className={cn(
+          "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-semibold transition-colors",
+          active
+            ? "bg-white/10 text-white"
+            : "text-white/85 hover:bg-white/10 hover:text-white"
+        )}
+        aria-current={active ? "page" : undefined}
+      >
+        <SectionStatusMarker active={active} completed={completed} />
+        <span className="min-w-0 truncate">{group.title}</span>
       </button>
     );
   }
@@ -368,6 +575,7 @@ function SidebarGroup({ group, activeKey, onSelect }) {
         <div className="mt-1 space-y-1 pl-4">
           {group.items.map((item) => {
             const active = item.key === activeKey;
+            const completed = isItemCompleted(item, completedKeys);
             return (
               <button
                 key={item.key}
@@ -376,11 +584,12 @@ function SidebarGroup({ group, activeKey, onSelect }) {
                 className={cn(
                   "flex w-full items-start gap-3 rounded-md px-3 py-2 text-left text-xs font-semibold transition-colors",
                   active
-                    ? "bg-[#4FD1C7]/15 text-[#4FD1C7]"
+                    ? "bg-white/10 text-white"
                     : "text-white/85 hover:bg-white/10 hover:text-white"
                 )}
+                aria-current={active ? "page" : undefined}
               >
-                <SectionBullet active={active} />
+                <SectionStatusMarker active={active} completed={completed} />
                 <span className="min-w-0 truncate">{item.title}</span>
               </button>
             );
@@ -395,16 +604,22 @@ function QuestionnaireReviewSidebar({
   groups,
   activeKey,
   onSelect,
+  questionnaire,
   completion,
   percentage,
 }) {
-  const completedCount = countCompletedSections(completion);
-  const leafCount = groups.reduce((sum, group) => sum + group.items.length, 0);
-  const totalCount = Math.max(leafCount + 2, completedCount);
+  const progress = useMemo(
+    () => calculateTemporaryWorkProgress(completion, questionnaire),
+    [completion, questionnaire]
+  );
+  const completedCount = progress.completedSections;
+  const totalCount = progress.totalSections;
+  const progressPercentage = percentage ?? progress.percentage;
+  const completedKeys = useMemo(() => getCompletedKeys(completion), [completion]);
 
   return (
     <aside
-      className="flex w-full shrink-0 flex-col bg-[#245a46] text-white lg:sticky lg:z-20 lg:w-[17.5rem]"
+      className="flex w-full shrink-0 flex-col bg-[#4F726B] text-white lg:sticky lg:z-20 lg:w-[17.5rem]"
       style={{
         top: "var(--matter-header-height, 255px)",
         height: "calc(100vh - var(--matter-header-height, 255px))",
@@ -425,10 +640,10 @@ function QuestionnaireReviewSidebar({
       <div className="border-b border-white/10 px-6 py-7">
         <div className="mb-2 flex items-center justify-between text-sm font-medium text-white/70">
           <span>Completion</span>
-          <span className="font-semibold text-white">{percentage || 0}%</span>
+          <span className="font-semibold text-white">{progressPercentage || 0}%</span>
         </div>
         <Progress
-          value={percentage || 0}
+          value={progressPercentage || 0}
           className="h-2 bg-white/25 [&>div]:bg-white"
         />
         <p className="mt-3 text-xs font-semibold text-white">
@@ -444,6 +659,7 @@ function QuestionnaireReviewSidebar({
               group={group}
               activeKey={activeKey}
               onSelect={onSelect}
+              completedKeys={completedKeys}
             />
           ))}
         </nav>
@@ -530,20 +746,20 @@ function fieldLabel(key) {
 function ReadOnlyRadioField({ label, value, options }) {
   return (
     <div className="space-y-2 md:col-span-2">
-      <p className="text-[15px] font-medium text-[#123d33]">{label}</p>
+      <p className="text-[15px] font-medium text-black">{label}</p>
       <div className="flex flex-wrap gap-x-6 gap-y-2">
         {options.map((option) => {
           const checked = valuesMatch(option, value);
           return (
-            <div key={option} className="flex items-center gap-2 text-[15px] text-[#123d33]">
+            <div key={option} className="flex items-center gap-2 text-[15px] text-black">
               <span
                 aria-hidden="true"
                 className={cn(
                   "flex h-5 w-5 items-center justify-center rounded-full border",
-                  checked ? "border-[#245a46]" : "border-[#5b8574]/80"
+                  checked ? "border-[#4F726B]" : "border-[#5b8574]/80"
                 )}
               >
-                {checked && <span className="h-2.5 w-2.5 rounded-full bg-[#245a46]" />}
+                {checked && <span className="h-2.5 w-2.5 rounded-full bg-[#4F726B]" />}
               </span>
               <span>{option}</span>
             </div>
@@ -560,19 +776,19 @@ function ReadOnlyTextField({ label, value }) {
 
   return (
     <label className="block space-y-1.5 md:col-span-2">
-      <span className="text-[15px] font-medium text-[#123d33]">{label}</span>
+      <span className="text-[15px] font-medium text-black">{label}</span>
       {useTextarea ? (
         <textarea
           readOnly
           value={text}
           rows={4}
-          className="min-h-[6rem] w-full resize-none rounded-lg border border-[#bdd2c8] bg-[#f3f8f5] px-3.5 py-2.5 text-[15px] text-[#123d33] shadow-inner shadow-white/70 outline-none"
+          className="min-h-[6rem] w-full resize-none rounded-lg border border-[#bdd2c8] bg-[#E9F0FE] px-3.5 py-2.5 text-[15px] text-black shadow-inner shadow-white/70 outline-none"
         />
       ) : (
         <input
           readOnly
           value={text}
-          className="h-11 w-full rounded-lg border border-[#bdd2c8] bg-[#f3f8f5] px-3.5 text-[15px] text-[#123d33] shadow-inner shadow-white/70 outline-none"
+          className="h-11 w-full rounded-lg border border-[#bdd2c8] bg-[#E9F0FE] px-3.5 text-[15px] text-black shadow-inner shadow-white/70 outline-none"
         />
       )}
     </label>
@@ -582,8 +798,8 @@ function ReadOnlyTextField({ label, value }) {
 function ReadOnlySelectLikeField({ label, value }) {
   return (
     <label className="block space-y-1.5">
-      <span className="text-[15px] font-medium text-[#123d33]">{label}</span>
-      <span className="flex h-11 w-full items-center justify-between rounded-lg border border-[#bdd2c8] bg-[#f3f8f5] px-3.5 text-[15px] text-[#123d33] shadow-inner shadow-white/70">
+      <span className="text-[15px] font-medium text-black">{label}</span>
+      <span className="flex h-11 w-full items-center justify-between rounded-lg border border-[#bdd2c8] bg-[#E9F0FE] px-3.5 text-[15px] text-black shadow-inner shadow-white/70">
         <span className="truncate">{displayValue(value)}</span>
         <ChevronDown className="h-4 w-4 shrink-0 text-[#6f8f82]" />
       </span>
@@ -594,7 +810,7 @@ function ReadOnlySelectLikeField({ label, value }) {
 function DatePartFields({ label, group }) {
   return (
     <div className="space-y-2 md:col-span-2">
-      <p className="text-[15px] font-medium text-[#123d33]">{label}</p>
+      <p className="text-[15px] font-medium text-black">{label}</p>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <ReadOnlySelectLikeField label="Day" value={group.day} />
         <ReadOnlySelectLikeField label="Month" value={displayMonthValue(group.month)} />
@@ -661,13 +877,13 @@ function ReadOnlyArrayField({ fieldKey, value }) {
   if (value.every((item) => typeof item !== "object" || item === null)) {
     return (
       <div className="space-y-3 md:col-span-2">
-        <p className="text-[15px] font-medium text-[#123d33]">{fieldLabel(fieldKey)}</p>
+        <p className="text-[15px] font-medium text-black">{fieldLabel(fieldKey)}</p>
         {value.map((item, index) => (
           <input
             key={`${fieldKey}-${index}`}
             readOnly
             value={displayValue(item)}
-            className="h-11 w-full rounded-lg border border-[#bdd2c8] bg-[#f3f8f5] px-3.5 text-[15px] text-[#123d33] shadow-inner shadow-white/70 outline-none"
+            className="h-11 w-full rounded-lg border border-[#bdd2c8] bg-[#E9F0FE] px-3.5 text-[15px] text-black shadow-inner shadow-white/70 outline-none"
           />
         ))}
       </div>
@@ -676,12 +892,12 @@ function ReadOnlyArrayField({ fieldKey, value }) {
 
   return (
     <div className="space-y-4 md:col-span-2">
-      <h3 className="border-b border-[#dde8e1] pb-2 text-lg font-medium text-[#123d33]">
+      <h3 className="border-b border-[#dde8e1] pb-2 text-lg font-medium text-black">
         {fieldLabel(fieldKey)}
       </h3>
       {value.map((item, index) => (
         <div key={`${fieldKey}-${index}`} className="rounded-lg border border-[#dde8e1] bg-[#fbfdfb] p-4">
-          <p className="mb-4 text-xs font-semibold uppercase text-[#6f8f82]">
+          <p className="mb-4 text-xs font-semibold uppercase text-black">
             Item {index + 1}
           </p>
           <ReadOnlyFieldGrid data={item} />
@@ -694,7 +910,7 @@ function ReadOnlyArrayField({ fieldKey, value }) {
 function ReadOnlyObjectField({ fieldKey, value }) {
   return (
     <div className="space-y-4 md:col-span-2">
-      <h3 className="border-b border-[#dde8e1] pb-2 text-lg font-medium text-[#123d33]">
+      <h3 className="border-b border-[#dde8e1] pb-2 text-lg font-medium text-black">
         {fieldLabel(fieldKey)}
       </h3>
       <ReadOnlyFieldGrid data={value} />
@@ -779,7 +995,7 @@ function splitIntoDisplayGroups(item) {
 
 function EmptyAnswers() {
   return (
-    <div className="rounded-lg border border-dashed border-[#bdd2c8] bg-[#f7fbf9] px-4 py-6 text-sm text-[#5f746b]">
+    <div className="rounded-lg border border-dashed border-[#bdd2c8] bg-[#E9F0FE] px-4 py-6 text-sm text-black">
       No answers recorded for this section yet.
     </div>
   );
@@ -787,6 +1003,9 @@ function EmptyAnswers() {
 
 function sectionDescription(group, item) {
   const key = normalizeKey(item?.title);
+  if (item?.view === "includedApplicants") {
+    return "Review the people included in this application.";
+  }
   if (group?.type === "allApplicants") {
     return "Review answers that apply across every person included in this application.";
   }
@@ -805,6 +1024,69 @@ function sectionDescription(group, item) {
   return "";
 }
 
+function PersonSummaryCard({ person }) {
+  const details = [
+    person.role,
+    person.gender,
+    person.date_of_birth ? `DOB: ${person.date_of_birth}` : "",
+    person.relationship_status,
+    person.has_current_passport ? `Passport: ${displayValue(person.has_current_passport)}` : "",
+  ].filter(Boolean);
+
+  return (
+    <article className="rounded-lg border border-[#dde8e1] bg-white px-4 py-4">
+      <p className="text-base font-semibold text-black">{person.name || person.role || "Person"}</p>
+      {details.length > 0 && (
+        <p className="mt-1 text-sm leading-6 text-black">{details.join(" · ")}</p>
+      )}
+    </article>
+  );
+}
+
+function IncludedApplicantsReview({ data }) {
+  const applicants = Array.isArray(data?.applicants) ? data.applicants : [];
+  const nonMigratingMembers = Array.isArray(data?.non_migrating_family_members)
+    ? data.non_migrating_family_members
+    : [];
+  const total = applicants.length + nonMigratingMembers.length;
+
+  return (
+    <div className="space-y-6">
+      <section className="space-y-3">
+        <h2 className="border-b border-[#dde8e1] pb-3 text-xl font-medium text-black">
+          Included Applicants
+        </h2>
+        {applicants.length > 0 ? (
+          <div className="space-y-3">
+            {applicants.map((person, index) => (
+              <PersonSummaryCard key={`${person.name || "applicant"}-${index}`} person={person} />
+            ))}
+          </div>
+        ) : (
+          <EmptyAnswers />
+        )}
+      </section>
+
+      {nonMigratingMembers.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="border-b border-[#dde8e1] pb-3 text-xl font-medium text-black">
+            Non-migrating Family Members
+          </h2>
+          <div className="space-y-3">
+            {nonMigratingMembers.map((person, index) => (
+              <PersonSummaryCard key={`${person.name || "family-member"}-${index}`} person={person} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      <div className="rounded-lg border border-[#bdd2c8] bg-[#E9F0FE] px-4 py-3 text-sm font-semibold text-black">
+        {total} {total === 1 ? "person" : "persons"} included
+      </div>
+    </div>
+  );
+}
+
 function ReviewCard({ active }) {
   if (!active) return null;
 
@@ -815,7 +1097,7 @@ function ReviewCard({ active }) {
   return (
     <div className="mx-auto w-full max-w-[66rem] rounded-lg border border-[#dfe8e2] bg-white px-6 py-7 shadow-[0_24px_80px_rgba(25,55,43,0.10)] sm:px-8 sm:py-8 lg:px-10">
       <div className="mb-8">
-        <h1 className="text-[26px] font-bold leading-tight text-[#123d33] sm:text-[28px]">
+        <h1 className="text-[26px] font-bold leading-tight text-black sm:text-[28px]">
           {group.type === "submit" ? (
             "Submit"
           ) : (
@@ -825,7 +1107,7 @@ function ReviewCard({ active }) {
           )}
         </h1>
         {description && (
-          <p className="mt-3 max-w-4xl text-[15px] leading-6 text-[#38475f]">
+          <p className="mt-3 max-w-4xl text-[15px] leading-6 text-black">
             {description}
           </p>
         )}
@@ -833,11 +1115,13 @@ function ReviewCard({ active }) {
 
       {isEmptyData(item.data) ? (
         <EmptyAnswers />
+      ) : item.view === "includedApplicants" ? (
+        <IncludedApplicantsReview data={item.data} />
       ) : (
         <div className="space-y-8">
           {groups.map((groupItem) => (
             <section key={groupItem.title} className="space-y-6">
-              <h2 className="border-b border-[#dde8e1] pb-3 text-xl font-medium text-[#123d33]">
+              <h2 className="border-b border-[#dde8e1] pb-3 text-xl font-medium text-black">
                 {groupItem.title}
               </h2>
               <ReadOnlyFieldGrid data={groupItem.data} />
@@ -868,22 +1152,23 @@ export default function SkillsInDemandQuestionnaireReview({
   const nextItem = activeIndex !== -1 && activeIndex < flatNavigation.length - 1 ? flatNavigation[activeIndex + 1] : null;
 
   return (
-    <div className="-mx-4 -my-8 min-h-[calc(100vh-210px)] bg-[#fbfaf7] sm:-mx-6 lg:-mx-8 print:hidden">
+    <div className="-mx-4 -my-8 min-h-[calc(100vh-210px)] bg-[#E4E9FF] sm:-mx-6 lg:-mx-8 print:hidden">
       <div className="flex min-h-[calc(100vh-210px)] flex-col lg:flex-row items-start">
         <QuestionnaireReviewSidebar
           groups={groups}
           activeKey={active?.item.key}
           onSelect={setActiveKey}
+          questionnaire={questionnaire}
           completion={completion}
           percentage={percentage}
         />
 
         <main className="relative z-0 min-w-0 flex-1 overflow-x-hidden px-5 py-10 sm:px-8 lg:px-12 lg:py-16">
           <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 z-0 hidden w-[42%] overflow-hidden lg:block">
-            <div className="absolute right-0 top-0 h-full w-full bg-[#f4f1fb]" />
-            <div className="absolute right-0 top-[8%] h-28 w-[115%] rounded-l-[999px] bg-[#fffdf8]" />
-            <div className="absolute right-0 top-[26%] h-56 w-[118%] rounded-l-[999px] bg-[#fbfaf7]" />
-            <div className="absolute right-0 top-[72%] h-36 w-[112%] rounded-l-[999px] bg-[#fffdf8]" />
+            <div className="absolute right-0 top-0 h-full w-full bg-[#E4E9FF]" />
+            <div className="absolute right-0 top-[8%] h-28 w-[115%] rounded-l-[999px] bg-[#E4E9FF]" />
+            <div className="absolute right-0 top-[26%] h-56 w-[118%] rounded-l-[999px] bg-[#E4E9FF]" />
+            <div className="absolute right-0 top-[72%] h-36 w-[112%] rounded-l-[999px] bg-[#E4E9FF]" />
           </div>
 
           <div className="relative z-[1] mx-auto w-full max-w-[66rem]">
@@ -896,7 +1181,7 @@ export default function SkillsInDemandQuestionnaireReview({
                     setActiveKey(prevItem.item.key);
                     window.scrollTo({ top: 0, behavior: "smooth" });
                   }}
-                  className="flex items-center gap-2 rounded-lg border border-[#dfe8e2] bg-white px-5 py-2.5 text-[15px] font-medium text-[#123d33] shadow-sm transition-colors hover:bg-gray-50 focus:outline-none"
+                  className="flex items-center gap-2 rounded-lg border border-[#dfe8e2] bg-white px-5 py-2.5 text-[15px] font-medium text-black shadow-sm transition-colors hover:bg-gray-50 focus:outline-none"
                 >
                   <ChevronLeft className="h-4 w-4" />
                   Previous: {prevItem.item.title}
@@ -909,7 +1194,7 @@ export default function SkillsInDemandQuestionnaireReview({
                     setActiveKey(nextItem.item.key);
                     window.scrollTo({ top: 0, behavior: "smooth" });
                   }}
-                  className="flex items-center gap-2 rounded-lg border border-[#dfe8e2] bg-[#245a46] px-5 py-2.5 text-[15px] font-medium text-white shadow-sm transition-colors hover:bg-[#1a4434] focus:outline-none"
+                  className="flex items-center gap-2 rounded-lg border border-[#dfe8e2] bg-[#4F726B] px-5 py-2.5 text-[15px] font-medium text-white shadow-sm transition-colors hover:bg-[#4F726B] focus:outline-none"
                 >
                   Next: {nextItem.item.title}
                   <ChevronRight className="h-4 w-4" />

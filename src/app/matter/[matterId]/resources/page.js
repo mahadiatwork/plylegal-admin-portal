@@ -94,7 +94,7 @@ function ResourceIcon({ type }) {
     <div
       className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border ${
         isFile
-          ? "border-emerald-100 bg-emerald-50 text-[#285646]"
+          ? "border-emerald-100 bg-emerald-50 text-[#4F726B]"
           : isNote
             ? "border-amber-100 bg-amber-50 text-amber-700"
             : "border-blue-100 bg-blue-50 text-blue-700"
@@ -396,14 +396,14 @@ export default function ResourcesPage() {
                 }}
                 className={`flex items-center justify-between rounded-lg border px-4 py-3 text-left transition-colors ${
                   isActive
-                    ? "border-[#285646] bg-[#285646] text-white"
+                    ? "border-[#4F726B] bg-[#4F726B] text-white"
                     : "border-gray-200 bg-white text-gray-700 hover:border-[#8ac6ad]"
                 }`}
               >
                 <div className="flex items-center gap-3">
                   <div
                     className={`flex h-9 w-9 items-center justify-center rounded-md ${
-                      isActive ? "bg-white/15" : "bg-[#edf5f1] text-[#285646]"
+                      isActive ? "bg-white/15" : "bg-[#edf5f1] text-[#4F726B]"
                     }`}
                   >
                     <Icon className="h-4 w-4" />
@@ -480,7 +480,7 @@ export default function ResourcesPage() {
                       active
                         ? "border-[#08071f] bg-[#08071f] text-white"
                         : item.enabled
-                          ? "border-gray-200 bg-white text-gray-600 hover:border-[#8ac6ad] hover:text-[#285646]"
+                          ? "border-gray-200 bg-white text-gray-600 hover:border-[#8ac6ad] hover:text-[#4F726B]"
                           : "cursor-not-allowed border-gray-200 bg-white text-gray-300 opacity-70"
                     }`}
                   >
@@ -506,11 +506,11 @@ export default function ResourcesPage() {
                 onDrop={handleDrop}
                 className={`flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed px-5 py-6 text-center transition-colors ${
                   isDragging
-                    ? "border-[#285646] bg-[#285646]/5"
+                    ? "border-[#4F726B] bg-[#4F726B]/5"
                     : "border-gray-300 bg-gray-50 hover:border-[#8ac6ad] hover:bg-emerald-50/30"
                 }`}
               >
-                <UploadCloud className="mb-3 h-8 w-8 text-[#285646]" />
+                <UploadCloud className="mb-3 h-8 w-8 text-[#4F726B]" />
                 <span className="text-sm font-semibold text-gray-900">
                   {file ? file.name : "Choose or drop a file"}
                 </span>
@@ -584,14 +584,14 @@ export default function ResourcesPage() {
 
             {isSubmitting && (
               <div className="h-1 overflow-hidden rounded-full bg-gray-100">
-                <div className="h-full w-1/2 animate-pulse rounded-full bg-[#285646]" />
+                <div className="h-full w-1/2 animate-pulse rounded-full bg-[#4F726B]" />
               </div>
             )}
 
             <Button
               type="submit"
               disabled={isSubmitting}
-              className="h-10 w-full bg-[#285646] text-white hover:bg-[#1f4236]"
+              className="h-10 w-full bg-[#4F726B] text-white hover:bg-[#4F726B]"
             >
               {isSubmitting ? (
                 <>
@@ -622,7 +622,7 @@ export default function ResourcesPage() {
           </div>
 
           {isIndividualLoading ? (
-            <div className="flex items-center justify-center p-12 text-[#285646]">
+            <div className="flex items-center justify-center p-12 text-[#4F726B]">
               <Loader2 className="h-7 w-7 animate-spin" />
             </div>
           ) : filteredResources.length > 0 ? (

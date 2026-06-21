@@ -9,9 +9,12 @@ export const metadata = {
 };
 
 export default function RootLayout({ children }) {
+  // Some browser extensions add attributes to the document shell before React hydrates.
   return (
-    <html lang="en" className="h-full antialiased">
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
+      <body className="min-h-full flex flex-col" suppressHydrationWarning>
+        {children}
+      </body>
     </html>
   );
 }
