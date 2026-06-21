@@ -141,6 +141,7 @@ export default function MatterLayout({ children }) {
   const tabs = [
     { href: `/matter/${canonicalMatterId}/questionnaire`, label: "Questionnaire" },
     { href: `/matter/${canonicalMatterId}/resources`, label: "Resources" },
+    { href: `/matter/${canonicalMatterId}/document-review`, label: "Document Review" },
   ];
 
   return (

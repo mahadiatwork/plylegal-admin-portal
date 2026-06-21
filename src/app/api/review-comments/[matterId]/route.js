@@ -42,7 +42,14 @@ export async function POST(request, { params }) {
     const { matterId } = await params;
     const body = await request.json();
 
-    const { path, label, body: commentBody, severity = "suggestion" } = body;
+    const {
+      path,
+      label,
+      body: commentBody,
+      severity = "suggestion",
+      source = "questionnaire",
+      documentUrl = "",
+    } = body;
 
     if (!path || !commentBody) {
       return NextResponse.json(
@@ -64,10 +71,12 @@ export async function POST(request, { params }) {
       label: label || "",
       body: commentBody,
       severity,
+      source,
+      documentUrl,
       status: "open",
       sectionKey,
-      authorId: "admin", // TODO: use actual admin user ID from auth
-      authorName: "Admin", // TODO: use actual admin name from auth
+      authorId: source === "documentReview" ? "client" : "admin", // TODO: use actual user ID from auth
+      authorName: source === "documentReview" ? "Client" : "Admin", // TODO: use actual user name from auth
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -78,19 +87,21 @@ export async function POST(request, { params }) {
       .collection("reviewComments")
       .add(commentData);
 
-    // Create a notification for the applicant portal
-    try {
-      await db.collection("notifications").add({
-        applicationId: appId,
-        type: "review_comment",
-        title: "New reviewer note",
-        body: `A reviewer added a note on "${label || path}"`,
-        path,
-        read: false,
-        createdAt: new Date(),
-      });
-    } catch (notifErr) {
-      console.warn("Failed to create notification:", notifErr.message);
+    if (source !== "documentReview") {
+      // Create a notification for the applicant portal.
+      try {
+        await db.collection("notifications").add({
+          applicationId: appId,
+          type: "review_comment",
+          title: "New reviewer note",
+          body: `A reviewer added a note on "${label || path}"`,
+          path,
+          read: false,
+          createdAt: new Date(),
+        });
+      } catch (notifErr) {
+        console.warn("Failed to create notification:", notifErr.message);
+      }
     }
 
     return NextResponse.json({

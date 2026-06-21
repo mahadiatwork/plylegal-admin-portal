@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, LibraryBig } from "lucide-react";
+import { ArrowLeft, FileSearch, LibraryBig } from "lucide-react";
 import AdminLogoutButton from "@/components/admin/AdminLogoutButton";
 
 export default function AdminLayout({ children }) {
@@ -25,7 +25,7 @@ export default function AdminLayout({ children }) {
                   Admin Workspace
                 </p>
                 <p className="truncate text-sm font-semibold text-[#17372e]">
-                  Resource Management
+                  Portal Management
                 </p>
               </div>
             </div>
@@ -33,6 +33,13 @@ export default function AdminLayout({ children }) {
 
           <div className="flex items-center gap-3">
             <nav className="hidden items-center gap-2 lg:flex">
+              <Link
+                href="/admin/document-review"
+                className="inline-flex items-center gap-2 rounded-md border border-[#d8e4de] bg-white px-3 py-2 text-sm font-medium text-[#38564b] transition-colors hover:border-[#8ac6ad] hover:text-[#17372e]"
+              >
+                <FileSearch className="h-4 w-4" />
+                Document review
+              </Link>
               <Link
                 href="/admin/resources"
                 className="rounded-md border border-[#d8e4de] bg-white px-3 py-2 text-sm font-medium text-[#38564b] transition-colors hover:border-[#8ac6ad] hover:text-[#17372e]"
