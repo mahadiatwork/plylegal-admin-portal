@@ -54,7 +54,7 @@ const RESOURCE_TEMPLATE_DEFINITIONS = [
   },
   {
     visaSlug: "partner",
-    title: "Partner Visa",
+    title: "Subclass 820/801",
     workDriveFolderId: "hf3e6c83ab75e91074b409d245dff4c1dc630",
     workDriveFolderUrl:
       "https://workdrive.zoho.com.au/folder/hf3e6c83ab75e91074b409d245dff4c1dc630?layout=list",
@@ -65,7 +65,7 @@ const RESOURCE_TEMPLATE_DEFINITIONS = [
   },
   {
     visaSlug: "protection",
-    title: "Protection Visa",
+    title: "Subclass 866",
     workDriveFolderId: "hf3e62a84dfc392b9461dbb061e126f09e2c9",
     workDriveFolderUrl:
       "https://workdrive.zoho.com.au/folder/hf3e62a84dfc392b9461dbb061e126f09e2c9?layout=list",
@@ -75,6 +75,11 @@ const RESOURCE_TEMPLATE_DEFINITIONS = [
     ],
   },
 ];
+
+const LEGACY_RESOURCE_TEMPLATE_TITLES = {
+  partner: ["partner visa"],
+  protection: ["protection visa"],
+};
 
 export function normalizeFolderId(rawValue) {
   let value = rawValue;
@@ -279,9 +284,16 @@ export async function ensureResourceTemplate(db, visaSlug, actor = "admin") {
 
   const existingData = templateSnap.data() || {};
   const backfill = {};
+  const existingTitle = cleanText(existingData.title);
+  const legacyTitles = LEGACY_RESOURCE_TEMPLATE_TITLES[definition.visaSlug] || [];
 
   if (!existingData.visaSlug) backfill.visaSlug = definition.visaSlug;
-  if (!existingData.title) backfill.title = definition.title;
+  if (
+    !existingTitle ||
+    legacyTitles.includes(existingTitle.toLowerCase())
+  ) {
+    backfill.title = definition.title;
+  }
   if (!existingData.status) backfill.status = "active";
   if (!Array.isArray(existingData.categories)) {
     backfill.categories = DEFAULT_RESOURCE_TEMPLATE_CATEGORIES;
