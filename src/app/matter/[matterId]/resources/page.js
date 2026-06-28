@@ -26,14 +26,14 @@ import AdminResourceTemplatesManager from "@/components/admin/AdminResourceTempl
 const RESOURCE_TABS = [
   {
     id: "shared",
-    label: "Shared",
-    subtitle: "Visa-specific templates",
+    label: "All Matters",
+    subtitle: "Reusable resources",
     icon: Library,
   },
   {
     id: "individual",
-    label: "Individual",
-    subtitle: "Visible only in this matter",
+    label: "Only This Matter",
+    subtitle: "Matter-specific resources",
     icon: FileText,
   },
 ];
@@ -203,7 +203,7 @@ export default function ResourcesPage() {
         const data = await response.json();
 
         if (!response.ok || !data.success) {
-          throw new Error(data.error || "Failed to load individual resources");
+          throw new Error(data.error || "Failed to load resources for this matter");
         }
 
         if (isMounted) {
@@ -362,7 +362,7 @@ export default function ResourcesPage() {
               type="search"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search individual resources"
+              placeholder="Search resources for this matter"
               className="h-10 bg-white pl-9"
             />
           </div>
@@ -434,10 +434,10 @@ export default function ResourcesPage() {
         <>
           <section className="rounded-lg border border-[#dfe5ef] bg-[#f7f9fc] px-5 py-4 shadow-sm">
             <p className="text-sm font-semibold text-gray-900">
-              Individual resources stay attached only to this matter.
+              These resources stay attached only to this matter.
             </p>
             <p className="mt-1 text-sm text-gray-600">
-              Use individual resources when a file, note, or link should only belong to this specific matter.
+              Use this area when a file, note, or link should only belong to this specific matter.
             </p>
           </section>
 
@@ -613,10 +613,10 @@ export default function ResourcesPage() {
           <div className="flex flex-col gap-2 border-b border-gray-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-base font-semibold text-gray-900">
-                Individual resource list
+                Resources for this matter
               </h2>
               <p className="text-sm text-gray-500">
-                {filteredResources.length} active individual {filteredResources.length === 1 ? "resource" : "resources"}
+                {filteredResources.length} active {filteredResources.length === 1 ? "resource" : "resources"}
               </p>
             </div>
           </div>

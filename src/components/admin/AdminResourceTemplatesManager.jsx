@@ -492,7 +492,7 @@ export default function AdminResourceTemplatesManager() {
         : [activeVisa];
 
     if (!targetSlugs.length) {
-      setError("Choose a visa type before creating a category.");
+      setError("Choose a visa type before creating a folder.");
       return;
     }
 
@@ -518,7 +518,7 @@ export default function AdminResourceTemplatesManager() {
           const data = await response.json();
 
           if (!response.ok || !data.success) {
-            throw new Error(data.error || `Failed to create category for ${visaSlug}.`);
+            throw new Error(data.error || `Failed to create folder for ${visaSlug}.`);
           }
 
           return data.template;
@@ -540,8 +540,8 @@ export default function AdminResourceTemplatesManager() {
       setForm((current) => ({ ...current, category }));
       setMessage(
         activeVisa === ALL_VISAS
-          ? "Category created for all visa templates."
-          : "Category created."
+          ? "Folder created for all visa templates."
+          : "Folder created."
       );
     } catch (categoryError) {
       setError(categoryError.message);
@@ -739,7 +739,7 @@ export default function AdminResourceTemplatesManager() {
                 Resource Management
               </h1>
               <p className="mt-1 text-sm text-[#60786f]">
-                Upload, organize, and manage resources by visa type and category.
+                Upload, organize, and manage resources by visa type and folder.
               </p>
             </div>
           </div>
@@ -758,7 +758,7 @@ export default function AdminResourceTemplatesManager() {
               </div>
             </div>
             <div className="border-l border-[#dce7e2] pl-5">
-              <p className="text-xs font-semibold text-[#71857d]">Active categories</p>
+              <p className="text-xs font-semibold text-[#71857d]">Active folders</p>
               <div className="mt-2 flex items-center gap-3">
                 <FolderPlus className="h-5 w-5 text-[#60786f]" />
                 <div>
@@ -851,7 +851,7 @@ export default function AdminResourceTemplatesManager() {
       <section className="grid gap-5 xl:grid-cols-[290px_minmax(360px,0.8fr)_minmax(560px,1.4fr)]">
         <aside className="rounded-lg border border-[#dbe7e1] bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-base font-semibold text-[#17372e]">Categories</h2>
+            <h2 className="text-base font-semibold text-[#17372e]">Folders</h2>
             <Button type="button" variant="outline" size="icon" className="bg-white">
               <SlidersHorizontal className="h-4 w-4" />
             </Button>
@@ -862,7 +862,7 @@ export default function AdminResourceTemplatesManager() {
             <Input
               value={categorySearchQuery}
               onChange={(event) => setCategorySearchQuery(event.target.value)}
-              placeholder="Search categories"
+              placeholder="Search folders"
               className="h-10 border-[#d7e4de] bg-white pl-9"
             />
           </div>
@@ -901,7 +901,7 @@ export default function AdminResourceTemplatesManager() {
                 <Input
                   value={newCategoryName}
                   onChange={(event) => setNewCategoryName(event.target.value)}
-                  placeholder="Category name"
+                  placeholder="Folder name"
                   className="h-9"
                 />
                 <div className="space-y-2">
@@ -960,16 +960,16 @@ export default function AdminResourceTemplatesManager() {
                 onClick={() => setShowNewCategory(true)}
               >
                 <Plus className="h-4 w-4" />
-                New category
+                Create Folder
               </Button>
             )}
           </div>
 
           <div className="mt-6 rounded-md border border-[#dbe7e1] bg-[#f7faf8] p-4 text-center">
             <PackageOpen className="mx-auto h-8 w-8 text-[#8aa099]" />
-            <p className="mt-3 text-sm font-semibold text-[#17372e]">Need another category?</p>
+            <p className="mt-3 text-sm font-semibold text-[#17372e]">Need another folder?</p>
             <p className="mt-1 text-xs leading-5 text-[#60786f]">
-              Create custom categories with icons for each visa template.
+              Create custom folders with icons for each visa template.
             </p>
           </div>
         </aside>
@@ -1282,7 +1282,7 @@ export default function AdminResourceTemplatesManager() {
               <PackageOpen className="h-16 w-16 text-[#9fb4ac]" />
               <h3 className="mt-4 text-lg font-semibold text-[#17372e]">No resources yet</h3>
               <p className="mt-2 max-w-sm text-sm text-[#60786f]">
-                Upload files, add notes, or add links to start building this resource category.
+                Upload files, add notes, or add links to start building this resource folder.
               </p>
             </div>
           )}

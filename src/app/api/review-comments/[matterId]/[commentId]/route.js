@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/firebase-admin";
 import { resolveMatterApplication } from "@/lib/matterResolver";
 
+const REVIEW_COMMENT_STATUSES = new Set(["open", "resolved"]);
+
 // PATCH /api/review-comments/[matterId]/[commentId] — update a comment (resolve, edit)
 export async function PATCH(request, { params }) {
   try {
@@ -30,7 +32,15 @@ export async function PATCH(request, { params }) {
       updatedAt: new Date(),
     };
 
-    if (body.status) updateData.status = body.status;
+    if (body.status) {
+      if (!REVIEW_COMMENT_STATUSES.has(body.status)) {
+        return NextResponse.json(
+          { success: false, error: "Status is invalid" },
+          { status: 400 }
+        );
+      }
+      updateData.status = body.status;
+    }
     if (body.body) updateData.body = body.body;
     if (body.severity) updateData.severity = body.severity;
 

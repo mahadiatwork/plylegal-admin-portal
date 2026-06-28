@@ -184,6 +184,12 @@ export async function POST(request, { params }) {
     const type = cleanText(formData.get("type") || formData.get("resourceType")).toLowerCase();
     const titleInput = cleanText(formData.get("title"));
     const description = cleanText(formData.get("description"));
+    const source = cleanText(formData.get("source"));
+    const category = cleanText(formData.get("category"));
+    const metadata = {
+      ...(source ? { source } : {}),
+      ...(category ? { category } : {}),
+    };
 
     if (!["file", "link", "note"].includes(type)) {
       return errorResponse("Resource type must be file, link, or note", 400);
@@ -208,10 +214,12 @@ export async function POST(request, { params }) {
         description,
         url,
         publicUrl: url,
+        externalUrl: url,
         status: "active",
         createdAt: now,
         updatedAt: now,
         createdBy: "admin",
+        ...metadata,
       };
 
       const docRef = await resourcesRef.add(resourceData);
@@ -236,6 +244,7 @@ export async function POST(request, { params }) {
         createdAt: now,
         updatedAt: now,
         createdBy: "admin",
+        ...metadata,
       };
 
       const docRef = await resourcesRef.add(resourceData);
@@ -290,10 +299,12 @@ export async function POST(request, { params }) {
       description,
       publicUrl,
       url: publicUrl,
+      externalUrl: publicUrl,
       status: "active",
       createdAt: now,
       updatedAt: now,
       createdBy: "admin",
+      ...metadata,
       fileName: originalFileName,
       mimeType: file.type || "application/octet-stream",
       fileSize: file.size,

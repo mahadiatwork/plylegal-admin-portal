@@ -36,7 +36,7 @@ const statusOptions = [
 ];
 
 const scopeOptions = [
-  { value: "shared", label: "Shared" },
+  { value: "shared", label: "All Matters" },
   { value: "group", label: "Group" },
   { value: "application", label: "Application" },
 ];
@@ -788,7 +788,7 @@ export default function AdminResourcesManager() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <label htmlFor="resource-category" className="text-sm font-medium text-[#224238]">
-                    Category
+                    Folder
                   </label>
                   <Input
                     id="resource-category"
@@ -949,7 +949,7 @@ export default function AdminResourcesManager() {
                     type="search"
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder="Search title, category, audience..."
+                    placeholder="Search title, folder, audience..."
                     className="h-11 border-[#d7e4de] bg-white pl-10"
                   />
                 </div>
