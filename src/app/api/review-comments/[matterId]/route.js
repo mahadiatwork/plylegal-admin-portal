@@ -1,30 +1,103 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/firebase-admin";
 import { resolveMatterApplication } from "@/lib/matterResolver";
+import zohoClient from "@/lib/zohoClient";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const DOCUMENT_SOURCE = "documentReview";
+const CORRECTIONS_RELATED_LIST = "Corrections";
+const CORRECTION_FIELDS =
+  "id,Name,Connected_To__s,Field_Name,Issue_description,Status,Created_Time,Modified_Time,Email,Secondary_Email,Matter";
+
+function cleanText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function getDealId(application, matterId) {
+  return (
+    cleanText(application?.zohoId) ||
+    cleanText(application?.zohoDealId) ||
+    cleanText(application?.dealId) ||
+    (application?.id !== matterId ? cleanText(matterId) : "")
+  );
+}
+
+function normalizeCorrectionStatus(status) {
+  const value = cleanText(status).toLowerCase();
+  return value === "resolved" || value === "closed" || value === "done" ? "resolved" : "open";
+}
+
+function serializeZohoCorrection(record) {
+  const id = cleanText(record?.id);
+  const fieldName = cleanText(record?.Field_Name);
+  const name = cleanText(record?.Name);
+  const body = cleanText(record?.Issue_description);
+
+  return {
+    id: `zohoCorrection:${id}`,
+    zohoCorrectionId: id,
+    source: DOCUMENT_SOURCE,
+    origin: "zohoCorrections",
+    path: fieldName || name || `Corrections.${id}`,
+    label: fieldName || name || "Correction",
+    body: body || name || "Correction submitted in Zoho CRM.",
+    severity: "issue",
+    status: normalizeCorrectionStatus(record?.Status),
+    sectionKey: fieldName || "documentReview",
+    authorName: cleanText(record?.Email) || cleanText(record?.Secondary_Email) || "",
+    createdAt: record?.Created_Time || null,
+    updatedAt: record?.Modified_Time || null,
+  };
+}
+
+async function getZohoCorrections(resolved, matterId) {
+  const dealId = getDealId(resolved?.application, matterId);
+  if (!dealId) return [];
+
+  const corrections = await zohoClient.getRelatedRecords(
+    "Deals",
+    dealId,
+    CORRECTIONS_RELATED_LIST,
+    CORRECTION_FIELDS
+  );
+
+  return corrections.filter((record) => record?.id).map(serializeZohoCorrection);
+}
 
 // GET /api/review-comments/[matterId] — list all comments for a matter
 export async function GET(request, { params }) {
   try {
     const { matterId } = await params;
+    const sourceFilter = cleanText(new URL(request.url).searchParams.get("source"));
 
-    const appId = await resolveAppId(matterId);
-    if (!appId) {
+    const resolved = await resolveMatter(matterId);
+    if (!resolved?.appId) {
       return NextResponse.json({ success: false, error: "Application not found" }, { status: 404 });
     }
 
     const snapshot = await db
       .collection("applications")
-      .doc(appId)
+      .doc(resolved.appId)
       .collection("reviewComments")
       .orderBy("createdAt", "asc")
       .get();
 
-    const comments = snapshot.docs.map((doc) => ({
+    let comments = snapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
       createdAt: doc.data().createdAt?.toDate?.()?.toISOString() || null,
       updatedAt: doc.data().updatedAt?.toDate?.()?.toISOString() || null,
     }));
+
+    if (sourceFilter) {
+      comments = comments.filter((comment) => comment.source === sourceFilter);
+    }
+
+    if (sourceFilter === DOCUMENT_SOURCE) {
+      comments = [...comments, ...(await getZohoCorrections(resolved, matterId))];
+    }
 
     return NextResponse.json({ success: true, comments });
   } catch (err) {
@@ -58,8 +131,8 @@ export async function POST(request, { params }) {
       );
     }
 
-    const appId = await resolveAppId(matterId);
-    if (!appId) {
+    const resolved = await resolveMatter(matterId);
+    if (!resolved?.appId) {
       return NextResponse.json({ success: false, error: "Application not found" }, { status: 404 });
     }
 
@@ -83,7 +156,7 @@ export async function POST(request, { params }) {
 
     const docRef = await db
       .collection("applications")
-      .doc(appId)
+      .doc(resolved.appId)
       .collection("reviewComments")
       .add(commentData);
 
@@ -124,9 +197,7 @@ export async function POST(request, { params }) {
 
 // Helper: resolve Deal ID to Firebase doc ID. Firebase doc IDs are a fallback for
 // older links, but deal fields are always checked first.
-async function resolveAppId(matterId) {
+async function resolveMatter(matterId) {
   if (!matterId) return null;
-
-  const resolved = await resolveMatterApplication(db, matterId);
-  return resolved?.appId || null;
+  return resolveMatterApplication(db, matterId);
 }

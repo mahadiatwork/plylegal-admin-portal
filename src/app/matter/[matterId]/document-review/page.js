@@ -21,6 +21,7 @@ const REVIEW_COMMENT_STATUSES = [
 ];
 
 const documentUrlPaths = [
+  "Final_File_For_Visa_Submission",
   "documentReviewUrl",
   "reviewDocumentUrl",
   "governmentDocumentUrl",
@@ -75,7 +76,7 @@ function looksLikeDocumentReviewResource(resource) {
 
 function getResourceUrl(resource) {
   return normalizeDocumentUrl(
-    resource?.publicUrl || resource?.externalUrl || resource?.downloadUrl || resource?.url
+    resource?.downloadUrl || resource?.publicUrl || resource?.externalUrl || resource?.url
   );
 }
 
@@ -156,7 +157,7 @@ export default function DocumentReviewPage() {
         const [matterResponse, resourceResponse, commentsResponse] = await Promise.all([
           fetch(`/api/matter/${matterId}`),
           fetch(`/api/matter/${matterId}/resources`),
-          fetch(`/api/review-comments/${matterId}`),
+          fetch(`/api/review-comments/${matterId}?source=${DOCUMENT_SOURCE}`),
         ]);
 
         const [matterData, resourceData, commentsData] = await Promise.all([
@@ -208,7 +209,17 @@ export default function DocumentReviewPage() {
   );
 
   const handleDocumentSelect = (event) => {
-    setSelectedDocument(event.target.files?.[0] || null);
+    const file = event.target.files?.[0] || null;
+
+    if (file && !file.name.toLowerCase().endsWith(".pdf")) {
+      event.target.value = "";
+      setSelectedDocument(null);
+      setError("Only PDF files can be uploaded.");
+      setMessage("");
+      return;
+    }
+
+    setSelectedDocument(file);
     setError("");
     setMessage("");
   };
@@ -244,6 +255,11 @@ export default function DocumentReviewPage() {
       }
 
       setResources((current) => [data.resource, ...current]);
+      setApplication((current) =>
+        current
+          ? { ...current, Final_File_For_Visa_Submission: getResourceUrl(data.resource) }
+          : current
+      );
       setSelectedDocument(null);
       setFileInputKey((key) => key + 1);
       setMessage("Document uploaded.");
@@ -280,6 +296,9 @@ export default function DocumentReviewPage() {
       }
 
       setResources((current) => current.filter((resource) => resource.id !== documentResource.id));
+      setApplication((current) =>
+        current ? { ...current, Final_File_For_Visa_Submission: null } : current
+      );
       setMessage("Document removed.");
     } catch (removeError) {
       setError(removeError.message);
@@ -400,6 +419,7 @@ export default function DocumentReviewPage() {
               <Input
                 key={fileInputKey}
                 type="file"
+                accept="application/pdf,.pdf"
                 onChange={handleDocumentSelect}
                 className="h-10 bg-white"
               />

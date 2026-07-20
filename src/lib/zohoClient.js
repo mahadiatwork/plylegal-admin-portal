@@ -653,6 +653,141 @@ class ZohoCRMClient {
     return [...new Set([this.workDriveBaseURL, this.workDriveDirectBaseURL].filter(Boolean))];
   }
 
+  parseWorkDriveResource(resource) {
+    const attributes = resource?.attributes || {};
+    const resourceId = resource?.id || attributes.resource_id || attributes.RESOURCE_ID || null;
+
+    return {
+      raw: resource,
+      resourceId,
+      id: resourceId,
+      name:
+        attributes.name ||
+        attributes.display_attr_name ||
+        attributes.display_html_name ||
+        attributes.FileName ||
+        null,
+      parentId: attributes.parent_id || attributes.PARENT_ID || null,
+      isFolder:
+        attributes.is_folder === true ||
+        attributes.type === 'folder' ||
+        attributes.resource_type === 1001,
+      permalink: attributes.permalink || resource?.links?.self || null,
+      downloadUrl: attributes.download_url || null,
+    };
+  }
+
+  async makeWorkDriveJsonRequest(method, path, data = null, params = null, forceRefresh = false) {
+    const token = await this.getWorkDriveAccessToken(forceRefresh);
+
+    if (!token) {
+      throw new Error('No Zoho WorkDrive access token available');
+    }
+
+    const requestConfig = {
+      method,
+      headers: {
+        Accept: 'application/vnd.api+json',
+        'Content-Type': 'application/vnd.api+json',
+        Authorization: `Zoho-oauthtoken ${token}`,
+      },
+      ...(params ? { params } : {}),
+      ...(data ? { data } : {}),
+    };
+
+    let lastError = null;
+
+    for (const baseUrl of this.getWorkDriveBaseUrls()) {
+      try {
+        const response = await axios({
+          ...requestConfig,
+          url: `${baseUrl}${path}`,
+        });
+        return response.data;
+      } catch (error) {
+        lastError = error;
+        console.warn(
+          `⚠️ WorkDrive request failed at ${baseUrl}${path}:`,
+          error.response?.data || error.message
+        );
+      }
+    }
+
+    if (!forceRefresh && lastError?.response?.status === 401) {
+      return this.makeWorkDriveJsonRequest(method, path, data, params, true);
+    }
+
+    const zohoError = lastError?.response?.data?.errors?.[0];
+    const message = zohoError
+      ? `WorkDrive request failed: ${zohoError.title || zohoError.id}`
+      : 'WorkDrive request failed';
+    const enhancedError = new Error(message);
+    enhancedError.status = lastError?.response?.status;
+    enhancedError.details = lastError?.response?.data || lastError?.message;
+    throw enhancedError;
+  }
+
+  async listWorkDriveFolderChildren(folderId, filterType = 'all') {
+    const children = [];
+    const pageLimit = 50;
+
+    // ponytail: 1000-child scan; switch to WorkDrive search if this folder grows past that.
+    for (let offset = 0; offset < 1000; offset += pageLimit) {
+      const response = await this.makeWorkDriveJsonRequest(
+        'get',
+        `/files/${folderId}/files`,
+        null,
+        {
+          'page[limit]': pageLimit,
+          'page[offset]': offset,
+          'filter[type]': filterType,
+        }
+      );
+      const pageData = response?.data?.data || response?.data || [];
+      const page = Array.isArray(pageData) ? pageData : [];
+
+      children.push(...page.map((item) => this.parseWorkDriveResource(item)));
+
+      if (page.length < pageLimit) break;
+    }
+
+    return children;
+  }
+
+  async createWorkDriveFolder(parentId, folderName) {
+    const response = await this.makeWorkDriveJsonRequest('post', '/files', {
+      data: {
+        attributes: {
+          name: folderName,
+          parent_id: parentId,
+        },
+        type: 'files',
+      },
+    });
+    const folder = this.parseWorkDriveResource(response?.data?.data || response?.data);
+
+    if (!folder.resourceId) {
+      console.error('❌ WorkDrive create folder response did not include a resource ID:', response);
+      throw new Error('WorkDrive folder was created without a resource ID');
+    }
+
+    return folder;
+  }
+
+  async findOrCreateWorkDriveFolder(parentId, folderName) {
+    const children = await this.listWorkDriveFolderChildren(parentId, 'folder');
+    const existingFolder = children.find(
+      (child) => child.isFolder && child.name?.trim() === folderName
+    );
+
+    if (existingFolder) {
+      return { ...existingFolder, created: false };
+    }
+
+    const createdFolder = await this.createWorkDriveFolder(parentId, folderName);
+    return { ...createdFolder, created: true };
+  }
+
   /**
    * Upload a file into a Zoho WorkDrive folder.
    * @param {string} folderId - WorkDrive folder ID

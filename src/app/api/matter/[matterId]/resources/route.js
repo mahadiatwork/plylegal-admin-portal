@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
 import { db, initResult } from "@/lib/firebase-admin";
 import { resolveMatterApplication } from "@/lib/matterResolver";
+import { isPdfUpload } from "@/lib/pdfUploadRules.mjs";
 import zohoClient from "@/lib/zohoClient";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
+const DOCUMENT_SOURCE = "documentReview";
+const FINAL_FILE_FIELD = "Final_File_For_Visa_Submission";
+const DEFAULT_DOCUMENT_REVIEW_FOLDER_URL =
+  "https://workdrive.zoho.com.au/darpt4bf78c59b8684d9bb6b479804432d247/teams/darpt4bf78c59b8684d9bb6b479804432d247/ws/hf3e609480d012c3c4244bc51956d41cb7925/folders/h8zdkeb46cf4752f14337b5b7508081031550";
 const WORKDRIVE_FOLDER_FIELD = "Workdrive_Folder_ID";
 const WORKDRIVE_FOLDER_FIELD_LEGACY = "WorkDrive_Folder_ID";
 
@@ -63,6 +68,16 @@ function sanitizeLinkName(name) {
   );
 }
 
+function sanitizeFolderName(name) {
+  return (
+    cleanText(name)
+      .replace(/[\\/:*?"<>|]/g, "-")
+      .replace(/\s+/g, " ")
+      .slice(0, 180)
+      .trim() || "Matter"
+  );
+}
+
 function normalizeFolderId(rawValue) {
   let value = rawValue;
 
@@ -81,12 +96,41 @@ function normalizeFolderId(rawValue) {
   return folderUrlMatch?.[1] || value;
 }
 
+function getDocumentReviewRootFolderId() {
+  return normalizeFolderId(
+    process.env.DOCUMENT_REVIEW_WORKDRIVE_FOLDER_ID ||
+      process.env.WORKDRIVE_DOCUMENT_REVIEW_FOLDER_ID ||
+      DEFAULT_DOCUMENT_REVIEW_FOLDER_URL
+  );
+}
+
 function getDealId(application, matterId) {
   return (
     cleanText(application?.zohoId) ||
     cleanText(application?.zohoDealId) ||
     cleanText(application?.dealId) ||
     (application?.id !== matterId ? cleanText(matterId) : "")
+  );
+}
+
+async function saveDocumentReviewSubmissionUrl(dealId, url) {
+  const value = cleanText(url);
+  if (!value) return;
+
+  if (dealId) {
+    await zohoClient.updateRecord("Deals", dealId, { [FINAL_FILE_FIELD]: value });
+  }
+}
+
+function getMatterName(application) {
+  return (
+    cleanText(application?.reference) ||
+    cleanText(application?.matterReference) ||
+    cleanText(application?.name) ||
+    cleanText(application?.Name) ||
+    cleanText(application?.Deal_Name) ||
+    cleanText(application?.DealName) ||
+    "Matter"
   );
 }
 
@@ -148,6 +192,38 @@ async function getWorkDriveFolder(application, matterId) {
   }
 
   return { dealId, folderId };
+}
+
+async function getDocumentReviewWorkDriveFolder(application, matterId) {
+  const rootFolderId = getDocumentReviewRootFolderId();
+  const dealId = getDealId(application, matterId);
+
+  if (!rootFolderId) {
+    return {
+      error: "Document Review WorkDrive folder is not configured",
+      status: 500,
+    };
+  }
+
+  if (!dealId && !matterId) {
+    return {
+      error: "Matter ID is required before uploading files to WorkDrive",
+      status: 400,
+    };
+  }
+
+  const matterFolderName = sanitizeFolderName(
+    `${getMatterName(application)} - ${dealId || matterId}`
+  );
+  const folder = await zohoClient.findOrCreateWorkDriveFolder(rootFolderId, matterFolderName);
+
+  return {
+    dealId,
+    folderId: folder.resourceId,
+    rootFolderId,
+    matterFolderName,
+    matterFolderCreated: folder.created,
+  };
 }
 
 export async function GET(request, { params }) {
@@ -266,13 +342,21 @@ export async function POST(request, { params }) {
 
     const originalFileName = sanitizeFileName(file.name);
     const title = titleInput || originalFileName;
-    const workDriveFolder = await getWorkDriveFolder(resolved.application, matterId);
+    const buffer = Buffer.from(await file.arrayBuffer());
+
+    if (source === DOCUMENT_SOURCE && !isPdfUpload(originalFileName, buffer)) {
+      return errorResponse("Only PDF files can be uploaded for document review", 400);
+    }
+
+    const workDriveFolder =
+      source === DOCUMENT_SOURCE
+        ? await getDocumentReviewWorkDriveFolder(resolved.application, matterId)
+        : await getWorkDriveFolder(resolved.application, matterId);
 
     if (workDriveFolder.error) {
       return errorResponse(workDriveFolder.error, workDriveFolder.status);
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
     const upload = await zohoClient.uploadWorkDriveFile(
       workDriveFolder.folderId,
       buffer,
@@ -284,13 +368,28 @@ export async function POST(request, { params }) {
       sanitizeLinkName(title)
     );
     const publicUrl =
-      publicLink.link ||
       publicLink.downloadUrl ||
+      publicLink.link ||
       upload.downloadUrl ||
       upload.permalink;
+    const shareUrl = publicLink.link || publicUrl;
 
     if (!publicUrl) {
       return errorResponse("WorkDrive did not return a usable public resource link", 502);
+    }
+
+    if (source === DOCUMENT_SOURCE) {
+      try {
+        await saveDocumentReviewSubmissionUrl(workDriveFolder.dealId, publicUrl);
+      } catch (saveError) {
+        await zohoClient.deleteWorkDriveResource(upload.resourceId).catch((deleteError) => {
+          console.error(
+            "Failed to clean up WorkDrive file after matter URL save failed:",
+            deleteError
+          );
+        });
+        throw saveError;
+      }
     }
 
     const resourceData = {
@@ -309,13 +408,32 @@ export async function POST(request, { params }) {
       mimeType: file.type || "application/octet-stream",
       fileSize: file.size,
       workDriveFolderId: workDriveFolder.folderId,
+      workDriveRootFolderId: workDriveFolder.rootFolderId || null,
+      workDriveMatterFolderName: workDriveFolder.matterFolderName || null,
       workDriveResourceId: upload.resourceId,
       workDrivePublicLinkId: publicLink.linkId,
+      workDriveShareUrl: shareUrl,
       workDrivePermalink: upload.permalink,
       downloadUrl: publicLink.downloadUrl || upload.downloadUrl || publicUrl,
     };
 
-    const docRef = await resourcesRef.add(resourceData);
+    const docRef = resourcesRef.doc();
+    if (source === DOCUMENT_SOURCE) {
+      const batch = db.batch();
+      batch.set(docRef, resourceData);
+      batch.set(
+        db.collection("applications").doc(resolved.appId),
+        {
+          [FINAL_FILE_FIELD]: publicUrl,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+      await batch.commit();
+    } else {
+      await docRef.set(resourceData);
+    }
+
     return NextResponse.json(
       { success: true, resource: serializeResource({ id: docRef.id, data: () => resourceData }) },
       { status: 201 }
