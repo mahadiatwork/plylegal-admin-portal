@@ -216,10 +216,11 @@ export default function DocumentReviewPage() {
   );
   const documentPreviewUrl = useMemo(
     () =>
-      getResourcePreviewUrl(documentResource) ||
-      getWorkDrivePreviewUrl(findApplicationDocumentUrl(application)) ||
-      findApplicationDocumentUrl(application),
-    [application, documentResource]
+      documentResource?.id
+        ? `/api/matter/${encodeURIComponent(matterId)}/resources/${encodeURIComponent(documentResource.id)}/preview`
+        : getWorkDrivePreviewUrl(findApplicationDocumentUrl(application)) ||
+          findApplicationDocumentUrl(application),
+    [application, documentResource, matterId]
   );
 
   const openIssues = useMemo(
