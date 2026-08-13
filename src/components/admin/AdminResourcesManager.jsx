@@ -8,6 +8,7 @@ import {
   ArrowUpRight,
   CheckCircle2,
   Download,
+  Eye,
   ExternalLink,
   FileText,
   Layers3,
@@ -27,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { getWorkDrivePreviewUrl } from "@/lib/workDrivePreviewUrl.mjs";
 
 const statusOptions = [
   { value: "draft", label: "Draft" },
@@ -172,6 +174,14 @@ function ResourceRow({
   onQuickStatusChange,
 }) {
   const openUrl = resource.publicUrl || resource.url;
+  const previewUrl =
+    resource.type === "file"
+      ? getWorkDrivePreviewUrl(resource.workDriveShareUrl) ||
+        getWorkDrivePreviewUrl(resource.publicUrl) ||
+        getWorkDrivePreviewUrl(resource.url) ||
+        getWorkDrivePreviewUrl(resource.downloadUrl)
+      : "";
+  const downloadUrl = resource.downloadUrl || openUrl;
   const quickActionLabel =
     resource.status === "active"
       ? "Deactivate"
@@ -235,14 +245,26 @@ function ResourceRow({
         </div>
 
         <div className="flex flex-wrap gap-2 lg:max-w-xs lg:justify-end">
-          {openUrl ? (
+          {previewUrl ? (
+            <Button asChild variant="outline" size="sm" className="border-[#d7e6df] bg-white/90">
+              <a href={previewUrl} target="_blank" rel="noreferrer">
+                <Eye className="h-4 w-4" />
+                Preview
+              </a>
+            </Button>
+          ) : null}
+
+          {resource.type === "file" && downloadUrl ? (
+            <Button asChild variant="outline" size="sm" className="border-[#d7e6df] bg-white/90">
+              <a href={downloadUrl} target="_blank" rel="noreferrer">
+                <Download className="h-4 w-4" />
+                Download
+              </a>
+            </Button>
+          ) : openUrl ? (
             <Button asChild variant="outline" size="sm" className="border-[#d7e6df] bg-white/90">
               <a href={openUrl} target="_blank" rel="noreferrer">
-                {resource.type === "file" ? (
-                  <Download className="h-4 w-4" />
-                ) : (
-                  <ExternalLink className="h-4 w-4" />
-                )}
+                <ExternalLink className="h-4 w-4" />
                 Open
               </a>
             </Button>

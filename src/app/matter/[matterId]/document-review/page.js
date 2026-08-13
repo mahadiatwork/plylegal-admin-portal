@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import { getWorkDrivePreviewUrl } from "@/lib/workDrivePreviewUrl.mjs";
 import {
   AlertCircle,
   CheckCircle2,
@@ -77,6 +78,17 @@ function looksLikeDocumentReviewResource(resource) {
 function getResourceUrl(resource) {
   return normalizeDocumentUrl(
     resource?.downloadUrl || resource?.publicUrl || resource?.externalUrl || resource?.url
+  );
+}
+
+function getResourcePreviewUrl(resource) {
+  return normalizeDocumentUrl(
+    getWorkDrivePreviewUrl(resource?.workDriveShareUrl) ||
+      getWorkDrivePreviewUrl(resource?.workDriveEmbedUrl) ||
+      getWorkDrivePreviewUrl(resource?.publicUrl) ||
+      getWorkDrivePreviewUrl(resource?.externalUrl) ||
+      getWorkDrivePreviewUrl(resource?.url) ||
+      getResourceUrl(resource)
   );
 }
 
@@ -202,6 +214,13 @@ export default function DocumentReviewPage() {
     () => getResourceUrl(documentResource) || findApplicationDocumentUrl(application),
     [application, documentResource]
   );
+  const documentPreviewUrl = useMemo(
+    () =>
+      getResourcePreviewUrl(documentResource) ||
+      getWorkDrivePreviewUrl(findApplicationDocumentUrl(application)) ||
+      findApplicationDocumentUrl(application),
+    [application, documentResource]
+  );
 
   const openIssues = useMemo(
     () => comments.filter((comment) => normalizeCommentStatus(comment.status) === "open"),
@@ -257,7 +276,7 @@ export default function DocumentReviewPage() {
       setResources((current) => [data.resource, ...current]);
       setApplication((current) =>
         current
-          ? { ...current, Final_File_For_Visa_Submission: getResourceUrl(data.resource) }
+          ? { ...current, Final_File_For_Visa_Submission: getResourcePreviewUrl(data.resource) }
           : current
       );
       setSelectedDocument(null);
@@ -442,7 +461,8 @@ export default function DocumentReviewPage() {
             {documentUrl ? (
               <iframe
                 title="Document review preview"
-                src={documentUrl}
+                src={documentPreviewUrl}
+                allowFullScreen
                 className="h-full w-full border-0 bg-white"
               />
             ) : (

@@ -368,8 +368,8 @@ export async function POST(request, { params }) {
       sanitizeLinkName(title)
     );
     const publicUrl =
-      publicLink.downloadUrl ||
       publicLink.link ||
+      publicLink.downloadUrl ||
       upload.downloadUrl ||
       upload.permalink;
     const shareUrl = publicLink.link || publicUrl;
