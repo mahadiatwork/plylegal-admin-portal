@@ -124,6 +124,7 @@ function initializeAdminSDK() {
       // Initialize with service account credentials (REQUIRED for Firestore operations)
       if (serviceAccount) {
         adminApp = admin.initializeApp({
+          projectId,
           credential: admin.credential.cert(serviceAccount),
         });
         console.log('✅ Firebase Admin SDK initialized');
