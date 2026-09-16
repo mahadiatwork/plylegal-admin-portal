@@ -79,7 +79,7 @@ function requireRegisteredActiveRoutes(definition) {
     .filter((route) => !registered.has(route));
   if (unknownRoutes.length) {
     throw new ApiError(
-      `Cannot publish routes that are not registered in the client portal: ${unknownRoutes.join(", ")}`,
+      `These routes are not registered in the client portal: ${unknownRoutes.join(", ")}`,
       400
     );
   }
@@ -162,7 +162,7 @@ async function archiveConflictingDefinitions(transaction, snapshot, nextDefiniti
     if (existing.status !== "active" || !visaContextsOverlap(existing, nextDefinition)) continue;
     if (!hasSameAudience(existing, nextDefinition)) {
       throw new ApiError(
-        "An active questionnaire overlaps only part of this audience; archive or split it before publishing",
+        "Another questionnaire covers part of this audience. Choose one complete audience before saving",
         409
       );
     }
@@ -297,9 +297,10 @@ async function updateDefinition(request, params, { replace }) {
         pages: legacyPages || currentData.pages || [],
         revision: currentRevision,
       };
+      const bodyForSave = { ...body, status: "active" };
       const normalized = replace
-        ? normalizeQuestionnaireDefinition({ ...body, id: definitionId }, { id: definitionId })
-        : mergeQuestionnaireDefinition(current, body, { id: definitionId });
+        ? normalizeQuestionnaireDefinition({ ...bodyForSave, id: definitionId }, { id: definitionId })
+        : mergeQuestionnaireDefinition(current, bodyForSave, { id: definitionId });
       requireRegisteredActiveRoutes(normalized);
       assertQuestionnaireDefinitionStructureEditable(current, normalized, { id: definitionId });
 
@@ -319,30 +320,10 @@ async function updateDefinition(request, params, { replace }) {
         updatedAt: now,
         updatedBy: actor,
       };
-      if (normalized.status === "active") {
-        savedRecord.publishedAt = currentData.status === "active" && currentData.publishedAt
-          ? currentData.publishedAt
-          : now;
-        savedRecord.publishedBy = currentData.status === "active" && currentData.publishedBy
-          ? currentData.publishedBy
-          : actor;
-        savedRecord.archivedAt = null;
-        savedRecord.archivedBy = null;
-      } else if (normalized.status === "archived") {
-        savedRecord.publishedAt = currentData.publishedAt || null;
-        savedRecord.publishedBy = currentData.publishedBy || null;
-        savedRecord.archivedAt = currentData.status === "archived" && currentData.archivedAt
-          ? currentData.archivedAt
-          : now;
-        savedRecord.archivedBy = currentData.status === "archived" && currentData.archivedBy
-          ? currentData.archivedBy
-          : actor;
-      } else {
-        savedRecord.publishedAt = currentData.publishedAt || null;
-        savedRecord.publishedBy = currentData.publishedBy || null;
-        savedRecord.archivedAt = null;
-        savedRecord.archivedBy = null;
-      }
+      savedRecord.publishedAt = currentData.publishedAt || now;
+      savedRecord.publishedBy = currentData.publishedBy || actor;
+      savedRecord.archivedAt = null;
+      savedRecord.archivedBy = null;
 
       if (conflicts) {
         await archiveConflictingDefinitions(transaction, conflicts, savedRecord, actor, now);

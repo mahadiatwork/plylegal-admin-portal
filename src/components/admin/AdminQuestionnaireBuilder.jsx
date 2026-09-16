@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Archive,
   ArrowDown,
   ArrowUp,
   Braces,
@@ -17,7 +16,6 @@ import {
   RefreshCw,
   Save,
   Search,
-  Send,
   Trash2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -25,10 +23,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { getRegisteredQuestionnaireRoutes } from "@/lib/routes";
-import { createQuestionnaireDraft } from "@/lib/questionnaireDrafts";
 import { temporaryWork482Definition } from "@/lib/questionnaireStarterTemplates";
 import { questionnaireBuiltInTemplates } from "@/lib/questionnaireBuiltIns";
-import { getLegacyQuestionnairePublishIssues } from "@/lib/questionnaireLegacyProtection";
 
 const QUESTION_TYPES = [
   ["text", "Short text"],
@@ -49,12 +45,6 @@ const CONDITION_OPERATORS = [
   ["exists", "Has an answer"],
   ["notExists", "Has no answer"],
 ];
-
-const STATUS_STYLES = {
-  active: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  draft: "border-amber-200 bg-amber-50 text-amber-700",
-  archived: "border-slate-200 bg-slate-100 text-slate-600",
-};
 
 const inputClassName = "h-10 border-[#d7e4de] bg-white text-[#17372e]";
 const selectClassName =
@@ -146,8 +136,6 @@ function normalizeDefinition(definition = {}) {
   const visaContexts = Array.isArray(definition.visaContexts)
     ? definition.visaContexts.map(String).map((value) => value.trim()).filter(Boolean)
     : legacyContext;
-  const rawStatus = String(definition.status || "draft").toLowerCase();
-
   const normalized = {
     ...definition,
     schemaVersion: Number.isFinite(Number(definition.schemaVersion))
@@ -158,7 +146,9 @@ function normalizeDefinition(definition = {}) {
     version: String(definition.version || "1.0.0"),
     visaType: String(definition.visaType || "temporary-work"),
     visaContexts: [...new Set(visaContexts)],
-    status: ["draft", "active", "archived"].includes(rawStatus) ? rawStatus : "draft",
+    // The client portal still needs this internal marker, but owners do not
+    // need to manage questionnaire lifecycle states.
+    status: "active",
     revision: Number.isInteger(Number(definition.revision)) ? Number(definition.revision) : 0,
     pages: Array.isArray(definition.pages)
       ? definition.pages.map((page, pageIndex) => normalizePage(page, pageIndex))
@@ -246,6 +236,47 @@ function getDefinitionFromResponse(payload) {
   const candidates = [payload?.definition, payload?.data?.definition, payload?.data];
   return candidates.find(
     (candidate) => candidate && typeof candidate === "object" && !Array.isArray(candidate)
+  );
+}
+
+function questionnaireAudienceKey(definition) {
+  const contexts = Array.isArray(definition?.visaContexts)
+    ? definition.visaContexts
+    : definition?.visaContext
+      ? [definition.visaContext]
+      : [];
+  return `${definition?.visaType || ""}|${[...contexts].sort().join(",")}`;
+}
+
+function definitionUpdatedAt(definition) {
+  return Date.parse(definition?.updatedAt || definition?.createdAt || "") || 0;
+}
+
+function getOwnerQuestionnaires(definitions) {
+  const byAudience = new Map();
+
+  definitions.forEach((candidate) => {
+    if (!candidate || candidate.status === "archived") return;
+    const key = questionnaireAudienceKey(candidate);
+    const current = byAudience.get(key);
+    if (!current) {
+      byAudience.set(key, candidate);
+      return;
+    }
+
+    const candidateIsActive = candidate.status === "active";
+    const currentIsActive = current.status === "active";
+    if (
+      (candidateIsActive && !currentIsActive) ||
+      (candidateIsActive === currentIsActive && definitionUpdatedAt(candidate) > definitionUpdatedAt(current))
+    ) {
+      byAudience.set(key, candidate);
+    }
+  });
+
+  return [...byAudience.values()].sort((left, right) =>
+    definitionUpdatedAt(right) - definitionUpdatedAt(left) ||
+    String(left?.title || left?.id || "").localeCompare(String(right?.title || right?.id || ""))
   );
 }
 
@@ -381,7 +412,7 @@ function makeNewDefinition() {
     version: "1.0.0",
     visaType: "temporary-work",
     visaContexts: ["482"],
-    status: "draft",
+    status: "active",
     revision: 0,
     pages: [],
   });
@@ -393,17 +424,6 @@ function FieldLabel({ children, htmlFor, hint }) {
       {children}
       {hint ? <span className="ml-1 font-normal text-[#71857d]">{hint}</span> : null}
     </label>
-  );
-}
-
-function StatusBadge({ status }) {
-  return (
-    <Badge
-      variant="outline"
-      className={STATUS_STYLES[status] || STATUS_STYLES.draft}
-    >
-      {status || "draft"}
-    </Badge>
   );
 }
 
@@ -476,8 +496,6 @@ export default function AdminQuestionnaireBuilder() {
   );
   const isDirty = builderIsDirty || jsonHasPendingEdits;
   const isBusy = isLoading || isLoadingDefinition || isSaving || isDeleting;
-  const definitionStructureLocked = Boolean(savedDefinition && savedDefinition.status !== "draft");
-
   const activePageIndex = useMemo(
     () => definition?.pages?.findIndex((page) => page.id === activePageId) ?? -1,
     [activePageId, definition]
@@ -489,7 +507,7 @@ export default function AdminQuestionnaireBuilder() {
   );
   const activeQuestion = activeQuestionIndex >= 0 ? activePage.questions[activeQuestionIndex] : null;
   const legacyPage = activePage?.metadata?.renderer === "legacy";
-  const machineKeysLocked = definitionStructureLocked || legacyPage;
+  const machineKeysLocked = legacyPage;
   const registeredRoutes = useMemo(() => getRegisteredRoutes(definition), [definition]);
   const conditionSourceQuestions = useMemo(
     () => flattenQuestions(activePage?.questions).filter(
@@ -518,15 +536,16 @@ export default function AdminQuestionnaireBuilder() {
         const list = getDefinitionsFromResponse(listPayload);
         if (cancelled || currentListRequestId !== listRequestId.current) return;
 
-        setDefinitions(list);
+        const ownerQuestionnaires = getOwnerQuestionnaires(list);
+        setDefinitions(ownerQuestionnaires);
         setSavedQuestionnairesError("");
         if (requestId !== selectionRequestId.current) return;
-        if (!list.length) {
-          createDraftFrom(questionnaireBuiltInTemplates[0], { starter: true, checkDiscard: false });
+        if (!ownerQuestionnaires.length) {
+          createDefinitionFrom(questionnaireBuiltInTemplates[0], { starter: true, checkDiscard: false });
           return;
         }
 
-        const firstId = String(list[0].id || list[0].definitionId || "");
+        const firstId = String(ownerQuestionnaires[0].id || ownerQuestionnaires[0].definitionId || "");
         if (!firstId) return;
         const loaded = await fetchDefinition(firstId);
         if (cancelled || requestId !== selectionRequestId.current) return;
@@ -541,7 +560,7 @@ export default function AdminQuestionnaireBuilder() {
       } catch (loadError) {
         if (!cancelled && currentListRequestId === listRequestId.current) {
           setSavedQuestionnairesError(`Saved questionnaires could not be loaded. ${loadError.message}`);
-          if (requestId === selectionRequestId.current) createDraftFrom(questionnaireBuiltInTemplates[0], { starter: true, checkDiscard: false });
+          if (requestId === selectionRequestId.current) createDefinitionFrom(questionnaireBuiltInTemplates[0], { starter: true, checkDiscard: false });
         }
       } finally {
         if (!cancelled && currentListRequestId === listRequestId.current) setIsLoading(false);
@@ -552,7 +571,7 @@ export default function AdminQuestionnaireBuilder() {
     return () => {
       cancelled = true;
     };
-    // This is the initial load only; the request ids preserve any draft selected while it runs.
+    // This is the initial load only; request ids preserve the selected item while it runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -581,17 +600,18 @@ export default function AdminQuestionnaireBuilder() {
       const payload = await apiRequest("/api/questionnaire-definitions");
       if (currentListRequestId !== listRequestId.current) return;
       const list = getDefinitionsFromResponse(payload);
-      setDefinitions(list);
+      const ownerQuestionnaires = getOwnerQuestionnaires(list);
+      setDefinitions(ownerQuestionnaires);
       if (requestId !== selectionRequestId.current) return;
 
-      if (!list.length) {
-        createDraftFrom(questionnaireBuiltInTemplates[0], { starter: true, checkDiscard: false });
+      if (!ownerQuestionnaires.length) {
+        createDefinitionFrom(questionnaireBuiltInTemplates[0], { starter: true, checkDiscard: false });
         return;
       }
 
-      const matchingId = list.some((item) => String(item.id) === String(preferredId))
+      const matchingId = ownerQuestionnaires.some((item) => String(item.id) === String(preferredId))
         ? preferredId
-        : list[0].id;
+        : ownerQuestionnaires[0].id;
       const loaded = await fetchDefinition(matchingId);
       if (requestId !== selectionRequestId.current) return;
       setSelectedId(loaded.id);
@@ -655,29 +675,34 @@ export default function AdminQuestionnaireBuilder() {
     setActiveQuestionId("");
     setIsCreating(true);
     setError("");
-    setNotice("New draft ready. Add pages and save when you are finished.");
+    setNotice("New questionnaire ready. Add pages and save when you are finished.");
   }
 
-  function createDraftFrom(source, { starter = false, checkDiscard = true } = {}) {
+  function createDefinitionFrom(source, { starter = false, checkDiscard = true } = {}) {
     if (checkDiscard && !confirmDiscard()) return;
     selectionRequestId.current += 1;
     setIsLoading(false);
     setIsLoadingDefinition(false);
-    const draftId = `questionnaire-${crypto.randomUUID()}`;
-    const draft = normalizeDefinition(createQuestionnaireDraft(source, draftId));
-    setDefinition(draft);
-    setSavedDefinition(starter ? clone(draft) : null);
-    setSelectedId(draft.id);
-    setActivePageId(draft.pages[0]?.id || "");
-    setActiveQuestionId(draft.pages[0]?.questions?.[0]?.id || "");
-    setJsonText(JSON.stringify(draft, null, 2));
+    const definitionId = `questionnaire-${crypto.randomUUID()}`;
+    const nextDefinition = normalizeDefinition({
+      ...clone(source),
+      id: definitionId,
+      status: "active",
+      revision: 0,
+    });
+    setDefinition(nextDefinition);
+    setSavedDefinition(starter ? clone(nextDefinition) : null);
+    setSelectedId(nextDefinition.id);
+    setActivePageId(nextDefinition.pages[0]?.id || "");
+    setActiveQuestionId(nextDefinition.pages[0]?.questions?.[0]?.id || "");
+    setJsonText(JSON.stringify(nextDefinition, null, 2));
     setJsonHasPendingEdits(false);
     setJsonError("");
     setIsCreating(true);
     setError("");
     setNotice(starter
-      ? `${source.title} built-in questionnaire opened as a separate draft. Its existing forms and client answers are preserved while you edit the wording.`
-      : "A separate draft is ready. You can change questions and options while the published questionnaire remains available to clients.");
+      ? `${source.title} is ready to edit. Its existing forms and client answers are preserved while you make changes.`
+      : "A new questionnaire is ready. Make your changes, then save it when you are finished.");
   }
 
   function updateDefinitionField(field, value) {
@@ -912,7 +937,7 @@ export default function AdminQuestionnaireBuilder() {
         throw new Error("The JSON root must be a questionnaire object.");
       }
       if (machineKeysLocked) {
-        throw new Error("Move this live definition to draft before applying Advanced JSON changes.");
+        throw new Error("Advanced JSON changes are not available for this built-in page. Use the wording and option fields above.");
       }
       if (
         builderIsDirty &&
@@ -925,7 +950,7 @@ export default function AdminQuestionnaireBuilder() {
         ...parsed,
         id: isCreating ? parsed.id : definition.id,
         revision: definition.revision,
-        status: definition.status,
+        status: "active",
       });
       setDefinition(normalized);
       setSelectedId(normalized.id);
@@ -972,7 +997,7 @@ export default function AdminQuestionnaireBuilder() {
     });
   }
 
-  async function saveDefinition(statusOverride = null) {
+  async function saveDefinition() {
     if (jsonHasPendingEdits) {
       setError("Apply or discard the pending Advanced JSON edits before saving.");
       return;
@@ -981,27 +1006,13 @@ export default function AdminQuestionnaireBuilder() {
       setError("Questionnaire ID is required.");
       return;
     }
-    const publishIssues = getLegacyQuestionnairePublishIssues({ ...definition, status: statusOverride || definition.status });
-    if (publishIssues.length) {
-      setError(publishIssues.join("\n"));
-      return;
-    }
-    if (statusOverride === "active") {
-      const contexts = definition.visaContexts?.length
-        ? definition.visaContexts.join(", ")
-        : "all contexts";
-      if (!window.confirm(
-        `Publish this questionnaire for ${definition.visaType} (${contexts})?\n\nAny currently active questionnaire for an overlapping audience will be archived.`
-      )) return;
-    }
-
     try {
       setIsSaving(true);
       setError("");
       setNotice("");
       const nextDefinition = normalizeDefinition({
         ...definition,
-        status: statusOverride || definition.status,
+        status: "active",
       });
       const currentRevision = Number(savedDefinition?.revision ?? definition.revision ?? 0);
       const url = isCreating
@@ -1036,24 +1047,14 @@ export default function AdminQuestionnaireBuilder() {
           : selectedPage?.questions?.[0]?.id || "";
       });
       upsertDefinitionSummary(persisted);
-      if (statusOverride === "active") {
-        try {
-          const listPayload = await apiRequest("/api/questionnaire-definitions");
-          setDefinitions(getDefinitionsFromResponse(listPayload));
-        } catch {
-          // The saved definition is already reflected locally; Refresh can
-          // reconcile any definitions archived by the publish transaction.
-        }
+      try {
+        const listPayload = await apiRequest("/api/questionnaire-definitions");
+        setDefinitions(getOwnerQuestionnaires(getDefinitionsFromResponse(listPayload)));
+      } catch {
+        // The saved definition is already reflected locally; Refresh can
+        // reconcile any hidden legacy records.
       }
-      setNotice(
-        statusOverride === "active"
-          ? "Questionnaire published. It is now available to its assigned visa audience."
-          : statusOverride === "archived"
-            ? "Questionnaire archived."
-            : statusOverride === "draft"
-              ? "Questionnaire moved to draft. Machine keys can now be changed."
-              : "Questionnaire saved."
-      );
+      setNotice("Questionnaire saved. Changes are now available to clients.");
     } catch (saveError) {
       setError(saveError.message);
     } finally {
@@ -1129,7 +1130,7 @@ export default function AdminQuestionnaireBuilder() {
             Questionnaire Edit Centre
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[#60786f]">
-            Edit the questions, answer options and help text shown in the Client Portal. Choose a questionnaire, select a page, then select a question to make your changes.
+            Edit the questions, answer options and help text shown in the Client Portal. Choose a questionnaire, select a page, make your changes, then save.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1153,8 +1154,8 @@ export default function AdminQuestionnaireBuilder() {
       </header>
 
       <div className="rounded-xl border border-[#d7e4de] bg-white px-4 py-4 text-sm leading-6 text-[#38564b]">
-        <p><strong>To edit questions or options:</strong> open a questionnaire below. For a published questionnaire, choose <strong>Edit questions &amp; options</strong> to prepare a separate draft, then <strong>Publish</strong> when it is ready.</p>
-        <p className="mt-2 text-[#60786f]">Complete built-in visa questionnaires are always available below. Edit their question wording, help text and option labels while preserving the existing forms and saved answers. The Character page also supports managed question structure changes. Each matter&apos;s Client answers tab shows that client&apos;s answers.</p>
+        <p><strong>To edit a questionnaire:</strong> open it below, choose a page and question, make your changes, then select <strong>Save</strong>.</p>
+        <p className="mt-2 text-[#60786f]">Changes are saved directly to the questionnaire used by clients. Built-in visa questionnaires preserve their existing forms and saved answers while you edit their wording and options.</p>
       </div>
 
       {savedQuestionnairesError ? (
@@ -1162,7 +1163,7 @@ export default function AdminQuestionnaireBuilder() {
           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
             <p>{savedQuestionnairesError}</p>
-            <p className="mt-1">The complete built-in questionnaires remain available for review and editing. Saving and publishing require the server connection.</p>
+            <p className="mt-1">The complete built-in questionnaires remain available for review and editing. Saving changes requires the server connection.</p>
           </div>
         </div>
       ) : null}
@@ -1214,7 +1215,6 @@ export default function AdminQuestionnaireBuilder() {
                     <span className="line-clamp-2 text-sm font-semibold text-[#17372e]">
                       {item.title || item.id}
                     </span>
-                    <StatusBadge status={item.status} />
                   </div>
                   <p className="mt-2 truncate text-xs text-[#60786f]">{audienceLabel(item)}</p>
                   <p className="mt-2 text-[11px] text-[#80928b]">
@@ -1230,16 +1230,16 @@ export default function AdminQuestionnaireBuilder() {
           </div>
           <div className="shrink-0 border-t border-[#e1e9e5] p-4">
             <h3 className="text-sm font-semibold text-[#17372e]">Built-in questionnaires</h3>
-            <p className="mt-1 text-xs leading-5 text-[#60786f]">The existing questionnaire structure is bundled as a fallback. Choose a visa to open a separate editable draft.</p>
+            <p className="mt-1 text-xs leading-5 text-[#60786f]">The existing questionnaire structure is bundled as a fallback. Choose a visa to open it as a new editable questionnaire.</p>
             <div className="mt-3 space-y-2">
               {questionnaireBuiltInTemplates.map((template) => (
-                <Button key={template.id} type="button" variant="outline" className="h-auto w-full justify-start whitespace-normal border-[#d7e4de] bg-white py-3 text-left text-[#38564b]" disabled={isSaving || isDeleting} onClick={() => createDraftFrom(template, { starter: true })}>
+                <Button key={template.id} type="button" variant="outline" className="h-auto w-full justify-start whitespace-normal border-[#d7e4de] bg-white py-3 text-left text-[#38564b]" disabled={isSaving || isDeleting} onClick={() => createDefinitionFrom(template, { starter: true })}>
                   <Copy className="h-4 w-4 shrink-0" />
                   <span>{template.title}<span className="mt-1 block text-xs font-normal text-[#71857d]">{template.pages.length} pages · {definitionCounts(template).questionCount} questions</span></span>
                 </Button>
               ))}
             </div>
-            <Button type="button" variant="outline" className="mt-3 w-full border-[#d7e4de] bg-white text-[#38564b]" disabled={isSaving || isDeleting} onClick={() => createDraftFrom(temporaryWork482Definition, { starter: true })}>
+            <Button type="button" variant="outline" className="mt-3 w-full border-[#d7e4de] bg-white text-[#38564b]" disabled={isSaving || isDeleting} onClick={() => createDefinitionFrom(temporaryWork482Definition, { starter: true })}>
               <Copy className="h-4 w-4" />
               Use 482 Character starter
             </Button>
@@ -1262,7 +1262,6 @@ export default function AdminQuestionnaireBuilder() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="truncate text-xl font-semibold text-[#17372e]">{definition.title}</h2>
-                    <StatusBadge status={definition.status} />
                     {isDirty ? (
                       <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
                         Unsaved
@@ -1274,59 +1273,13 @@ export default function AdminQuestionnaireBuilder() {
                 <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
-                    variant="outline"
-                    className="border-[#d7e4de] bg-white text-[#38564b]"
+                    className="bg-[#4F726B] text-white hover:bg-[#3f625a]"
                     disabled={isSaving || isDeleting || !isDirty}
                     onClick={() => saveDefinition()}
                   >
                     {isSaving ? <Loader2 className="animate-spin" /> : <Save />}
                     Save
                   </Button>
-                  {definition.status !== "active" ? (
-                    <Button
-                      type="button"
-                      className="bg-[#4F726B] text-white"
-                      disabled={isSaving || isDeleting}
-                      onClick={() => saveDefinition("active")}
-                    >
-                      <Send />
-                      Publish
-                    </Button>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="border-amber-200 bg-amber-50 text-amber-700"
-                      disabled={isSaving || isDeleting}
-                      onClick={() => createDraftFrom(savedDefinition || definition)}
-                    >
-                      <Copy />
-                      Edit questions &amp; options
-                    </Button>
-                  )}
-                  {definition.status === "archived" ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="border-amber-200 bg-amber-50 text-amber-700"
-                      disabled={isSaving || isDeleting}
-                      onClick={() => saveDefinition("draft")}
-                    >
-                      Move to draft
-                    </Button>
-                  ) : null}
-                  {definition.status !== "archived" ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="border-slate-200 bg-white text-slate-600"
-                      disabled={isSaving || isDeleting}
-                      onClick={() => saveDefinition("archived")}
-                    >
-                      <Archive />
-                      Archive
-                    </Button>
-                  ) : null}
                   <Button
                     type="button"
                     variant="ghost"
@@ -1344,7 +1297,7 @@ export default function AdminQuestionnaireBuilder() {
                 <div className="mt-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
                   <CircleAlert className="mt-1 h-4 w-4 shrink-0" />
                   <span>
-                    {legacyPage ? "This page uses the existing client form. Edit its wording and option labels while its answer keys, fields and validation remain preserved." : `You can update question wording, help text and option labels here. To change its structure, ${savedDefinition?.status === "active" ? "choose Edit questions & options above to create a draft." : "move this archived questionnaire to draft."}`}
+                    {legacyPage ? "This page uses the existing client form. Edit its wording and option labels while its answer keys, fields and validation remain preserved." : "You can update the questionnaire structure, wording, help text and option labels here, then save your changes directly."}
                   </span>
                 </div>
               ) : null}
@@ -1854,7 +1807,7 @@ export default function AdminQuestionnaireBuilder() {
               </summary>
               <div className="space-y-4 border-t border-[#e1e9e5] px-5 py-5 sm:px-6">
                 {machineKeysLocked ? (
-                  <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Advanced JSON is read-only while this definition is live or archived. Move it to draft before importing structural changes.</p>
+                  <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Advanced JSON is read-only for this built-in page. Use the wording and option fields above to make the supported changes.</p>
                 ) : null}
                 <Textarea
                   value={jsonText}

@@ -1073,89 +1073,13 @@ export function mergeQuestionnaireDefinition(current, patch, options = {}) {
   return normalizeQuestionnaireDefinition(merged, { id: merged.id });
 }
 
-function structuralOption(option) {
-  return { value: option.value };
-}
-function structuralMetadata(metadata) {
-  if (!metadata) return null;
-  return {
-    ...metadata,
-    ...(Array.isArray(metadata.fields) ? { fields: metadata.fields.map(structuralQuestion) } : {}),
-  };
-}
-
-function structuralQuestion(question) {
-  const structure = {
-    id: question.id,
-    answerKey: question.answerKey,
-    type: question.type,
-    required: question.required === true,
-    clearWhenHidden: question.clearWhenHidden === true,
-    options: Array.isArray(question.options)
-      ? question.options.map(structuralOption)
-      : null,
-    monthOptions: Array.isArray(question.monthOptions)
-      ? question.monthOptions.map(structuralOption)
-      : null,
-    optionsSource: question.optionsSource || null,
-    visibleIf: question.visibleIf || [],
-    parts: question.parts || null,
-    inputType: question.inputType || null,
-    component: question.component || null,
-    yearRange: question.yearRange ?? null,
-    maxYear: question.maxYear ?? null,
-    metadata: structuralMetadata(question.metadata),
-    followUps: (question.followUps || []).map(structuralQuestion),
-  };
-  if (hasOwn(question, "defaultValue")) structure.defaultValue = question.defaultValue;
-  return structure;
-}
-
-function definitionStructure(definition) {
-  return {
-    schemaVersion: definition.schemaVersion,
-    visaType: definition.visaType,
-    visaContexts: definition.visaContexts || [],
-    pages: (definition.pages || []).map((page) => ({
-      id: page.id,
-      route: page.route,
-      sectionKey: page.sectionKey,
-      completionKey: page.completionKey,
-      scope: page.scope,
-      order: page.order,
-      metadata: page.metadata || null,
-      questions: (page.questions || []).map(structuralQuestion),
-    })),
-  };
-}
-
-function stableJsonValue(value) {
-  if (Array.isArray(value)) return value.map(stableJsonValue);
-  if (!isPlainObject(value)) return value;
-  return Object.fromEntries(
-    Object.keys(value)
-      .sort()
-      .map((key) => [key, stableJsonValue(value[key])])
-  );
-}
-
 /**
- * Live and archived definitions may change display copy, but their storage and
- * validation contract must first be moved to a saved draft before it changes.
+ * Questionnaire definitions are edited in place. Keep this validation step as
+ * a named boundary for route handlers and backwards-compatible callers.
  */
 export function assertQuestionnaireDefinitionStructureEditable(current, next, options = {}) {
-  const currentDefinition = normalizeQuestionnaireDefinition(current, options);
-  const nextDefinition = normalizeQuestionnaireDefinition(next, options);
-  if (currentDefinition.status === "draft") return nextDefinition;
-
-  const currentStructure = JSON.stringify(stableJsonValue(definitionStructure(currentDefinition)));
-  const nextStructure = JSON.stringify(stableJsonValue(definitionStructure(nextDefinition)));
-  if (currentStructure !== nextStructure) {
-    throw new QuestionnaireDefinitionValidationError([
-      "live questionnaire structure is locked; move the definition to draft and save it before changing its audience, pages, questions, option values, required rules, or conditions",
-    ]);
-  }
-  return nextDefinition;
+  normalizeQuestionnaireDefinition(current, options);
+  return normalizeQuestionnaireDefinition(next, options);
 }
 
 export function serializeFirestoreTimestamp(value) {

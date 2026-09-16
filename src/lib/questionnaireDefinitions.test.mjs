@@ -325,7 +325,7 @@ test("temporary-work visa contexts are limited to supported client audiences", (
   }
 });
 
-test("live definitions allow copy edits but reject structural edits until a draft is saved", () => {
+test("questionnaire definitions allow copy and structure edits in one save", () => {
   const current = normalizeQuestionnaireDefinition(validDefinition());
   const copyEdit = structuredClone(current);
   copyEdit.title = "Updated questionnaire title";
@@ -360,25 +360,11 @@ test("live definitions allow copy edits but reject structural edits until a draf
 
   structuralEdits.forEach((edit) => {
     const changed = structuredClone(current);
-    changed.status = "draft";
     edit(changed);
-    assert.throws(
-      () => assertQuestionnaireDefinitionStructureEditable(current, changed, { id: current.id }),
-      /move the definition to draft/i
+    assert.doesNotThrow(() =>
+      assertQuestionnaireDefinitionStructureEditable(current, changed, { id: current.id })
     );
   });
-
-  const savedDraft = structuredClone(current);
-  savedDraft.status = "draft";
-  assert.doesNotThrow(() =>
-    assertQuestionnaireDefinitionStructureEditable(current, savedDraft, { id: current.id })
-  );
-  const editedDraft = structuredClone(savedDraft);
-  editedDraft.pages[0].questions[0].answerKey = "renamed_answer";
-  editedDraft.pages[0].questions[0].followUps[0].visibleIf[0].field = "renamed_answer";
-  assert.doesNotThrow(() =>
-    assertQuestionnaireDefinitionStructureEditable(savedDraft, editedDraft, { id: current.id })
-  );
 });
 
 test("conditional questions require a source answer key on the same page", () => {

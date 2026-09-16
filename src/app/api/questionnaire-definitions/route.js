@@ -78,7 +78,7 @@ function requireRegisteredActiveRoutes(definition) {
     .filter((route) => !registered.has(route));
   if (unknownRoutes.length) {
     throw new ApiError(
-      `Cannot publish routes that are not registered in the client portal: ${unknownRoutes.join(", ")}`,
+      `These routes are not registered in the client portal: ${unknownRoutes.join(", ")}`,
       400
     );
   }
@@ -138,7 +138,7 @@ async function archiveConflictingDefinitions(transaction, snapshot, nextDefiniti
     if (existing.status !== "active" || !visaContextsOverlap(existing, nextDefinition)) continue;
     if (!hasSameAudience(existing, nextDefinition)) {
       throw new ApiError(
-        "An active questionnaire overlaps only part of this audience; archive or split it before publishing",
+        "Another questionnaire covers part of this audience. Choose one complete audience before saving",
         409
       );
     }
@@ -242,7 +242,9 @@ export async function POST(request) {
       ? body.id.trim()
       : generateQuestionnaireDefinitionId(body);
     const normalized = normalizeQuestionnaireDefinition(
-      { ...body, id: definitionId, revision: 0 },
+      // Client reads use the active marker. Lifecycle choices are no longer
+      // exposed in the admin editor, so every saved questionnaire is active.
+      { ...body, id: definitionId, revision: 0, status: "active" },
       { id: definitionId }
     );
     requireRegisteredActiveRoutes(normalized);
@@ -255,14 +257,8 @@ export async function POST(request) {
       updatedAt: now,
       updatedBy: actor,
     };
-    if (record.status === "active") {
-      record.publishedAt = now;
-      record.publishedBy = actor;
-    }
-    if (record.status === "archived") {
-      record.archivedAt = now;
-      record.archivedBy = actor;
-    }
+    record.publishedAt = now;
+    record.publishedBy = actor;
 
     const definitionRef = collectionRef.doc(definitionId);
     await db.runTransaction(async (transaction) => {

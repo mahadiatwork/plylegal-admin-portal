@@ -55,11 +55,11 @@ function ambiguousCopyIssues(page, baseline) {
   };
   questions(page.questions, baseline.questions);
   return [...mappings].filter(([, values]) => values.size > 1).map(([text]) =>
-    `${page.title}: "${text}" appears in several existing fields; use the same revised wording for every occurrence before publishing`
+    `${page.title}: "${text}" appears in several existing fields; use the same revised wording for every occurrence before saving`
   );
 }
 
-/** Preserve the storage contract of the shipped forms when publishing copy edits. */
+/** Preserve the storage contract of the shipped forms when saving edits. */
 export function getLegacyQuestionnairePublishIssues(definition) {
   if (definition.status !== 'active') return [];
   const issues = [];
@@ -70,7 +70,7 @@ export function getLegacyQuestionnairePublishIssues(definition) {
       continue;
     }
     if (JSON.stringify(stable(pageContract(page))) !== JSON.stringify(stable(pageContract(baseline)))) {
-      issues.push(`${page.title}: the built-in page's answer structure is preserved; edit its wording and option labels or restore the original structure before publishing`);
+      issues.push(`${page.title}: the built-in page's answer structure is preserved; edit its wording and option labels or restore the original structure before saving`);
     } else {
       issues.push(...ambiguousCopyIssues(page, baseline));
     }
