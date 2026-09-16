@@ -254,7 +254,7 @@ function ResourceRow({
             </Button>
           ) : null}
 
-          {resource.type === "file" && downloadUrl ? (
+          {resource.type === "file" && resource.downloadAllowed !== false && downloadUrl ? (
             <Button asChild variant="outline" size="sm" className="border-[#d7e6df] bg-white/90">
               <a href={downloadUrl} target="_blank" rel="noreferrer">
                 <Download className="h-4 w-4" />
@@ -638,7 +638,7 @@ export default function AdminResourcesManager() {
                 Publish once, reuse everywhere.
               </h1>
               <p className="max-w-2xl text-sm leading-7 text-white/80 sm:text-base">
-                Manage shared documents, links, and notes from one admin workspace. Drafts stay hidden until you activate them, and targeting fields are ready for later audience-based filtering in the client portal.
+                Manage the resources available to clients through the Client Portal. Add, edit and organise resources, and select whether they are available generally or for a specific matter.
               </p>
             </div>
             <div className="flex flex-wrap gap-3 text-sm text-white/80">

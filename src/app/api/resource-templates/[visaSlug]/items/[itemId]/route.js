@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAdminSession } from "@/lib/adminSession";
 import { db, initResult } from "@/lib/firebase-admin";
 import { cleanText } from "@/lib/sharedResources";
+import { deleteResourceTemplateItemSafely } from "@/lib/resourceTemplateDeletion.mjs";
 import {
   deleteResourceTemplateWorkDriveResource,
   ensureResourceTemplate,
@@ -81,6 +82,12 @@ export async function PATCH(request, { params }) {
     }
 
     const currentItem = { id: itemSnap.id, ...itemSnap.data() };
+    if (currentItem.deletionPending === true) {
+      return errorResponse(
+        "Resource deletion is pending. Retry deletion instead of editing this item.",
+        409
+      );
+    }
     const body = await request.json().catch(() => ({}));
     const updates = {};
     const now = new Date();
@@ -234,19 +241,25 @@ export async function DELETE(_request, { params }) {
     }
 
     const item = { id: itemSnap.id, ...itemSnap.data() };
-    await deleteResourceTemplateWorkDriveResource(item);
-    await itemRef.delete();
-    await templateRef.update({
-      updatedAt: new Date(),
-      updatedBy: actor,
+    const result = await deleteResourceTemplateItemSafely({
+      db,
+      itemRef,
+      templateRef,
+      item,
+      actor,
+      deleteExternalResource: deleteResourceTemplateWorkDriveResource,
     });
 
     return NextResponse.json({
       success: true,
-      deletedId: itemId,
+      deletedId: result.deletedId,
     });
   } catch (error) {
     console.error("Error deleting resource template item:", error);
-    return errorResponse("Failed to delete resource template item", 500, error.message);
+    return errorResponse(
+      error.status ? error.message : "Failed to delete resource template item",
+      error.status || 500,
+      error.details || (error.status ? null : error.message)
+    );
   }
 }

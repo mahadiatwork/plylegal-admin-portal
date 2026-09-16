@@ -5,17 +5,16 @@ import {
   AlertCircle,
   BookOpen,
   CheckCircle2,
-  Clock3,
   FileText,
   Folder,
-  FolderPlus,
+  GripVertical,
   Link2,
   Loader2,
   PackageOpen,
+  PencilLine,
   Plus,
   Search,
   ShieldCheck,
-  SlidersHorizontal,
   StickyNote,
   Scale,
   Trash2,
@@ -27,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
 const ALL_VISAS = "all";
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const DEFAULT_CATEGORIES = [
   { name: "Uncategorized", icon: "folder" },
   { name: "Guides", icon: "guide" },
@@ -82,22 +82,16 @@ function formatDate(value) {
   });
 }
 
-function formatDateTime(value) {
-  if (!value) return "Not yet";
-
-  return new Date(value).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
 function sortByOrderThenName(items) {
   return [...items].sort((a, b) => {
-    const orderA = Number.isFinite(Number(a.order)) ? Number(a.order) : 0;
-    const orderB = Number.isFinite(Number(b.order)) ? Number(b.order) : 0;
+    const parsedOrderA = Number(a.order);
+    const parsedOrderB = Number(b.order);
+    const orderA = a.order !== null && a.order !== undefined && a.order !== "" && Number.isFinite(parsedOrderA)
+      ? parsedOrderA
+      : Number.MAX_SAFE_INTEGER;
+    const orderB = b.order !== null && b.order !== undefined && b.order !== "" && Number.isFinite(parsedOrderB)
+      ? parsedOrderB
+      : Number.MAX_SAFE_INTEGER;
     if (orderA !== orderB) return orderA - orderB;
     return String(a.name || "").localeCompare(String(b.name || ""), undefined, {
       sensitivity: "base",
@@ -107,6 +101,10 @@ function sortByOrderThenName(items) {
 
 function getItemCategory(item) {
   return cleanText(item.category) || "Uncategorized";
+}
+
+function categoryKey(value) {
+  return cleanText(value).toLowerCase();
 }
 
 function KindIcon({ kind, className }) {
@@ -151,13 +149,12 @@ function mergeCategoryDefinitions(...groups) {
     }
   }
 
-  return DEFAULT_CATEGORIES.filter((category) =>
-    byName.has(category.name.toLowerCase())
-  ).concat(
-    [...byName.values()]
-      .filter((category) => !DEFAULT_CATEGORY_NAMES.includes(category.name))
-      .sort((a, b) => a.name.localeCompare(b.name))
-  );
+  return [...byName.values()].sort((a, b) => {
+    const orderA = DEFAULT_CATEGORY_NAMES.findIndex((name) => name.toLowerCase() === a.name.toLowerCase());
+    const orderB = DEFAULT_CATEGORY_NAMES.findIndex((name) => name.toLowerCase() === b.name.toLowerCase());
+    return (orderA < 0 ? Infinity : orderA) - (orderB < 0 ? Infinity : orderB)
+      || a.name.localeCompare(b.name);
+  });
 }
 
 function getKindBadgeClasses(kind) {
@@ -206,12 +203,18 @@ export default function AdminResourceTemplatesManager() {
   const [files, setFiles] = useState([]);
   const [fileInputKey, setFileInputKey] = useState(0);
   const [editingItem, setEditingItem] = useState(null);
+  const [showResourceForm, setShowResourceForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortMode, setSortMode] = useState("newest");
+  const [sortMode, setSortMode] = useState("order");
   const [isDragging, setIsDragging] = useState(false);
+  const [draggedItemId, setDraggedItemId] = useState(null);
+  const [dragOverItemId, setDragOverItemId] = useState(null);
+  const [isReordering, setIsReordering] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCategorySaving, setIsCategorySaving] = useState(false);
+  const [deletingCategory, setDeletingCategory] = useState(null);
+  const [renamingCategory, setRenamingCategory] = useState(null);
   const [activeMutationId, setActiveMutationId] = useState(null);
   const [message, setMessage] = useState(null);
   const [successLinks, setSuccessLinks] = useState([]);
@@ -262,9 +265,9 @@ export default function AdminResourceTemplatesManager() {
     }));
 
     return mergeCategoryDefinitions(
-      DEFAULT_CATEGORIES,
-      templateCategories,
-      itemCategories
+      [DEFAULT_CATEGORIES[0]],
+      itemCategories,
+      templateCategories
     );
   }, [activeVisa, templates, visaScopedItems]);
 
@@ -278,7 +281,7 @@ export default function AdminResourceTemplatesManager() {
 
   const categoryCounts = useMemo(() => {
     return visaScopedItems.reduce((counts, item) => {
-      const category = getItemCategory(item);
+      const category = categoryKey(getItemCategory(item));
       counts[category] = (counts[category] || 0) + 1;
       return counts;
     }, {});
@@ -286,7 +289,9 @@ export default function AdminResourceTemplatesManager() {
 
   const activeCategoryItems = useMemo(
     () =>
-      visaScopedItems.filter((item) => getItemCategory(item) === activeCategory),
+      visaScopedItems.filter(
+        (item) => categoryKey(getItemCategory(item)) === categoryKey(activeCategory)
+      ),
     [activeCategory, visaScopedItems]
   );
 
@@ -312,50 +317,20 @@ export default function AdminResourceTemplatesManager() {
       );
     }
 
+    if (sortMode === "newest") {
+      return [...items].sort(
+        (a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0)
+      );
+    }
+
+    if (sortMode === "order") {
+      return sortByOrderThenName(items);
+    }
+
     return [...items].sort(
-      (a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0)
+      (a, b) => String(a.name || "").localeCompare(String(b.name || ""))
     );
   }, [activeCategoryItems, searchQuery, sortMode]);
-
-  const dashboardStats = useMemo(() => {
-    const lastUpdatedItem = [...resourceItems].sort(
-      (a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0)
-    )[0];
-    const categoryNames = new Set(DEFAULT_CATEGORIES.map((category) => category.name));
-    for (const template of templates) {
-      for (const category of template.categories || []) {
-        const normalizedCategory = normalizeCategoryMetadata(category);
-        if (normalizedCategory.name) categoryNames.add(normalizedCategory.name);
-      }
-    }
-    for (const item of resourceItems) {
-      categoryNames.add(getItemCategory(item));
-    }
-
-    return {
-      totalResources: resourceItems.length,
-      activeCategories: categoryNames.size,
-      lastUpdated: lastUpdatedItem?.updatedAt || null,
-      lastUpdatedBy: lastUpdatedItem?.updatedBy || lastUpdatedItem?.createdBy || "Admin",
-    };
-  }, [resourceItems, templates]);
-
-  const visaCards = useMemo(() => {
-    const allCard = {
-      visaSlug: ALL_VISAS,
-      title: "All Resources",
-      count: resourceItems.length,
-    };
-
-    return [
-      allCard,
-      ...templates.map((template) => ({
-        visaSlug: template.visaSlug,
-        title: template.title,
-        count: resourceItems.filter((item) => item.visaSlug === template.visaSlug).length,
-      })),
-    ];
-  }, [resourceItems, templates]);
 
   const nextOrder = useMemo(() => {
     const targetVisa = activeVisa === ALL_VISAS ? form.visaSlug : activeVisa;
@@ -377,9 +352,54 @@ export default function AdminResourceTemplatesManager() {
       setFiles([]);
       setFileInputKey((current) => current + 1);
       setEditingItem(null);
+      setShowResourceForm(false);
     },
     [activeCategory, activeVisa, defaultVisaSlug, nextOrder]
   );
+
+  const handleVisaScopeChange = (visaSlug) => {
+    setActiveVisa(visaSlug);
+    setActiveCategory("Uncategorized");
+    setSearchQuery("");
+    setEditingItem(null);
+    setShowResourceForm(false);
+    setForm((current) => ({
+      ...current,
+      visaSlug: visaSlug === ALL_VISAS ? current.visaSlug || defaultVisaSlug : visaSlug,
+      category: "Uncategorized",
+    }));
+  };
+
+  const handleAddResource = () => {
+    setDefaultForm({
+      visaSlug: activeVisa === ALL_VISAS ? defaultVisaSlug : activeVisa,
+      category: activeCategory,
+    });
+    setError(null);
+    setMessage(null);
+    setSuccessLinks([]);
+    setShowResourceForm(true);
+  };
+
+  const handleEdit = (item) => {
+    setEditingItem(item);
+    setForm({
+      kind: item.kind,
+      visaSlug: item.visaSlug,
+      name: item.name || item.fileName || "",
+      category: getItemCategory(item),
+      order: String(Number.isFinite(Number(item.order)) ? Number(item.order) : 0),
+      status: item.status || "active",
+      externalUrl: item.externalUrl || "",
+      noteText: item.noteText || item.content || "",
+    });
+    setFiles([]);
+    setFileInputKey((current) => current + 1);
+    setError(null);
+    setMessage(null);
+    setSuccessLinks([]);
+    setShowResourceForm(true);
+  };
 
   const loadTemplateDetail = useCallback(async (visaSlug) => {
     const response = await fetch(`/api/resource-templates/${visaSlug}`);
@@ -469,6 +489,16 @@ export default function AdminResourceTemplatesManager() {
 
   const handleFiles = (selectedFiles) => {
     const nextFiles = Array.from(selectedFiles || []);
+    const invalidFile = nextFiles.find((file) => file.size === 0 || file.size > MAX_FILE_SIZE);
+    if (invalidFile) {
+      setError(invalidFile.size === 0
+        ? `"${invalidFile.name}" is empty. Choose a file with content.`
+        : `"${invalidFile.name}" exceeds the 50 MB limit.`);
+      setFiles([]);
+      setFileInputKey((current) => current + 1);
+      return;
+    }
+    setError(null);
     setFiles(nextFiles);
     if (nextFiles.length === 1 && !form.name.trim()) {
       updateFormField("name", nextFiles[0].name);
@@ -506,7 +536,7 @@ export default function AdminResourceTemplatesManager() {
         targetSlugs.map(async (visaSlug) => {
           const template = templateBySlug[visaSlug];
           const nextCategories = mergeCategoryDefinitions(
-            DEFAULT_CATEGORIES,
+            [DEFAULT_CATEGORIES[0]],
             template?.categories || [],
             [categoryMeta]
           );
@@ -550,8 +580,135 @@ export default function AdminResourceTemplatesManager() {
     }
   };
 
+  const handleRenameCategory = async (category) => {
+    if (category.name.toLowerCase() === "uncategorized") return;
+    const nextName = window.prompt("Rename folder", category.name);
+    if (nextName === null) return;
+
+    const replacementName = cleanText(nextName);
+    if (!replacementName || replacementName === category.name) return;
+
+    const scope = activeVisa === ALL_VISAS
+      ? "all visa templates"
+      : templateBySlug[activeVisa]?.title || activeVisa;
+
+    try {
+      setRenamingCategory(category.name);
+      setError(null);
+      setMessage(null);
+      setSuccessLinks([]);
+      const response = await fetch(`/api/resource-templates/${activeVisa}/categories`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: category.name, nextName: replacementName }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Failed to rename category.");
+      }
+
+      const changesBySlug = new Map(data.changes.map((change) => [change.visaSlug, change]));
+      setTemplates((current) => current.map((template) => {
+        const change = changesBySlug.get(template.visaSlug);
+        return change ? { ...template, categories: change.categories, updatedAt: data.updatedAt } : template;
+      }));
+      setItemsBySlug((current) => {
+        const updated = { ...current };
+        for (const change of data.changes) {
+          const renamedIds = new Set(change.renamedItemIds);
+          updated[change.visaSlug] = (current[change.visaSlug] || []).map((item) =>
+            renamedIds.has(item.id)
+              ? { ...item, category: replacementName, updatedAt: data.updatedAt, updatedBy: data.updatedBy }
+              : item
+          );
+        }
+        return updated;
+      });
+      setActiveCategory((current) =>
+        current.toLowerCase() === category.name.toLowerCase() ? replacementName : current
+      );
+      setForm((current) =>
+        current.category.toLowerCase() === category.name.toLowerCase()
+          ? { ...current, category: replacementName }
+          : current
+      );
+      setMessage(
+        `Folder renamed in ${scope}. ${data.renamedResourceCount} resource${data.renamedResourceCount === 1 ? "" : "s"} updated.`
+      );
+    } catch (categoryError) {
+      setError(categoryError.message);
+    } finally {
+      setRenamingCategory(null);
+    }
+  };
+
+  const handleDeleteCategory = async (category) => {
+    if (category.name.toLowerCase() === "uncategorized") return;
+    const scope = activeVisa === ALL_VISAS
+      ? "all visa templates"
+      : templateBySlug[activeVisa]?.title || activeVisa;
+    if (!window.confirm(
+      `Delete the "${category.name}" category from ${scope}? Existing resources will be moved to Uncategorized. Files, notes, and links will be kept.`
+    )) return;
+
+    try {
+      setDeletingCategory(category.name);
+      setError(null);
+      setMessage(null);
+      setSuccessLinks([]);
+      const response = await fetch(`/api/resource-templates/${activeVisa}/categories`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: category.name }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Failed to delete category.");
+      }
+
+      const changesBySlug = new Map(data.changes.map((change) => [change.visaSlug, change]));
+      setTemplates((current) => current.map((template) => {
+        const change = changesBySlug.get(template.visaSlug);
+        return change ? { ...template, categories: change.categories, updatedAt: data.updatedAt } : template;
+      }));
+      setItemsBySlug((current) => {
+        const updated = { ...current };
+        for (const change of data.changes) {
+          const movedIds = new Set(change.movedItemIds);
+          const movedItemsById = new Map(
+            (change.movedItems || []).map((item) => [item.id, item])
+          );
+          updated[change.visaSlug] = (current[change.visaSlug] || []).map((item) =>
+            movedIds.has(item.id)
+              ? {
+                  ...item,
+                  category: "Uncategorized",
+                  ...(movedItemsById.get(item.id)?.order !== undefined
+                    ? { order: movedItemsById.get(item.id).order }
+                    : {}),
+                  updatedAt: data.updatedAt,
+                  updatedBy: data.updatedBy,
+                }
+              : item
+          );
+        }
+        return updated;
+      });
+      setActiveCategory((current) => current.toLowerCase() === category.name.toLowerCase() ? "Uncategorized" : current);
+      setForm((current) => current.category.toLowerCase() === category.name.toLowerCase()
+        ? { ...current, category: "Uncategorized" }
+        : current);
+      setMessage(`Category deleted from ${scope}. ${data.movedResourceCount} resource${data.movedResourceCount === 1 ? "" : "s"} moved to Uncategorized.`);
+    } catch (categoryError) {
+      setError(categoryError.message);
+    } finally {
+      setDeletingCategory(null);
+    }
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (deletingCategory || renamingCategory || isReordering) return;
     setError(null);
     setMessage(null);
     setSuccessLinks([]);
@@ -695,7 +852,9 @@ export default function AdminResourceTemplatesManager() {
   const handleDelete = async (item) => {
     const resourceName = item.name || item.fileName || "this resource";
     const confirmed = window.confirm(
-      `Delete "${resourceName}" from Zoho WorkDrive and Firebase?`
+      item.deletionPending
+        ? `Retry deletion of "${resourceName}" from Zoho WorkDrive and Firebase?`
+        : `Delete "${resourceName}" from Zoho WorkDrive and Firebase?`
     );
     if (!confirmed) return;
 
@@ -711,6 +870,7 @@ export default function AdminResourceTemplatesManager() {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
+        await loadTemplateDetail(item.visaSlug);
         throw new Error(data.error || "Failed to delete resource.");
       }
 
@@ -723,64 +883,127 @@ export default function AdminResourceTemplatesManager() {
     }
   };
 
+  const categoryMutationActive = Boolean(deletingCategory || renamingCategory);
+  const canReorder =
+    activeVisa !== ALL_VISAS &&
+    sortMode === "order" &&
+    !searchQuery.trim() &&
+    tableItems.length > 1 &&
+    !showResourceForm &&
+    !isLoading &&
+    !isSubmitting &&
+    !isReordering &&
+    !activeMutationId &&
+    !categoryMutationActive &&
+    !tableItems.some((item) => item.deletionPending === true);
+
+  const handleReorderDrop = async (event, targetItemId) => {
+    event.preventDefault();
+    const sourceItemId = draggedItemId || event.dataTransfer.getData("text/plain");
+    setDraggedItemId(null);
+    setDragOverItemId(null);
+
+    if (!canReorder || !sourceItemId || sourceItemId === targetItemId) return;
+
+    const sourceIndex = tableItems.findIndex((item) => item.id === sourceItemId);
+    const targetIndex = tableItems.findIndex((item) => item.id === targetItemId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+
+    const reorderedItems = [...tableItems];
+    const [movedItem] = reorderedItems.splice(sourceIndex, 1);
+    reorderedItems.splice(targetIndex, 0, movedItem);
+
+    try {
+      setIsReordering(true);
+      setError(null);
+      setMessage(null);
+      setSuccessLinks([]);
+      const response = await fetch(`/api/resource-templates/${activeVisa}/items/order`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: activeCategory,
+          itemIds: reorderedItems.map((item) => item.id),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Failed to reorder resources.");
+      }
+
+      const orderById = new Map(data.items.map((item) => [item.id, item.order]));
+      setItemsBySlug((current) => ({
+        ...current,
+        [activeVisa]: (current[activeVisa] || []).map((item) =>
+          orderById.has(item.id)
+            ? {
+                ...item,
+                order: orderById.get(item.id),
+                updatedAt: data.updatedAt,
+                updatedBy: data.updatedBy,
+              }
+            : item
+        ),
+      }));
+      setTemplates((current) => current.map((template) =>
+        template.visaSlug === activeVisa
+          ? { ...template, updatedAt: data.updatedAt, updatedBy: data.updatedBy }
+          : template
+      ));
+      setMessage("Resource order saved.");
+    } catch (reorderError) {
+      setError(reorderError.message);
+    } finally {
+      setIsReordering(false);
+    }
+  };
+
   const activeVisaTitle =
     activeVisa === ALL_VISAS ? "All Resources" : templateBySlug[activeVisa]?.title || "Resources";
 
-  return (
-    <div className="space-y-6">
-      <section className="rounded-lg border border-[#dbe7e1] bg-white p-6 shadow-sm">
-        <div className="grid gap-6 xl:grid-cols-[1fr_auto] xl:items-center">
-          <div className="flex min-w-0 items-center gap-4">
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg bg-[#eff7f3] text-[#4F726B]">
-              <Folder className="h-8 w-8" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-semibold tracking-tight text-[#17372e]">
-                Resource Management
-              </h1>
-              <p className="mt-1 text-sm text-[#60786f]">
-                Upload, organize, and manage resources by visa type and folder.
-              </p>
-            </div>
-          </div>
+  const reorderGuidance =
+    activeVisa === ALL_VISAS
+      ? "Choose one visa scope to set a custom order."
+      : searchQuery.trim()
+        ? "Clear the search to reorder every resource in this folder."
+        : sortMode !== "order"
+          ? "Choose Custom order to drag resources."
+          : tableItems.length > 1
+            ? "Drag the handle beside a resource to change its order."
+            : null;
 
-          <div className="grid gap-4 sm:grid-cols-3 xl:min-w-[620px]">
-            <div className="border-l border-[#dce7e2] pl-5">
-              <p className="text-xs font-semibold text-[#71857d]">Total resources</p>
-              <div className="mt-2 flex items-center gap-3">
-                <FileText className="h-5 w-5 text-[#60786f]" />
-                <div>
-                  <p className="text-xl font-semibold text-[#17372e]">
-                    {dashboardStats.totalResources}
-                  </p>
-                  <p className="text-xs text-[#71857d]">files, notes and links</p>
-                </div>
-              </div>
+  return (
+    <div className="space-y-5">
+      <section className="rounded-lg border border-[#dbe7e1] bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl font-semibold tracking-tight text-[#17372e]">Resource Centre</h1>
+              <Badge variant="outline" className="border-[#dbe7e1] bg-[#f7faf8] text-[#60786f]">
+                {visaScopedItems.length} resources
+              </Badge>
             </div>
-            <div className="border-l border-[#dce7e2] pl-5">
-              <p className="text-xs font-semibold text-[#71857d]">Active folders</p>
-              <div className="mt-2 flex items-center gap-3">
-                <FolderPlus className="h-5 w-5 text-[#60786f]" />
-                <div>
-                  <p className="text-xl font-semibold text-[#17372e]">
-                    {dashboardStats.activeCategories}
-                  </p>
-                  <p className="text-xs text-[#71857d]">across all visas</p>
-                </div>
-              </div>
-            </div>
-            <div className="border-l border-[#dce7e2] pl-5">
-              <p className="text-xs font-semibold text-[#71857d]">Last updated</p>
-              <div className="mt-2 flex items-center gap-3">
-                <Clock3 className="h-5 w-5 text-[#60786f]" />
-                <div>
-                  <p className="text-sm font-semibold text-[#17372e]">
-                    {formatDateTime(dashboardStats.lastUpdated)}
-                  </p>
-                  <p className="text-xs text-[#71857d]">by {dashboardStats.lastUpdatedBy}</p>
-                </div>
-              </div>
-            </div>
+            <p className="mt-1 text-sm text-[#60786f]">
+              Add, edit and organise client resources by visa type and folder.
+            </p>
+          </div>
+          <div className="w-full lg:w-72">
+            <label htmlFor="resource-visa-scope" className="mb-1.5 block text-xs font-semibold text-[#60786f]">
+              Visa scope
+            </label>
+            <FormSelect
+              id="resource-visa-scope"
+              value={activeVisa}
+              onChange={handleVisaScopeChange}
+              disabled={isLoading || categoryMutationActive || isReordering}
+            >
+              <option value={ALL_VISAS}>All visa types</option>
+              {templates.map((template) => (
+                <option key={template.visaSlug} value={template.visaSlug}>
+                  {template.title}
+                </option>
+              ))}
+            </FormSelect>
           </div>
         </div>
       </section>
@@ -820,40 +1043,20 @@ export default function AdminResourceTemplatesManager() {
         </div>
       )}
 
-      <section className="grid gap-3 md:grid-cols-5">
-        {visaCards.map((card) => {
-          const active = activeVisa === card.visaSlug;
-          return (
-            <button
-              key={card.visaSlug}
-              type="button"
-              onClick={() => {
-                setActiveVisa(card.visaSlug);
-                if (card.visaSlug !== ALL_VISAS) {
-                  updateFormField("visaSlug", card.visaSlug);
-                }
-              }}
-              className={`rounded-md border px-5 py-4 text-left shadow-sm transition-colors ${
-                active
-                  ? "border-[#4F726B] bg-[#4F726B] text-white"
-                  : "border-[#dbe7e1] bg-white text-[#17372e] hover:border-[#8ac6ad]"
-              }`}
-            >
-              <span className="block text-sm font-semibold">{card.title}</span>
-              <span className={active ? "mt-1 block text-xs text-white/80" : "mt-1 block text-xs text-[#71857d]"}>
-                {card.count} resources
-              </span>
-            </button>
-          );
-        })}
-      </section>
-
-      <section className="grid gap-5 xl:grid-cols-[290px_minmax(360px,0.8fr)_minmax(560px,1.4fr)]">
+      <section className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="rounded-lg border border-[#dbe7e1] bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-base font-semibold text-[#17372e]">Folders</h2>
-            <Button type="button" variant="outline" size="icon" className="bg-white">
-              <SlidersHorizontal className="h-4 w-4" />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 bg-white text-[#4F726B]"
+              disabled={isLoading || categoryMutationActive}
+              onClick={() => setShowNewCategory((current) => !current)}
+            >
+              <Plus className="h-4 w-4" />
+              New
             </Button>
           </div>
 
@@ -869,28 +1072,63 @@ export default function AdminResourceTemplatesManager() {
 
           <div className="mt-4 space-y-2">
             {visibleCategories.map((category) => {
-              const active = activeCategory === category.name;
-              const count = categoryCounts[category.name] || 0;
+              const active = categoryKey(activeCategory) === categoryKey(category.name);
+              const count = categoryCounts[categoryKey(category.name)] || 0;
               return (
-                <button
+                <div
                   key={category.name}
-                  type="button"
-                  onClick={() => {
-                    setActiveCategory(category.name);
-                    setForm((current) => ({ ...current, category: category.name }));
-                  }}
-                  className={`flex w-full items-center justify-between rounded-md px-3 py-3 text-sm font-medium transition-colors ${
+                  className={`flex w-full items-center rounded-md text-sm font-medium transition-colors ${
                     active
                       ? "bg-[#e8f4ee] text-[#4F726B]"
                       : "bg-white text-[#38564b] hover:bg-[#f7faf8]"
                   }`}
                 >
-                  <span className="flex items-center gap-2">
-                    <CategoryIcon icon={category.icon} className="h-4 w-4" />
-                    {category.name}
-                  </span>
-                  <span>{count}</span>
-                </button>
+                  <button
+                    type="button"
+                    disabled={categoryMutationActive || isReordering}
+                    onClick={() => {
+                      setActiveCategory(category.name);
+                      setForm((current) => ({ ...current, category: category.name }));
+                      setEditingItem(null);
+                      setShowResourceForm(false);
+                    }}
+                    className="flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-3 text-left"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <CategoryIcon icon={category.icon} className="h-4 w-4 shrink-0" />
+                      <span className="truncate">{category.name}</span>
+                    </span>
+                    <span>{count}</span>
+                  </button>
+                  {category.name.toLowerCase() !== "uncategorized" ? (
+                    <span className="mr-1 flex shrink-0 items-center">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        title={`Rename ${category.name}`}
+                        aria-label={`Rename ${category.name}`}
+                        disabled={isLoading || isCategorySaving || categoryMutationActive || isSubmitting || Boolean(activeMutationId) || isReordering}
+                        onClick={() => handleRenameCategory(category)}
+                        className="h-8 w-8 text-[#60786f] hover:bg-[#edf5f1] hover:text-[#17372e]"
+                      >
+                        {renamingCategory === category.name ? <Loader2 className="h-4 w-4 animate-spin" /> : <PencilLine className="h-4 w-4" />}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        title={`Delete ${category.name}`}
+                        aria-label={`Delete ${category.name}`}
+                        disabled={isLoading || isCategorySaving || categoryMutationActive || isSubmitting || Boolean(activeMutationId) || isReordering}
+                        onClick={() => handleDeleteCategory(category)}
+                        className="h-8 w-8 text-red-600 hover:bg-red-50 hover:text-red-700"
+                      >
+                        {deletingCategory === category.name ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                      </Button>
+                    </span>
+                  ) : null}
+                </div>
               );
             })}
           </div>
@@ -931,7 +1169,7 @@ export default function AdminResourceTemplatesManager() {
                   <Button
                     type="button"
                     className="h-9 bg-[#4F726B] text-white hover:bg-[#4F726B]"
-                    disabled={isCategorySaving}
+                    disabled={isCategorySaving || categoryMutationActive}
                     onClick={handleNewCategory}
                   >
                     {isCategorySaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -941,7 +1179,7 @@ export default function AdminResourceTemplatesManager() {
                     type="button"
                     variant="outline"
                     className="h-9 bg-white"
-                    disabled={isCategorySaving}
+                    disabled={isCategorySaving || categoryMutationActive}
                     onClick={() => {
                       setShowNewCategory(false);
                       setNewCategoryName("");
@@ -952,215 +1190,176 @@ export default function AdminResourceTemplatesManager() {
                   </Button>
                 </div>
               </div>
-            ) : (
-              <Button
-                type="button"
-                variant="outline"
-                className="h-10 w-full border-[#d7e4de] bg-white text-[#4F726B]"
-                onClick={() => setShowNewCategory(true)}
-              >
-                <Plus className="h-4 w-4" />
-                Create Folder
-              </Button>
-            )}
-          </div>
-
-          <div className="mt-6 rounded-md border border-[#dbe7e1] bg-[#f7faf8] p-4 text-center">
-            <PackageOpen className="mx-auto h-8 w-8 text-[#8aa099]" />
-            <p className="mt-3 text-sm font-semibold text-[#17372e]">Need another folder?</p>
-            <p className="mt-1 text-xs leading-5 text-[#60786f]">
-              Create custom folders with icons for each visa template.
-            </p>
+            ) : null}
           </div>
         </aside>
 
-        <section className="rounded-lg border border-[#dbe7e1] bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base font-semibold text-[#17372e]">{activeCategory}</h2>
-            <Badge variant="outline" className="border-[#dbe7e1] bg-[#f7faf8] text-[#60786f]">
-              {activeCategoryItems.length} items
-            </Badge>
-          </div>
-          <p className="mt-1 text-sm text-[#60786f]">
-            Resources assigned to {activeCategory}.
-          </p>
-
-          <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-            {!editingItem ? (
-              <div
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  setIsDragging(true);
-                }}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={handleDrop}
-                className={`rounded-lg border border-dashed px-5 py-8 text-center transition-colors ${
-                  isDragging
-                    ? "border-[#4F726B] bg-[#4F726B]/5"
-                    : "border-[#d7e4de] bg-[#fbfdfc]"
-                }`}
-              >
-                <UploadCloud className="mx-auto h-9 w-9 text-[#4F726B]" />
-                <p className="mt-3 text-sm font-semibold text-[#17372e]">
-                  Drag and drop files here
-                </p>
-                <p className="my-2 text-xs text-[#71857d]">or</p>
-                <label className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md bg-[#4F726B] px-4 text-sm font-medium text-white hover:bg-[#4F726B]">
-                  Choose files to upload
-                  <input
-                    key={fileInputKey}
-                    type="file"
-                    multiple
-                    className="sr-only"
-                    onChange={(event) => handleFiles(event.target.files)}
-                  />
-                </label>
-                <p className="mt-4 text-xs leading-5 text-[#71857d]">
-                  Maximum file size: 50 MB per file
-                </p>
-                {files.length ? (
-                  <p className="mt-2 text-xs font-medium text-[#4F726B]">
-                    {files.length} selected
+        <div className="min-w-0 space-y-5">
+          {showResourceForm ? (
+            <section className="rounded-lg border border-[#dbe7e1] bg-white p-5 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-[#17372e]">
+                    {editingItem ? "Edit resource" : "Add resource"}
+                  </h2>
+                  <p className="mt-1 text-sm text-[#60786f]">
+                    {activeVisaTitle} / {form.category || activeCategory}
                   </p>
+                </div>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setDefaultForm()}>
+                  Cancel
+                </Button>
+              </div>
+
+              <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+                {!editingItem && form.kind === "file" ? (
+                  <div
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      setIsDragging(true);
+                    }}
+                    onDragLeave={() => setIsDragging(false)}
+                    onDrop={handleDrop}
+                    className={`rounded-lg border border-dashed px-5 py-6 text-center transition-colors ${
+                      isDragging
+                        ? "border-[#4F726B] bg-[#4F726B]/5"
+                        : "border-[#d7e4de] bg-[#fbfdfc]"
+                    }`}
+                  >
+                    <UploadCloud className="mx-auto h-8 w-8 text-[#4F726B]" />
+                    <p className="mt-2 text-sm font-semibold text-[#17372e]">Drop files here or choose files</p>
+                    <label className="mt-3 inline-flex h-9 cursor-pointer items-center justify-center rounded-md bg-[#4F726B] px-4 text-sm font-medium text-white">
+                      Choose files
+                      <input
+                        key={fileInputKey}
+                        type="file"
+                        multiple
+                        className="sr-only"
+                        onChange={(event) => handleFiles(event.target.files)}
+                      />
+                    </label>
+                    <p className="mt-3 text-xs text-[#71857d]">Maximum file size: 50 MB per file.</p>
+                    {files.length ? <p className="mt-1 text-xs font-medium text-[#4F726B]">{files.length} selected</p> : null}
+                  </div>
                 ) : null}
-              </div>
-            ) : null}
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-[#224238]">Visa type</label>
-                <FormSelect
-                  value={form.visaSlug}
-                  onChange={(value) => updateFormField("visaSlug", value)}
-                  disabled={Boolean(editingItem)}
-                >
-                  {templates.map((template) => (
-                    <option key={template.visaSlug} value={template.visaSlug}>
-                      {template.title}
-                    </option>
-                  ))}
-                </FormSelect>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-[#224238]">Type</label>
-                <FormSelect
-                  value={form.kind}
-                  onChange={(value) => updateFormField("kind", value)}
-                  disabled={Boolean(editingItem)}
-                >
-                  {resourceTypeOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </FormSelect>
-              </div>
-            </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-[#224238]">Visa type</label>
+                    <FormSelect
+                      value={form.visaSlug}
+                      onChange={(value) => updateFormField("visaSlug", value)}
+                      disabled={Boolean(editingItem)}
+                    >
+                      {templates.map((template) => (
+                        <option key={template.visaSlug} value={template.visaSlug}>{template.title}</option>
+                      ))}
+                    </FormSelect>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-[#224238]">Type</label>
+                    <FormSelect
+                      value={form.kind}
+                      onChange={(value) => {
+                        updateFormField("kind", value);
+                        setFiles([]);
+                        setFileInputKey((current) => current + 1);
+                      }}
+                      disabled={Boolean(editingItem)}
+                    >
+                      {resourceTypeOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </FormSelect>
+                  </div>
+                </div>
 
-            <div className="space-y-2">
-              <label htmlFor="resource-name" className="text-sm font-medium text-[#224238]">
-                Name
-              </label>
-              <Input
-                id="resource-name"
-                value={form.name}
-                onChange={(event) => updateFormField("name", event.target.value)}
-                placeholder={form.kind === "file" ? "Optional for file uploads" : "Resource name"}
-                className="h-10 border-[#d7e4de] bg-white"
-              />
-            </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label htmlFor="resource-name" className="text-sm font-medium text-[#224238]">Name</label>
+                    <Input
+                      id="resource-name"
+                      value={form.name}
+                      onChange={(event) => updateFormField("name", event.target.value)}
+                      placeholder={form.kind === "file" ? "Optional for file uploads" : "Resource name"}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-[#224238]">Visibility</label>
+                    <FormSelect value={form.status} onChange={(value) => updateFormField("status", value)}>
+                      {itemStatusOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </FormSelect>
+                  </div>
+                </div>
 
-            {form.kind === "link" ? (
-              <div className="space-y-2">
-                <label htmlFor="resource-link" className="text-sm font-medium text-[#224238]">
-                  Link URL
-                </label>
-                <Input
-                  id="resource-link"
-                  type="url"
-                  value={form.externalUrl}
-                  onChange={(event) => updateFormField("externalUrl", event.target.value)}
-                  placeholder="https://example.com/resource"
-                  className="h-10 border-[#d7e4de] bg-white"
-                />
-              </div>
-            ) : null}
+                {form.kind === "link" ? (
+                  <div className="space-y-2">
+                    <label htmlFor="resource-link" className="text-sm font-medium text-[#224238]">Link URL</label>
+                    <Input
+                      id="resource-link"
+                      type="url"
+                      value={form.externalUrl}
+                      onChange={(event) => updateFormField("externalUrl", event.target.value)}
+                      placeholder="https://example.com/resource"
+                    />
+                  </div>
+                ) : null}
 
-            {form.kind === "note" ? (
-              <div className="space-y-2">
-                <label htmlFor="resource-note" className="text-sm font-medium text-[#224238]">
-                  Note
-                </label>
-                <Textarea
-                  id="resource-note"
-                  value={form.noteText}
-                  onChange={(event) => updateFormField("noteText", event.target.value)}
-                  placeholder="Write the note shown in the portal"
-                  rows={5}
-                  className="border-[#d7e4de] bg-white"
-                />
-              </div>
-            ) : null}
+                {form.kind === "note" ? (
+                  <div className="space-y-2">
+                    <label htmlFor="resource-note" className="text-sm font-medium text-[#224238]">Note</label>
+                    <Textarea
+                      id="resource-note"
+                      value={form.noteText}
+                      onChange={(event) => updateFormField("noteText", event.target.value)}
+                      placeholder="Write the note shown in the portal"
+                      rows={4}
+                    />
+                  </div>
+                ) : null}
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-[#224238]">Visibility</label>
-                <FormSelect
-                  value={form.status}
-                  onChange={(value) => updateFormField("status", value)}
-                >
-                  {itemStatusOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </FormSelect>
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="resource-order" className="text-sm font-medium text-[#224238]">
-                  Order
-                </label>
-                <Input
-                  id="resource-order"
-                  type="number"
-                  value={form.order}
-                  onChange={(event) => updateFormField("order", event.target.value)}
-                  className="h-10 border-[#d7e4de] bg-white"
-                />
-              </div>
-            </div>
+                <div className="flex flex-wrap justify-end gap-3">
+                  <Button type="button" variant="outline" onClick={() => setDefaultForm()} disabled={isSubmitting}>
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={isSubmitting || isLoading || categoryMutationActive || isReordering}
+                    className="bg-[#4F726B] text-white hover:bg-[#4F726B]"
+                  >
+                    {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
+                    {editingItem ? "Save changes" : form.kind === "file" ? "Upload" : "Add resource"}
+                  </Button>
+                </div>
+              </form>
+            </section>
+          ) : null}
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Button
-                type="submit"
-                disabled={isSubmitting || isLoading}
-                className="h-10 bg-[#4F726B] text-white hover:bg-[#4F726B]"
-              >
-                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
-                {editingItem ? "Save resource" : form.kind === "file" ? "Upload file" : "Add resource"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-10 bg-white"
-                onClick={() => setDefaultForm()}
-              >
-                {editingItem ? "Cancel edit" : "Reset"}
-              </Button>
-            </div>
-          </form>
-        </section>
-
-        <section className="overflow-hidden rounded-lg border border-[#dbe7e1] bg-white shadow-sm">
+          <section className="overflow-hidden rounded-lg border border-[#dbe7e1] bg-white shadow-sm">
           <div className="border-b border-[#dbe7e1] px-5 py-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <h2 className="text-base font-semibold text-[#17372e]">
-                  Resources ({tableItems.length})
-                </h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base font-semibold text-[#17372e]">{activeCategory}</h2>
+                  <Badge variant="outline" className="border-[#dbe7e1] bg-[#f7faf8] text-[#60786f]">{tableItems.length}</Badge>
+                </div>
                 <p className="mt-1 text-xs text-[#71857d]">{activeVisaTitle} / {activeCategory}</p>
               </div>
-              <div className="grid gap-3 sm:grid-cols-[1fr_auto_150px] lg:min-w-[560px]">
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  type="button"
+                  onClick={handleAddResource}
+                  disabled={isLoading || categoryMutationActive || isReordering || showResourceForm}
+                  className="bg-[#4F726B] text-white hover:bg-[#4F726B]"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add resource
+                </Button>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_170px]">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8aa099]" />
                   <Input
@@ -1170,17 +1369,14 @@ export default function AdminResourceTemplatesManager() {
                     className="h-10 border-[#d7e4de] bg-white pl-9"
                   />
                 </div>
-                <Button type="button" variant="outline" className="h-10 bg-white">
-                  <SlidersHorizontal className="h-4 w-4" />
-                  Filters
-                </Button>
                 <FormSelect value={sortMode} onChange={setSortMode}>
+                  <option value="order">Custom order</option>
                   <option value="newest">Newest first</option>
                   <option value="oldest">Oldest first</option>
                   <option value="name">Name</option>
                 </FormSelect>
-              </div>
             </div>
+            {reorderGuidance ? <p className="mt-2 text-xs text-[#71857d]">{reorderGuidance}</p> : null}
           </div>
 
           {isLoading ? (
@@ -1189,12 +1385,12 @@ export default function AdminResourceTemplatesManager() {
             </div>
           ) : tableItems.length ? (
             <div className="text-sm">
-              <div className="hidden border-b border-[#edf1ef] bg-[#fbfdfc] px-5 py-3 text-xs font-semibold text-[#71857d] md:grid md:grid-cols-[minmax(0,1fr)_130px_100px_64px_52px] md:items-center md:gap-4">
+              <div className="hidden border-b border-[#edf1ef] bg-[#fbfdfc] px-5 py-3 text-xs font-semibold text-[#71857d] md:grid md:grid-cols-[minmax(0,1fr)_120px_90px_56px_96px] md:items-center md:gap-4">
                 <span>Name</span>
-                <span>Uploaded date</span>
+                <span>Updated</span>
                 <span>Type</span>
                 <span className="text-right">Link</span>
-                <span className="text-right">Delete</span>
+                <span className="text-right">Actions</span>
               </div>
               <div className="divide-y divide-[#edf1ef]">
                 {tableItems.map((item) => {
@@ -1202,21 +1398,51 @@ export default function AdminResourceTemplatesManager() {
                   return (
                     <div
                       key={`${item.visaSlug}:${item.id}`}
-                      className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_130px_100px_64px_52px] md:items-center md:gap-4"
+                      onDragOver={(event) => {
+                        if (!canReorder || draggedItemId === item.id) return;
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "move";
+                        setDragOverItemId(item.id);
+                      }}
+                      onDragLeave={() => setDragOverItemId((current) => current === item.id ? null : current)}
+                      onDrop={(event) => handleReorderDrop(event, item.id)}
+                      className={`grid gap-3 px-5 py-4 transition-colors md:grid-cols-[minmax(0,1fr)_120px_90px_56px_96px] md:items-center md:gap-4 ${
+                        dragOverItemId === item.id ? "bg-[#edf7f2]" : "bg-white"
+                      }`}
                     >
                       <div className="flex min-w-0 items-center gap-3">
+                        <span
+                          draggable={canReorder}
+                          title={canReorder ? "Drag to reorder" : undefined}
+                          onDragStart={(event) => {
+                            if (!canReorder) return;
+                            event.dataTransfer.effectAllowed = "move";
+                            event.dataTransfer.setData("text/plain", item.id);
+                            setDraggedItemId(item.id);
+                          }}
+                          onDragEnd={() => {
+                            setDraggedItemId(null);
+                            setDragOverItemId(null);
+                          }}
+                          className={canReorder ? "cursor-grab text-[#8aa099] active:cursor-grabbing" : "text-[#c7d3ce]"}
+                        >
+                          <GripVertical className="h-4 w-4" />
+                        </span>
                         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#dbe7e1] bg-[#f7faf8] text-[#4F726B]">
                           <KindIcon kind={item.kind} className="h-4 w-4" />
                         </div>
                         <p className="min-w-0 truncate font-semibold text-[#17372e]">
                           {item.name || item.fileName || "Untitled resource"}
                         </p>
+                        {item.deletionPending ? (
+                          <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+                            Deletion pending
+                          </Badge>
+                        ) : null}
                       </div>
                       <div className="text-sm text-[#60786f]">
-                        <span className="font-medium text-[#71857d] md:hidden">
-                          Uploaded:{" "}
-                        </span>
-                        {formatDate(item.createdAt || item.updatedAt)}
+                        <span className="font-medium text-[#71857d] md:hidden">Updated: </span>
+                        {formatDate(item.updatedAt || item.createdAt)}
                       </div>
                       <div>
                         <Badge variant="outline" className={getKindBadgeClasses(item.kind)}>
@@ -1255,13 +1481,24 @@ export default function AdminResourceTemplatesManager() {
                           </Button>
                         )}
                       </div>
-                      <div className="flex justify-start md:justify-end">
+                      <div className="flex justify-start gap-1 md:justify-end">
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
-                          title="Delete"
-                          disabled={isBusy}
+                          title="Edit"
+                          disabled={isBusy || item.deletionPending || categoryMutationActive || isReordering}
+                          onClick={() => handleEdit(item)}
+                          className="text-[#4F726B] hover:bg-[#e8f4ee] hover:text-[#17372e]"
+                        >
+                          <PencilLine className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          title={item.deletionPending ? "Retry deletion" : "Delete"}
+                          disabled={isBusy || categoryMutationActive || isReordering}
                           onClick={() => handleDelete(item)}
                           className="text-red-600 hover:bg-red-50 hover:text-red-700"
                         >
@@ -1282,11 +1519,20 @@ export default function AdminResourceTemplatesManager() {
               <PackageOpen className="h-16 w-16 text-[#9fb4ac]" />
               <h3 className="mt-4 text-lg font-semibold text-[#17372e]">No resources yet</h3>
               <p className="mt-2 max-w-sm text-sm text-[#60786f]">
-                Upload files, add notes, or add links to start building this resource folder.
+                Add a file, note or link to this folder.
               </p>
+              <Button
+                type="button"
+                onClick={handleAddResource}
+                className="mt-4 bg-[#4F726B] text-white hover:bg-[#4F726B]"
+              >
+                <Plus className="h-4 w-4" />
+                Add resource
+              </Button>
             </div>
           )}
-        </section>
+          </section>
+        </div>
       </section>
     </div>
   );

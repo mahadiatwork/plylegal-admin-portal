@@ -1,4 +1,5 @@
 import zohoClient from "@/lib/zohoClient";
+import { getResourceMimeType, getWorkDriveViewerUrl, validateResourceFile } from "./resourceFiles.mjs";
 import {
   cleanText,
   normalizeResourceUrl,
@@ -235,8 +236,14 @@ export function serializeTemplateItemDoc(doc) {
 
 export function sortTemplateItems(items) {
   return [...items].sort((a, b) => {
-    const orderA = Number.isFinite(Number(a.order)) ? Number(a.order) : 0;
-    const orderB = Number.isFinite(Number(b.order)) ? Number(b.order) : 0;
+    const parsedOrderA = Number(a.order);
+    const parsedOrderB = Number(b.order);
+    const orderA = a.order !== null && a.order !== undefined && a.order !== "" && Number.isFinite(parsedOrderA)
+      ? parsedOrderA
+      : Number.MAX_SAFE_INTEGER;
+    const orderB = b.order !== null && b.order !== undefined && b.order !== "" && Number.isFinite(parsedOrderB)
+      ? parsedOrderB
+      : Number.MAX_SAFE_INTEGER;
     if (orderA !== orderB) return orderA - orderB;
     return cleanText(a.name).localeCompare(cleanText(b.name), undefined, {
       sensitivity: "base",
@@ -372,29 +379,29 @@ export async function uploadResourceTemplateFile(file, title, folderId) {
     };
   }
 
-  if (!file || typeof file === "string" || typeof file.arrayBuffer !== "function") {
-    return { error: "A file is required", status: 400 };
-  }
-
-  if (file.size > MAX_RESOURCE_TEMPLATE_FILE_SIZE) {
-    return { error: "File uploads are limited to 50 MB", status: 400 };
-  }
+  const fileError = validateResourceFile(file);
+  if (fileError) return { error: fileError, status: 400 };
 
   const originalFileName = sanitizeFileName(file.name);
+  const mimeType = getResourceMimeType(file);
   const buffer = Buffer.from(await file.arrayBuffer());
   const upload = await zohoClient.uploadWorkDriveFile(
     folderId,
     buffer,
     originalFileName,
-    file.type || "application/octet-stream"
+    mimeType
   );
 
   let publicLink;
   try {
     publicLink = await zohoClient.createWorkDrivePublicLink(
       upload.resourceId,
-      sanitizeLinkName(title || originalFileName)
+      sanitizeLinkName(title || originalFileName),
+      { allowDownload: false }
     );
+    if (publicLink.allowDownload !== false || !getWorkDriveViewerUrl(publicLink.link)) {
+      throw new Error("WorkDrive did not confirm a view-only resource link");
+    }
   } catch (error) {
     await zohoClient.deleteWorkDriveResource(upload.resourceId).catch((deleteError) => {
       console.error(
@@ -405,31 +412,19 @@ export async function uploadResourceTemplateFile(file, title, folderId) {
 
     throw error;
   }
-  const externalUrl =
-    publicLink.link ||
-    publicLink.downloadUrl ||
-    upload.downloadUrl ||
-    upload.permalink;
-
-  if (!externalUrl) {
-    return {
-      error: "WorkDrive did not return a usable public resource link",
-      status: 502,
-    };
-  }
+  const externalUrl = publicLink.link;
 
   return {
     data: {
       externalUrl,
       workdriveId: upload.resourceId,
-      mimeType: file.type || "application/octet-stream",
+      mimeType,
       size: file.size,
       fileName: originalFileName,
       workDriveFolderId: folderId,
       workDriveResourceId: upload.resourceId,
       workDrivePublicLinkId: publicLink.linkId,
-      workDrivePermalink: upload.permalink,
-      downloadUrl: publicLink.downloadUrl || upload.downloadUrl || externalUrl,
+      downloadAllowed: false,
     },
   };
 }

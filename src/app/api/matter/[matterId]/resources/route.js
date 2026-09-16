@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server";
+import { getAdminSession } from "@/lib/adminSession";
 import { db, initResult } from "@/lib/firebase-admin";
 import { resolveMatterApplication } from "@/lib/matterResolver";
 import { isPdfUpload } from "@/lib/pdfUploadRules.mjs";
+import { getResourceMimeType } from "@/lib/resourceFiles.mjs";
+import {
+  createViewOnlyMatterResourceLink,
+  normalizeMatterResourceOrder,
+  reorderMatterResources,
+  sortMatterResources,
+} from "@/lib/matterResources.mjs";
 import zohoClient from "@/lib/zohoClient";
 
 export const runtime = "nodejs";
@@ -228,6 +236,10 @@ async function getDocumentReviewWorkDriveFolder(application, matterId) {
 
 export async function GET(request, { params }) {
   try {
+    if (!(await getAdminSession())) {
+      return errorResponse("Admin session is required", 401);
+    }
+
     const { matterId } = await params;
     const { resolved, response } = await resolveMatter(matterId);
     if (response) return response;
@@ -236,12 +248,17 @@ export async function GET(request, { params }) {
       .collection("applications")
       .doc(resolved.appId)
       .collection("resources")
-      .orderBy("createdAt", "desc")
       .get();
 
-    const resources = snapshot.docs
-      .map(serializeResource)
-      .filter((resource) => resource.status !== "archived");
+    const resources = sortMatterResources(
+      snapshot.docs
+        .map(serializeResource)
+        .filter(
+          (resource) =>
+            resource.status !== "archived" ||
+            resource.workDriveCleanupPending === true
+        )
+    );
 
     return NextResponse.json({ success: true, resources });
   } catch (error) {
@@ -250,8 +267,44 @@ export async function GET(request, { params }) {
   }
 }
 
+export async function PATCH(request, { params }) {
+  try {
+    const session = await getAdminSession();
+    if (!session) {
+      return errorResponse("Admin session is required", 401);
+    }
+
+    const { matterId } = await params;
+    const { resolved, response } = await resolveMatter(matterId);
+    if (response) return response;
+
+    const body = await request.json().catch(() => ({}));
+    const result = await reorderMatterResources({
+      db,
+      appId: resolved.appId,
+      category: body.category,
+      itemIds: body.itemIds,
+      actor: session.role || "admin",
+    });
+
+    return NextResponse.json({ success: true, ...result });
+  } catch (error) {
+    console.error("Error reordering matter resources:", error);
+    return errorResponse(
+      error.status ? error.message : "Failed to reorder matter resources",
+      error.status || 500,
+      error.status ? null : error.message
+    );
+  }
+}
+
 export async function POST(request, { params }) {
   try {
+    const session = await getAdminSession();
+    if (!session) {
+      return errorResponse("Admin session is required", 401);
+    }
+
     const { matterId } = await params;
     const { resolved, response } = await resolveMatter(matterId);
     if (response) return response;
@@ -262,13 +315,24 @@ export async function POST(request, { params }) {
     const description = cleanText(formData.get("description"));
     const source = cleanText(formData.get("source"));
     const category = cleanText(formData.get("category"));
+    const order = normalizeMatterResourceOrder(formData.get("order"));
+
+    if (order === null) {
+      return errorResponse("Resource order must be a number", 400);
+    }
+
     const metadata = {
       ...(source ? { source } : {}),
       ...(category ? { category } : {}),
+      ...(order !== undefined ? { order } : {}),
     };
 
     if (!["file", "link", "note"].includes(type)) {
       return errorResponse("Resource type must be file, link, or note", 400);
+    }
+
+    if (source === DOCUMENT_SOURCE && type !== "file") {
+      return errorResponse("Document review resources must be PDF files", 400);
     }
 
     const now = new Date();
@@ -294,7 +358,7 @@ export async function POST(request, { params }) {
         status: "active",
         createdAt: now,
         updatedAt: now,
-        createdBy: "admin",
+        createdBy: session.role || "admin",
         ...metadata,
       };
 
@@ -319,7 +383,7 @@ export async function POST(request, { params }) {
         status: "active",
         createdAt: now,
         updatedAt: now,
-        createdBy: "admin",
+        createdBy: session.role || "admin",
         ...metadata,
       };
 
@@ -343,6 +407,7 @@ export async function POST(request, { params }) {
     const originalFileName = sanitizeFileName(file.name);
     const title = titleInput || originalFileName;
     const buffer = Buffer.from(await file.arrayBuffer());
+    const mimeType = getResourceMimeType(file);
 
     if (source === DOCUMENT_SOURCE && !isPdfUpload(originalFileName, buffer)) {
       return errorResponse("Only PDF files can be uploaded for document review", 400);
@@ -361,17 +426,30 @@ export async function POST(request, { params }) {
       workDriveFolder.folderId,
       buffer,
       originalFileName,
-      file.type || "application/octet-stream"
+      mimeType
     );
-    const publicLink = await zohoClient.createWorkDrivePublicLink(
-      upload.resourceId,
-      sanitizeLinkName(title)
-    );
-    const publicUrl =
-      publicLink.link ||
-      publicLink.downloadUrl ||
-      upload.downloadUrl ||
-      upload.permalink;
+
+    let publicLink;
+    let publicUrl;
+    if (source === DOCUMENT_SOURCE) {
+      publicLink = await zohoClient.createWorkDrivePublicLink(
+        upload.resourceId,
+        sanitizeLinkName(title)
+      );
+      publicUrl =
+        publicLink.link ||
+        publicLink.downloadUrl ||
+        upload.downloadUrl ||
+        upload.permalink;
+    } else {
+      const restrictedLink = await createViewOnlyMatterResourceLink({
+        zohoClient,
+        workDriveResourceId: upload.resourceId,
+        linkName: sanitizeLinkName(title),
+      });
+      publicLink = restrictedLink.publicLink;
+      publicUrl = restrictedLink.viewerUrl;
+    }
     const shareUrl = publicLink.link || publicUrl;
 
     if (!publicUrl) {
@@ -402,10 +480,10 @@ export async function POST(request, { params }) {
       status: "active",
       createdAt: now,
       updatedAt: now,
-      createdBy: "admin",
+      createdBy: session.role || "admin",
       ...metadata,
       fileName: originalFileName,
-      mimeType: file.type || "application/octet-stream",
+      mimeType,
       fileSize: file.size,
       workDriveFolderId: workDriveFolder.folderId,
       workDriveRootFolderId: workDriveFolder.rootFolderId || null,
@@ -413,8 +491,12 @@ export async function POST(request, { params }) {
       workDriveResourceId: upload.resourceId,
       workDrivePublicLinkId: publicLink.linkId,
       workDriveShareUrl: shareUrl,
-      workDrivePermalink: upload.permalink,
-      downloadUrl: publicLink.downloadUrl || upload.downloadUrl || publicUrl,
+      ...(source === DOCUMENT_SOURCE
+        ? {
+            workDrivePermalink: upload.permalink,
+            downloadUrl: publicLink.downloadUrl || upload.downloadUrl || publicUrl,
+          }
+        : { downloadAllowed: false }),
     };
 
     const docRef = resourcesRef.doc();

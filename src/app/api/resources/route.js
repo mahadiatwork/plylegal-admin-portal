@@ -32,12 +32,12 @@ function requireDatabase() {
   return null;
 }
 
-async function getActor() {
+async function requireAdminSession() {
   try {
     const session = await getAdminSession();
-    return session?.role || "admin";
+    return session || null;
   } catch {
-    return "admin";
+    return null;
   }
 }
 
@@ -75,6 +75,10 @@ function resourceMatchesQuery(resource, query) {
 
 export async function GET(request) {
   try {
+    if (!(await requireAdminSession())) {
+      return errorResponse("Admin session is required", 401);
+    }
+
     const databaseError = requireDatabase();
     if (databaseError) return databaseError;
 
@@ -105,6 +109,11 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
+    const session = await requireAdminSession();
+    if (!session) {
+      return errorResponse("Admin session is required", 401);
+    }
+
     const databaseError = requireDatabase();
     if (databaseError) return databaseError;
 
@@ -132,7 +141,7 @@ export async function POST(request) {
     }
 
     const now = new Date();
-    const actor = await getActor();
+    const actor = session.role || "admin";
     const baseData = {
       type,
       description,

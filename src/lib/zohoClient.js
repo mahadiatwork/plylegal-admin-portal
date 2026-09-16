@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getWorkDriveViewerUrl } from './resourceFiles.mjs';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const FormData = require('form-data');
@@ -645,6 +646,7 @@ class ZohoCRMClient {
       linkId: linkData?.id || attributes.id || null,
       link: attributes.link || attributes.public_url || attributes.share_url || attributes.external_link || null,
       downloadUrl: attributes.download_url || attributes.downloadUrl || null,
+      allowDownload: attributes.allow_download,
       resourceId: attributes.resource_id || null,
     };
   }
@@ -857,7 +859,7 @@ class ZohoCRMClient {
    * @param {string} linkName - Public link label
    * @returns {Promise<Object>} Normalized public link metadata
    */
-  async createWorkDrivePublicLink(resourceId, linkName) {
+  async createWorkDrivePublicLink(resourceId, linkName, { allowDownload = true } = {}) {
     try {
       const safeLinkName = normalizeWorkDrivePublicLinkName(linkName);
       const requestBody = {
@@ -866,7 +868,7 @@ class ZohoCRMClient {
             resource_id: resourceId,
             link_name: safeLinkName,
             request_user_data: false,
-            allow_download: true,
+            allow_download: allowDownload,
             role_id: '34',
           },
           type: 'links',
@@ -927,6 +929,13 @@ class ZohoCRMClient {
 
       const parsed = this.parseWorkDriveLinkResponse(response.data);
 
+      // Never publish an unrestricted fallback when WorkDrive cannot confirm the
+      // requested restriction. Resource Center uploads depend on this guarantee.
+      if (!allowDownload && (parsed.allowDownload !== false || !getWorkDriveViewerUrl(parsed.link))) {
+        throw new Error('WorkDrive did not confirm a view-only resource link');
+      }
+      if (!allowDownload) parsed.downloadUrl = null;
+
       if (!parsed.link && !parsed.downloadUrl) {
         console.error('❌ WorkDrive link response did not include a public URL:', response.data);
         throw new Error('WorkDrive public link was created without a usable URL');
@@ -939,6 +948,21 @@ class ZohoCRMClient {
       console.error('Error details:', error.response?.data || error);
       throw error;
     }
+  }
+
+  async updateWorkDriveLinkDownload(linkId, allowDownload = false) {
+    if (!/^[A-Za-z0-9_-]+$/.test(linkId || '')) {
+      throw new Error('A valid WorkDrive link ID is required');
+    }
+    const response = await this.makeWorkDriveJsonRequest('PATCH', `/links/${linkId}`, {
+      data: { type: 'links', attributes: { allow_download: allowDownload } },
+    });
+    const parsed = this.parseWorkDriveLinkResponse(response);
+    if (!allowDownload && (parsed.allowDownload !== false || !getWorkDriveViewerUrl(parsed.link))) {
+      throw new Error('WorkDrive did not confirm a view-only resource link');
+    }
+    if (!allowDownload) parsed.downloadUrl = null;
+    return parsed;
   }
 
   /**

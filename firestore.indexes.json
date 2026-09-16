@@ -39,5 +39,11 @@
       "density": "SPARSE_ALL"
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "questionnaireDefinitions",
+      "fieldPath": "pages",
+      "indexes": []
+    }
+  ]
 }

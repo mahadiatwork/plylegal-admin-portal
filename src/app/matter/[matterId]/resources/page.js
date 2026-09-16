@@ -7,11 +7,11 @@ import {
   Archive,
   CheckCircle2,
   Download,
-  Code2,
   Eye,
   ExternalLink,
   FileText,
   FolderPlus,
+  GripVertical,
   Library,
   Link2,
   Loader2,
@@ -43,11 +43,11 @@ const RESOURCE_TABS = [
 const addResourceActions = [
   { id: "file", label: "File", icon: UploadCloud, enabled: true },
   { id: "note", label: "Note", icon: StickyNote, enabled: true },
-  { id: "embed", label: "Embed", icon: Code2, enabled: false },
   { id: "link", label: "Link", icon: Link2, enabled: true },
-  { id: "library", label: "Library", icon: Library, enabled: false },
-  { id: "folder", label: "Folder", icon: FolderPlus, enabled: false },
 ];
+
+const DEFAULT_MATTER_CATEGORY = "Uncategorized";
+const DOCUMENT_REVIEW_SOURCE = "documentReview";
 
 function formatFileSize(bytes) {
   if (!bytes) return "";
@@ -72,6 +72,28 @@ function formatDate(value) {
   });
 }
 
+function categoryKey(value) {
+  return String(value || DEFAULT_MATTER_CATEGORY).trim().toLowerCase();
+}
+
+function sortMatterResourcesForDisplay(resources) {
+  return [...resources].sort((left, right) => {
+    const leftHasOrder = left.order !== null && left.order !== undefined && left.order !== "" && Number.isFinite(Number(left.order));
+    const rightHasOrder = right.order !== null && right.order !== undefined && right.order !== "" && Number.isFinite(Number(right.order));
+    const leftOrder = leftHasOrder ? Number(left.order) : null;
+    const rightOrder = rightHasOrder ? Number(right.order) : null;
+
+    if (leftHasOrder && rightHasOrder && leftOrder !== rightOrder) return leftOrder - rightOrder;
+    if (leftHasOrder !== rightHasOrder) return leftHasOrder ? -1 : 1;
+
+    const createdDiff = new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime();
+    if (createdDiff) return createdDiff;
+    return String(left.title || left.fileName || "").localeCompare(
+      String(right.title || right.fileName || "")
+    );
+  });
+}
+
 function resourceMatches(resource, query) {
   if (!query.trim()) return true;
   const lowerQuery = query.toLowerCase();
@@ -83,6 +105,7 @@ function resourceMatches(resource, query) {
     resource.fileName,
     resource.url,
     resource.publicUrl,
+    resource.category,
   ]
     .filter(Boolean)
     .some((value) => String(value).toLowerCase().includes(lowerQuery));
@@ -107,7 +130,20 @@ function ResourceIcon({ type }) {
   );
 }
 
-function ResourceRow({ resource, archiveId, onArchive, tabId }) {
+function ResourceRow({
+  resource,
+  archiveId,
+  onArchive,
+  tabId,
+  canReorder = false,
+  isDragged = false,
+  isDragOver = false,
+  interactionPending = false,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+}) {
   const url = resource.publicUrl || resource.url;
   const previewUrl =
     resource.type === "file"
@@ -118,10 +154,32 @@ function ResourceRow({ resource, archiveId, onArchive, tabId }) {
       : "";
   const downloadUrl = resource.downloadUrl || url;
   const isArchiving = archiveId === `${tabId}:${resource.id}`;
+  const isArchivePending = Boolean(archiveId) || interactionPending;
+  const needsCleanup = resource.workDriveCleanupPending === true;
 
   return (
-    <div className="flex flex-col gap-4 border-b border-gray-100 px-5 py-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
+    <div
+      className={`flex flex-col gap-4 border-b border-gray-100 px-5 py-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between ${
+        isDragOver ? "bg-emerald-50/70" : ""
+      } ${isDragged ? "opacity-50" : ""}`}
+      onDragOver={canReorder ? onDragOver : undefined}
+      onDrop={canReorder ? onDrop : undefined}
+    >
       <div className="flex min-w-0 gap-3">
+        {onDragStart ? (
+          <button
+            type="button"
+            draggable={canReorder}
+            disabled={!canReorder}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+            className="mt-1 flex h-8 w-7 shrink-0 cursor-grab items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-[#4F726B] disabled:cursor-not-allowed disabled:opacity-30"
+            aria-label={`Reorder ${resource.title || resource.fileName || "resource"}`}
+            title={canReorder ? "Drag to reorder within this folder" : "Reordering is unavailable"}
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+        ) : null}
         <ResourceIcon type={resource.type} />
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -131,9 +189,19 @@ function ResourceRow({ resource, archiveId, onArchive, tabId }) {
             <span className="rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-gray-500">
               {resource.type}
             </span>
+            {needsCleanup ? (
+              <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                WorkDrive cleanup pending
+              </span>
+            ) : null}
             <span className="rounded-md border border-[#d9e7e0] bg-[#f5faf7] px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-[#4d6f62]">
               {tabId === "shared" ? "All matters" : "This matter"}
             </span>
+            {resource.category ? (
+              <span className="rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-500">
+                {resource.category}
+              </span>
+            ) : null}
           </div>
           {resource.description && (
             <p className="mt-1 line-clamp-2 text-sm text-gray-500">
@@ -157,14 +225,16 @@ function ResourceRow({ resource, archiveId, onArchive, tabId }) {
             </a>
           </Button>
         ) : null}
-        {resource.type === "file" && downloadUrl ? (
+        {resource.type === "file" &&
+        (resource.downloadAllowed === true || resource.source === DOCUMENT_REVIEW_SOURCE) &&
+        downloadUrl ? (
           <Button asChild variant="outline" size="sm" className="h-8 px-3">
             <a href={downloadUrl} target="_blank" rel="noreferrer">
               <Download className="h-3.5 w-3.5" />
               Download
             </a>
           </Button>
-        ) : url ? (
+        ) : resource.type !== "file" && url ? (
           <Button asChild variant="outline" size="sm" className="h-8 px-3">
             <a href={url} target="_blank" rel="noreferrer">
               <ExternalLink className="h-3.5 w-3.5" />
@@ -177,7 +247,7 @@ function ResourceRow({ resource, archiveId, onArchive, tabId }) {
           variant="ghost"
           size="sm"
           className="h-8 px-3 text-gray-500 hover:text-red-600"
-          disabled={isArchiving}
+          disabled={isArchivePending}
           onClick={() => onArchive(resource)}
         >
           {isArchiving ? (
@@ -185,7 +255,7 @@ function ResourceRow({ resource, archiveId, onArchive, tabId }) {
           ) : (
             <Archive className="h-3.5 w-3.5" />
           )}
-          Archive
+          {needsCleanup ? "Retry cleanup" : "Archive"}
         </Button>
       </div>
     </div>
@@ -200,6 +270,8 @@ export default function ResourcesPage() {
   const [individualResources, setIndividualResources] = useState([]);
   const [isIndividualLoading, setIsIndividualLoading] = useState(true);
   const [mode, setMode] = useState("file");
+  const [selectedCategory, setSelectedCategory] = useState(DEFAULT_MATTER_CATEGORY);
+  const [localCategories, setLocalCategories] = useState([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [url, setUrl] = useState("");
@@ -208,6 +280,9 @@ export default function ResourcesPage() {
   const [isDragging, setIsDragging] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [archiveId, setArchiveId] = useState(null);
+  const [draggedMatterResourceId, setDraggedMatterResourceId] = useState(null);
+  const [dragOverMatterResourceId, setDragOverMatterResourceId] = useState(null);
+  const [isReorderingMatterResources, setIsReorderingMatterResources] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [individualError, setIndividualError] = useState(null);
   const [error, setError] = useState(null);
@@ -228,7 +303,13 @@ export default function ResourcesPage() {
         }
 
         if (isMounted) {
-          setIndividualResources(data.resources || []);
+          setIndividualResources(
+            (data.resources || []).filter(
+              (resource) =>
+                resource.source !== DOCUMENT_REVIEW_SOURCE ||
+                resource.workDriveCleanupPending === true
+            )
+          );
         }
       } catch (fetchError) {
         if (isMounted) {
@@ -255,6 +336,38 @@ export default function ResourcesPage() {
     [individualResources, searchQuery]
   );
 
+  const matterCategories = useMemo(() => {
+    const byName = new Map([[DEFAULT_MATTER_CATEGORY.toLowerCase(), DEFAULT_MATTER_CATEGORY]]);
+    for (const name of localCategories) {
+      const normalized = name.trim();
+      if (normalized) byName.set(normalized.toLowerCase(), normalized);
+    }
+    for (const resource of individualResources) {
+      const normalized = String(resource.category || "").trim();
+      if (normalized) byName.set(normalized.toLowerCase(), normalized);
+    }
+    return [...byName.values()].sort((a, b) => {
+      if (a === DEFAULT_MATTER_CATEGORY) return -1;
+      if (b === DEFAULT_MATTER_CATEGORY) return 1;
+      return a.localeCompare(b);
+    });
+  }, [individualResources, localCategories]);
+
+  const groupedFilteredResources = useMemo(() => {
+    const groups = new Map();
+    for (const resource of filteredResources) {
+      const category = String(resource.category || DEFAULT_MATTER_CATEGORY).trim() || DEFAULT_MATTER_CATEGORY;
+      const key = categoryKey(category);
+      if (!groups.has(key)) groups.set(key, { name: category, resources: [] });
+      groups.get(key).resources.push(resource);
+    }
+    return [...groups.values()].sort((left, right) => {
+      if (categoryKey(left.name) === categoryKey(DEFAULT_MATTER_CATEGORY)) return -1;
+      if (categoryKey(right.name) === categoryKey(DEFAULT_MATTER_CATEGORY)) return 1;
+      return left.name.localeCompare(right.name);
+    });
+  }, [filteredResources]);
+
   const resetForm = () => {
     setTitle("");
     setDescription("");
@@ -275,6 +388,23 @@ export default function ResourcesPage() {
     event.preventDefault();
     setIsDragging(false);
     handleFileSelect(event.dataTransfer.files?.[0]);
+  };
+
+  const handleNewCategory = () => {
+    const value = window.prompt("Folder name");
+    const category = value?.trim();
+    if (!category) return;
+
+    const existing = matterCategories.find(
+      (name) => name.toLowerCase() === category.toLowerCase()
+    );
+    const nextCategory = existing || category;
+    if (!existing) {
+      setLocalCategories((current) => [...current, nextCategory]);
+    }
+    setSelectedCategory(nextCategory);
+    setSuccessMessage(`“${nextCategory}” is ready. Add a resource to save this folder.`);
+    setError(null);
   };
 
   const handleSubmit = async (event) => {
@@ -302,6 +432,17 @@ export default function ResourcesPage() {
     formData.append("title", title.trim());
     formData.append("description", description.trim());
     formData.append("noteText", description.trim());
+    formData.append("category", selectedCategory);
+    const categoryResources = individualResources.filter(
+      (resource) => categoryKey(resource.category) === categoryKey(selectedCategory)
+    );
+    const categoryOrders = categoryResources
+      .filter((resource) => resource.order !== null && resource.order !== undefined && resource.order !== "")
+      .map((resource) => Number(resource.order))
+      .filter(Number.isFinite);
+    if (!categoryResources.length || categoryOrders.length === categoryResources.length) {
+      formData.append("order", String((categoryOrders.length ? Math.max(...categoryOrders) : 0) + 10));
+    }
 
     if (mode === "file") {
       formData.append("file", file);
@@ -322,7 +463,7 @@ export default function ResourcesPage() {
         throw new Error(`${data.error || "Failed to save resource"}${details}`);
       }
 
-      setIndividualResources((current) => [data.resource, ...current]);
+      setIndividualResources((current) => sortMatterResourcesForDisplay([...current, data.resource]));
 
       setSuccessMessage(
         mode === "file"
@@ -340,7 +481,11 @@ export default function ResourcesPage() {
   };
 
   const handleArchive = async (resource) => {
-    const confirmed = window.confirm(`Archive "${resource.title || resource.fileName}"?`);
+    const confirmed = window.confirm(
+      resource.workDriveCleanupPending
+        ? `Retry WorkDrive cleanup for "${resource.title || resource.fileName}"?`
+        : `Archive "${resource.title || resource.fileName}"?`
+    );
     if (!confirmed) return;
 
     const currentArchiveId = `individual:${resource.id}`;
@@ -356,6 +501,20 @@ export default function ResourcesPage() {
       });
       const data = await response.json();
 
+      if (data.cleanupPending) {
+        setIndividualResources((current) =>
+          current.map((item) =>
+            item.id === resource.id
+              ? { ...item, status: "archived", workDriveCleanupPending: true }
+              : item
+          )
+        );
+        throw new Error(
+          data.error ||
+            "Resource is hidden from the client portal, but WorkDrive cleanup is still pending."
+        );
+      }
+
       if (!response.ok || !data.success) {
         throw new Error(data.error || "Failed to archive resource");
       }
@@ -366,6 +525,70 @@ export default function ResourcesPage() {
       setError(archiveError.message);
     } finally {
       setArchiveId(null);
+    }
+  };
+
+  const handleMatterReorderDrop = async (event, category, resources, targetItemId) => {
+    event.preventDefault();
+    const sourceItemId =
+      draggedMatterResourceId || event.dataTransfer.getData("text/plain");
+    setDraggedMatterResourceId(null);
+    setDragOverMatterResourceId(null);
+
+    if (
+      isReorderingMatterResources ||
+      searchQuery.trim() ||
+      !sourceItemId ||
+      sourceItemId === targetItemId
+    ) {
+      return;
+    }
+
+    const sourceIndex = resources.findIndex((resource) => resource.id === sourceItemId);
+    const targetIndex = resources.findIndex((resource) => resource.id === targetItemId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+
+    const reorderedResources = [...resources];
+    const [movedResource] = reorderedResources.splice(sourceIndex, 1);
+    reorderedResources.splice(targetIndex, 0, movedResource);
+
+    try {
+      setIsReorderingMatterResources(true);
+      setError(null);
+      setSuccessMessage("");
+      const response = await fetch(`/api/matter/${matterId}/resources`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category,
+          itemIds: reorderedResources.map((resource) => resource.id),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Failed to reorder resources.");
+      }
+
+      const orderById = new Map(data.items.map((item) => [item.id, item.order]));
+      setIndividualResources((current) =>
+        sortMatterResourcesForDisplay(
+          current.map((resource) =>
+            orderById.has(resource.id)
+              ? {
+                  ...resource,
+                  order: orderById.get(resource.id),
+                  updatedAt: data.updatedAt,
+                  updatedBy: data.updatedBy,
+                }
+              : resource
+          )
+        )
+      );
+      setSuccessMessage("Resource order saved.");
+    } catch (reorderError) {
+      setError(reorderError.message);
+    } finally {
+      setIsReorderingMatterResources(false);
     }
   };
 
@@ -391,11 +614,8 @@ export default function ResourcesPage() {
       </section>
 
       <section className="rounded-lg border border-gray-200 bg-white px-5 py-4 shadow-sm">
-        <p className="text-sm font-semibold text-gray-800">
-          {"\uD83D\uDC4B"} Welcome to your secure client portal.
-        </p>
-        <p className="mt-1 text-sm font-medium text-gray-600">
-          We&apos;re thrilled to have you onboard. Inside this portal, you&apos;ll find all the essential resources and latest updates to streamline our collaboration.
+        <p className="text-sm font-medium text-gray-600">
+          Manage the resources available to clients through the Client Portal. Add, edit and organise resources, and select whether they are available generally or for a specific matter.
         </p>
       </section>
 
@@ -573,6 +793,35 @@ export default function ResourcesPage() {
             )}
 
             <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <label htmlFor="resource-category" className="text-sm font-medium text-gray-700">
+                  Folder
+                </label>
+                <button
+                  type="button"
+                  onClick={handleNewCategory}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#4F726B] hover:text-[#17372e]"
+                >
+                  <FolderPlus className="h-3.5 w-3.5" />
+                  New folder
+                </button>
+              </div>
+              <select
+                id="resource-category"
+                value={selectedCategory}
+                onChange={(event) => setSelectedCategory(event.target.value)}
+                className="flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#8ac6ad]"
+              >
+                {matterCategories.map((category) => (
+                  <option key={category} value={category}>{category}</option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500">
+                The resource will appear in this folder in the client portal.
+              </p>
+            </div>
+
+            <div className="space-y-2">
               <label htmlFor="resource-title" className="text-sm font-medium text-gray-700">
                 Title
               </label>
@@ -637,8 +886,17 @@ export default function ResourcesPage() {
                 Resources for this matter
               </h2>
               <p className="text-sm text-gray-500">
-                {filteredResources.length} active {filteredResources.length === 1 ? "resource" : "resources"}
+                {filteredResources.length} {filteredResources.length === 1 ? "resource" : "resources"}
               </p>
+              {groupedFilteredResources.some(({ resources }) => resources.length > 1) ? (
+                <p className="mt-1 text-xs text-gray-400">
+                  {isReorderingMatterResources
+                    ? "Saving resource order..."
+                    : searchQuery.trim()
+                      ? "Clear the search to drag and reorder resources."
+                      : "Drag the handles to reorder resources within a folder."}
+                </p>
+              ) : null}
             </div>
           </div>
 
@@ -647,16 +905,66 @@ export default function ResourcesPage() {
               <Loader2 className="h-7 w-7 animate-spin" />
             </div>
           ) : filteredResources.length > 0 ? (
-            <div>
-              {filteredResources.map((resource) => (
-                <ResourceRow
-                  key={resource.id}
-                  resource={resource}
-                  archiveId={archiveId}
-                  onArchive={handleArchive}
-                  tabId="individual"
-                />
-              ))}
+            <div className="divide-y divide-gray-200">
+              {groupedFilteredResources.map(({ name: category, resources }) => {
+                const showReorderHandles = resources.length > 1;
+                const canReorder =
+                  showReorderHandles &&
+                  !searchQuery.trim() &&
+                  !archiveId &&
+                  !isReorderingMatterResources &&
+                  resources.every(
+                    (resource) =>
+                      resource.status !== "archived" &&
+                      resource.source !== DOCUMENT_REVIEW_SOURCE
+                  );
+
+                return (
+                <section key={categoryKey(category)}>
+                  <div className="flex items-center justify-between bg-gray-50 px-5 py-2.5">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                      <FolderPlus className="h-4 w-4 text-[#4F726B]" />
+                      {category}
+                    </div>
+                    <span className="text-xs font-medium text-gray-400">
+                      {resources.length} {resources.length === 1 ? "resource" : "resources"}
+                    </span>
+                  </div>
+                  {resources.map((resource) => (
+                    <ResourceRow
+                      key={resource.id}
+                      resource={resource}
+                      archiveId={archiveId}
+                      onArchive={handleArchive}
+                      tabId="individual"
+                      canReorder={canReorder}
+                      isDragged={draggedMatterResourceId === resource.id}
+                      isDragOver={dragOverMatterResourceId === resource.id}
+                      interactionPending={isReorderingMatterResources}
+                      onDragStart={showReorderHandles ? (event) => {
+                        setDraggedMatterResourceId(resource.id);
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", resource.id);
+                      } : undefined}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "move";
+                        if (draggedMatterResourceId !== resource.id) {
+                          setDragOverMatterResourceId(resource.id);
+                        }
+                      }}
+                      onDrop={(event) =>
+                        handleMatterReorderDrop(event, category, resources, resource.id)
+                      }
+                      onDragEnd={() => {
+                        setDraggedMatterResourceId(null);
+                        setDragOverMatterResourceId(null);
+                      }}
+                    />
+                  ))}
+                </section>
+                );
+              })}
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center px-6 py-14 text-center">

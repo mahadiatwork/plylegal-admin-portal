@@ -29,12 +29,12 @@ function requireDatabase() {
   return null;
 }
 
-async function getActor() {
+async function requireAdminSession() {
   try {
     const session = await getAdminSession();
-    return session?.role || "admin";
+    return session || null;
   } catch {
-    return "admin";
+    return null;
   }
 }
 
@@ -65,6 +65,11 @@ function applyStatusTransition(updates, nextStatus, currentStatus, now, actor) {
 
 export async function PATCH(request, { params }) {
   try {
+    const session = await requireAdminSession();
+    if (!session) {
+      return errorResponse("Admin session is required", 401);
+    }
+
     const databaseError = requireDatabase();
     if (databaseError) return databaseError;
 
@@ -85,7 +90,7 @@ export async function PATCH(request, { params }) {
     const body = await request.json().catch(() => ({}));
     const updates = {};
     const now = new Date();
-    const actor = await getActor();
+    const actor = session.role || "admin";
 
     if (Object.prototype.hasOwnProperty.call(body, "title")) {
       const title = cleanText(body.title);
@@ -184,6 +189,10 @@ export async function PATCH(request, { params }) {
 
 export async function DELETE(_request, { params }) {
   try {
+    if (!(await requireAdminSession())) {
+      return errorResponse("Admin session is required", 401);
+    }
+
     const databaseError = requireDatabase();
     if (databaseError) return databaseError;
 

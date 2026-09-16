@@ -1,6 +1,7 @@
 // Partner Visa Routes 
 export const PARTNER_VISA_ROUTES = [
   { href: "/intake/partner/start", title: "Getting Started" },
+  { href: "/intake/partner/profile", title: "Included Applicants" },
   {
     href: "/intake/partner/main-applicant/details",
     title: "Main Applicant",
@@ -19,6 +20,8 @@ export const PARTNER_VISA_ROUTES = [
     title: "Spouse/Partner",
     subpages: [
       { href: "/intake/partner/spouse-partner/details", title: "Details" },
+      { href: "/intake/partner/spouse-partner/other-details", title: "Other Names" },
+      { href: "/intake/partner/spouse-partner/identity", title: "Identity" },
     ],
   },
   { href: "/intake/partner/children/start", title: "Children" },
@@ -70,6 +73,7 @@ export const PARTNER_VISA_ROUTES = [
 // Protection Visa Routes
 export const PROTECTION_VISA_ROUTES = [
   { href: "/intake/protection/start", title: "Getting Started" },
+  { href: "/intake/protection/profile", title: "Included Applicants" },
   {
     href: "/intake/protection/main-applicant/details",
     title: "Main Applicant",
@@ -91,13 +95,13 @@ export const PROTECTION_VISA_ROUTES = [
       { href: "/intake/protection/spouse-partner/identity", title: "Identity" },
     ],
   },
-  { href: "/intake/protection/children", title: "Children" },
   { href: "/intake/protection/employment", title: "Employment" },
   {
     href: "/intake/protection/all-applicants/addresses",
     title: "All Applicants",
     subpages: [
       { href: "/intake/protection/all-applicants/addresses", title: "Addresses" },
+      { href: "/intake/protection/all-applicants/languages", title: "Languages" },
       { href: "/intake/protection/all-applicants/contact-details", title: "Contact Details" },
       { href: "/intake/protection/all-applicants/visas", title: "Visas" },
       { href: "/intake/protection/all-applicants/travel-history", title: "Travel History" },
@@ -119,6 +123,7 @@ export const TEMPORARY_WORK_VISA_ROUTES = [
     title: "Main Applicant",
     subpages: [
       { href: "/intake/temporary-work/main-applicant/details", title: "Details" },
+      { href: "/intake/temporary-work/main-applicant/other", title: "Other Names" },
       { href: "/intake/temporary-work/main-applicant/identity", title: "Identity" },
       { href: "/intake/temporary-work/main-applicant/contact-details", title: "Contact Details" },
       { href: "/intake/temporary-work/main-applicant/employment", title: "Employment" },
@@ -132,6 +137,7 @@ export const TEMPORARY_WORK_VISA_ROUTES = [
     title: "Spouse/Partner",
     subpages: [
       { href: "/intake/temporary-work/spouse-partner/details", title: "Details" },
+      { href: "/intake/temporary-work/spouse-partner/other-details", title: "Other Names" },
       { href: "/intake/temporary-work/spouse-partner/identity", title: "Identity" },
     ],
   },
@@ -160,6 +166,7 @@ export const EMPLOYER_NOMINATION_ROUTES = [
     title: "Main Applicant",
     subpages: [
       { href: "/intake/temporary-work/main-applicant/details", title: "Details" },
+      { href: "/intake/temporary-work/main-applicant/other", title: "Other Names" },
       { href: "/intake/temporary-work/main-applicant/identity", title: "Identity" },
       { href: "/intake/temporary-work/main-applicant/contact-details", title: "Contact Details" },
       { href: "/intake/temporary-work/main-applicant/employment", title: "Employment" },
@@ -173,6 +180,7 @@ export const EMPLOYER_NOMINATION_ROUTES = [
     title: "Spouse/Partner",
     subpages: [
       { href: "/intake/temporary-work/spouse-partner/details", title: "Details" },
+      { href: "/intake/temporary-work/spouse-partner/other-details", title: "Other Names" },
       { href: "/intake/temporary-work/spouse-partner/identity", title: "Identity" },
       { href: "/intake/temporary-work/spouse-partner/education", title: "Education" },
       { href: "/intake/temporary-work/spouse-partner/language", title: "Language" },
@@ -196,6 +204,7 @@ export const EMPLOYER_NOMINATION_ROUTES = [
 // Per-profile sub-pages (shared definition used by sidebar + routing)
 export const PROFILE_SUBPAGES = [
   { href: "/intake/temporary-work/main-applicant/details", title: "Details" },
+  { href: "/intake/temporary-work/main-applicant/other", title: "Other Names" },
   { href: "/intake/temporary-work/main-applicant/identity", title: "Identity" },
   { href: "/intake/temporary-work/main-applicant/contact-details", title: "Contact Details" },
   { href: "/intake/temporary-work/main-applicant/employment", title: "Employment" },
@@ -207,12 +216,14 @@ export const PROFILE_SUBPAGES = [
 /** Spouse/Partner — subclass 482 (Skills in Demand): Details + Identity only (mirrors main applicant structure, spouse routes). */
 export const TEMPORARY_WORK_482_SPOUSE_PROFILE_SUBPAGES = [
   { href: "/intake/temporary-work/spouse-partner/details", title: "Details" },
+  { href: "/intake/temporary-work/spouse-partner/other-details", title: "Other Names" },
   { href: "/intake/temporary-work/spouse-partner/identity", title: "Identity" },
 ];
 
 // Per-profile sub-pages for 186 spouse (Other Details + Education + Language in addition to Details + Identity)
 export const EMPLOYER_NOMINATION_SPOUSE_PROFILE_SUBPAGES = [
   { href: "/intake/temporary-work/spouse-partner/details", title: "Details" },
+  { href: "/intake/temporary-work/spouse-partner/other-details", title: "Other Names" },
   { href: "/intake/temporary-work/spouse-partner/identity", title: "Identity" },
   { href: "/intake/temporary-work/spouse-partner/education", title: "Education" },
   { href: "/intake/temporary-work/spouse-partner/language", title: "Language" },
@@ -239,6 +250,31 @@ export function getIntakeRoutes(visaType, visaContext) {
     default:
       return PARTNER_VISA_ROUTES;
   }
+}
+
+/** Existing client screens that may be replaced by a managed questionnaire page. */
+export function getRegisteredQuestionnaireRoutes(visaType, visaContexts = []) {
+  const contexts = Array.isArray(visaContexts) && visaContexts.length
+    ? visaContexts
+    : visaType === "temporary-work"
+      ? ["482", "186"]
+      : [null];
+  const flattened = contexts.flatMap((context) =>
+    getIntakeRoutes(visaType, context).flatMap((route) =>
+      Array.isArray(route.subpages) && route.subpages.length ? route.subpages : [route]
+    )
+  );
+
+  return [...new Map(
+    flattened
+      .filter((route) =>
+        route?.href?.startsWith("/intake/") &&
+        !/\/(?:start|profile|submit)$/.test(route.href) &&
+        route.href !== "/intake/partner/children/start" &&
+        route.href !== "/intake/partner/family"
+      )
+      .map((route) => [route.href, route])
+  ).values()];
 }
 
 // Legacy export for backward compatibility

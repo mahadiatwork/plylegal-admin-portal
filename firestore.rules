@@ -19,13 +19,66 @@ service cloud.firestore {
         request.resource.data.userId == request.auth.uid;
     }
 
-    match /applications/{appId}/{document=**} {
-      // Authenticated owner access to subcollections
+    match /applications/{appId}/data/{document=**} {
+      // Applicants can edit their questionnaire/completion data.
       allow read, write: if request.auth != null &&
         get(/databases/$(database)/documents/applications/$(appId)).data.userId == request.auth.uid;
 
-      // Public read to subcollections only if parent is flagged public
+      // Public review exposes questionnaire data, never private resources.
       allow read: if get(/databases/$(database)/documents/applications/$(appId)).data.publicReviewAccess == true;
+    }
+
+    match /applications/{appId}/resources/{resourceId} {
+      allow read: if request.auth != null &&
+        get(/databases/$(database)/documents/applications/$(appId)).data.userId == request.auth.uid;
+      // Matter resources are managed only by authenticated admin server APIs.
+      allow write: if false;
+    }
+
+    // Client Resource Centre reads are authenticated and restricted to active
+    // records. All writes use the admin portal's server APIs/Admin SDK.
+    match /resources/{resourceId} {
+      allow read: if request.auth != null &&
+        resource.data.status == "active";
+      allow write: if false;
+    }
+
+    match /resourceTemplates/{visaSlug} {
+      allow read: if request.auth != null &&
+        resource.data.status == "active";
+      allow write: if false;
+
+      match /items/{itemId} {
+        allow read: if request.auth != null &&
+          resource.data.status == "active" &&
+          get(/databases/$(database)/documents/resourceTemplates/$(visaSlug)).data.status == "active";
+        allow write: if false;
+      }
+    }
+
+    // Published questionnaire definitions are read by authenticated applicants.
+    // Admin writes normally use the server SDK, but this keeps both portal rule
+    // files compatible if either project deploys the shared Firestore rules.
+    match /questionnaireDefinitions/{definitionId} {
+      allow read: if request.auth != null &&
+        resource.data.status == "active";
+      // Writes go through the admin portal's authenticated server API. The
+      // Admin SDK bypasses Firestore rules, so no browser account can mutate
+      // a live questionnaire directly.
+      allow write: if false;
+
+      // Backward compatibility for definitions created by the original seeder.
+      match /pages/{pageId} {
+        allow read: if request.auth != null &&
+          get(/databases/$(database)/documents/questionnaireDefinitions/$(definitionId)).data.status == "active";
+        allow write: if false;
+      }
+    }
+
+    // Immutable audit snapshots are server-only. Submitted applications retain
+    // an id/revision reference even after the editable definition is deleted.
+    match /questionnaireDefinitionRevisions/{revisionId} {
+      allow read, write: if false;
     }
 
     match /users/{userId}/preferences/{document=**} {

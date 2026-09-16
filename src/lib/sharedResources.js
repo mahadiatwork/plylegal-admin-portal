@@ -1,4 +1,5 @@
 import zohoClient from "@/lib/zohoClient";
+import { getResourceMimeType, getWorkDriveViewerUrl, validateResourceFile } from "./resourceFiles.mjs";
 
 export const MAX_SHARED_RESOURCE_FILE_SIZE = 50 * 1024 * 1024;
 export const RESOURCE_TYPES = ["file", "link", "note"];
@@ -136,6 +137,8 @@ export function getSharedWorkDriveFolderId() {
 }
 
 export async function uploadSharedResourceFile(file, title) {
+  const fileError = validateResourceFile(file);
+  if (fileError) return { error: fileError, status: 400 };
   const folderId = getSharedWorkDriveFolderId();
 
   if (!folderId) {
@@ -147,42 +150,43 @@ export async function uploadSharedResourceFile(file, title) {
   }
 
   const originalFileName = sanitizeFileName(file.name);
+  const mimeType = getResourceMimeType(file);
   const buffer = Buffer.from(await file.arrayBuffer());
   const upload = await zohoClient.uploadWorkDriveFile(
     folderId,
     buffer,
     originalFileName,
-    file.type || "application/octet-stream"
+    mimeType
   );
-  const publicLink = await zohoClient.createWorkDrivePublicLink(
-    upload.resourceId,
-    sanitizeLinkName(title || originalFileName)
-  );
-  const publicUrl =
-    publicLink.link ||
-    publicLink.downloadUrl ||
-    upload.downloadUrl ||
-    upload.permalink;
-
-  if (!publicUrl) {
-    return {
-      error: "WorkDrive did not return a usable public resource link",
-      status: 502,
-    };
+  let publicLink;
+  try {
+    publicLink = await zohoClient.createWorkDrivePublicLink(
+      upload.resourceId,
+      sanitizeLinkName(title || originalFileName),
+      { allowDownload: false }
+    );
+    if (publicLink.allowDownload !== false || !getWorkDriveViewerUrl(publicLink.link)) {
+      throw new Error("WorkDrive did not confirm a view-only resource link");
+    }
+  } catch (error) {
+    await zohoClient.deleteWorkDriveResource(upload.resourceId).catch((cleanupError) => {
+      console.error("Failed to clean up WorkDrive resource:", cleanupError.message);
+    });
+    throw error;
   }
+  const publicUrl = publicLink.link;
 
   return {
     data: {
       publicUrl,
       url: publicUrl,
       fileName: originalFileName,
-      mimeType: file.type || "application/octet-stream",
+      mimeType,
       fileSize: file.size,
       workDriveFolderId: folderId,
       workDriveResourceId: upload.resourceId,
       workDrivePublicLinkId: publicLink.linkId,
-      workDrivePermalink: upload.permalink,
-      downloadUrl: publicLink.downloadUrl || upload.downloadUrl || publicUrl,
+      downloadAllowed: false,
     },
   };
 }

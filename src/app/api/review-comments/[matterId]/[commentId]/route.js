@@ -2,13 +2,21 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/firebase-admin";
 import { resolveMatterApplication } from "@/lib/matterResolver";
 import zohoClient from "@/lib/zohoClient";
+import {
+  ZOHO_CORRECTION_MODULE,
+  ZOHO_CORRECTION_NOTIFY_STATUS,
+  ZOHO_CORRECTION_OPEN_STATUS,
+  ZOHO_CORRECTION_PREFIX,
+  ZOHO_CORRECTION_SUBFORM,
+  areAllZohoCorrectionItemsDone,
+  buildZohoCorrectionItemStatusUpdate,
+  cleanText,
+  fetchZohoCorrectionRecord,
+  serializeZohoCorrection,
+  zohoCorrectionBelongsToMatter,
+} from "@/lib/zohoCorrections";
 
 const REVIEW_COMMENT_STATUSES = new Set(["open", "resolved"]);
-const ZOHO_CORRECTION_PREFIX = "zohoCorrection:";
-
-function cleanText(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
 
 function getDealId(application, matterId) {
   return (
@@ -17,6 +25,12 @@ function getDealId(application, matterId) {
     cleanText(application?.dealId) ||
     (application?.id !== matterId ? cleanText(matterId) : "")
   );
+}
+
+function correctionError(message, status = 400) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
 }
 
 // PATCH /api/review-comments/[matterId]/[commentId] — update a comment (resolve, edit)
@@ -38,28 +52,93 @@ export async function PATCH(request, { params }) {
     }
 
     if (commentId.startsWith(ZOHO_CORRECTION_PREFIX)) {
-      if (!body.status || !REVIEW_COMMENT_STATUSES.has(body.status)) {
-        return NextResponse.json(
-          { success: false, error: "Status is invalid" },
-          { status: 400 }
-        );
-      }
-
       const dealId = getDealId(resolved.application, matterId);
       const zohoCorrectionId = commentId.slice(ZOHO_CORRECTION_PREFIX.length);
+      const action = cleanText(body.action);
 
-      if (!dealId || !zohoCorrectionId) {
+      if (!zohoCorrectionId) {
         return NextResponse.json(
           { success: false, error: "Zoho correction cannot be resolved" },
           { status: 400 }
         );
       }
 
-      await zohoClient.updateRelatedRecord("Deals", dealId, "Corrections", zohoCorrectionId, {
-        Status: body.status === "resolved" ? "Resolved" : "Open",
+      const correctionRecord = await fetchZohoCorrectionRecord(zohoClient, zohoCorrectionId);
+
+      if (!correctionRecord) {
+        return NextResponse.json(
+          { success: false, error: "Zoho correction was not found" },
+          { status: 404 }
+        );
+      }
+
+      if (!zohoCorrectionBelongsToMatter(correctionRecord, dealId)) {
+        return NextResponse.json(
+          { success: false, error: "Zoho correction does not belong to this matter" },
+          { status: 404 }
+        );
+      }
+
+      if (action === "updateCorrectionItemStatus") {
+        let subformUpdate;
+
+        try {
+          subformUpdate = buildZohoCorrectionItemStatusUpdate(
+            correctionRecord,
+            body.itemId,
+            body.status
+          );
+        } catch (error) {
+          throw correctionError(error.message);
+        }
+
+        await zohoClient.updateRecord(ZOHO_CORRECTION_MODULE, zohoCorrectionId, {
+          [ZOHO_CORRECTION_SUBFORM]: subformUpdate,
+        });
+
+        const updatedRecord =
+          (await fetchZohoCorrectionRecord(zohoClient, zohoCorrectionId)) || correctionRecord;
+
+        return NextResponse.json({
+          success: true,
+          correction: serializeZohoCorrection(updatedRecord),
+        });
+      }
+
+      const wantsNotifyClient =
+        action === "notifyClient" ||
+        body.status === "resolved" ||
+        body.status === ZOHO_CORRECTION_NOTIFY_STATUS;
+      const wantsReopen = body.status === "open";
+
+      if (!wantsNotifyClient && !wantsReopen) {
+        return NextResponse.json(
+          { success: false, error: "Status is invalid" },
+          { status: 400 }
+        );
+      }
+
+      if (wantsNotifyClient && !areAllZohoCorrectionItemsDone(correctionRecord)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "All correction items must be Done before notifying the client",
+          },
+          { status: 409 }
+        );
+      }
+
+      await zohoClient.updateRecord(ZOHO_CORRECTION_MODULE, zohoCorrectionId, {
+        Status: wantsReopen ? ZOHO_CORRECTION_OPEN_STATUS : ZOHO_CORRECTION_NOTIFY_STATUS,
       });
 
-      return NextResponse.json({ success: true });
+      const updatedRecord =
+        (await fetchZohoCorrectionRecord(zohoClient, zohoCorrectionId)) || correctionRecord;
+
+      return NextResponse.json({
+        success: true,
+        correction: serializeZohoCorrection(updatedRecord),
+      });
     }
 
     const commentRef = db
@@ -89,9 +168,13 @@ export async function PATCH(request, { params }) {
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error("Error updating review comment:", err);
+    const status = err.status || 500;
     return NextResponse.json(
-      { success: false, error: "Failed to update comment" },
-      { status: 500 }
+      {
+        success: false,
+        error: status < 500 ? err.message : "Failed to update comment",
+      },
+      { status }
     );
   }
 }

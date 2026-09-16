@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, FileSearch, LibraryBig } from "lucide-react";
+import { ArrowLeft, ClipboardList, FileSearch, LibraryBig } from "lucide-react";
 import AdminLogoutButton from "@/components/admin/AdminLogoutButton";
 
 export default function AdminLayout({ children }) {
@@ -33,6 +33,13 @@ export default function AdminLayout({ children }) {
 
           <div className="flex items-center gap-3">
             <nav className="hidden items-center gap-2 lg:flex">
+              <Link
+                href="/admin/questionnaires"
+                className="inline-flex items-center gap-2 rounded-md border border-[#d8e4de] bg-white px-3 py-2 text-sm font-medium text-[#38564b] transition-colors hover:border-[#8ac6ad] hover:text-[#17372e]"
+              >
+                <ClipboardList className="h-4 w-4" />
+                Questionnaires
+              </Link>
               <Link
                 href="/admin/document-review"
                 className="inline-flex items-center gap-2 rounded-md border border-[#d8e4de] bg-white px-3 py-2 text-sm font-medium text-[#38564b] transition-colors hover:border-[#8ac6ad] hover:text-[#17372e]"
