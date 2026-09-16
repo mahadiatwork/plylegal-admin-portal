@@ -27,6 +27,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { getRegisteredQuestionnaireRoutes } from "@/lib/routes";
 import { createQuestionnaireDraft } from "@/lib/questionnaireDrafts";
 import { temporaryWork482Definition } from "@/lib/questionnaireStarterTemplates";
+import { questionnaireBuiltInTemplates } from "@/lib/questionnaireBuiltIns";
+import { getLegacyQuestionnairePublishIssues } from "@/lib/questionnaireLegacyProtection";
 
 const QUESTION_TYPES = [
   ["text", "Short text"],
@@ -174,6 +176,7 @@ function collectQuestionMachineKeys(questions, ids, answerKeys) {
     if (question.id) ids.add(question.id);
     if (question.answerKey) answerKeys.add(question.answerKey);
     collectQuestionMachineKeys(question.followUps, ids, answerKeys);
+    collectQuestionMachineKeys(question.metadata?.fields, ids, answerKeys);
   });
 }
 
@@ -304,7 +307,7 @@ async function fetchDefinition(id) {
 
 function countQuestions(questions = []) {
   return questions.reduce(
-    (total, question) => total + 1 + countQuestions(question?.followUps || []),
+    (total, question) => total + 1 + countQuestions(question?.followUps || []) + countQuestions(question?.metadata?.fields || []),
     0
   );
 }
@@ -404,6 +407,29 @@ function StatusBadge({ status }) {
   );
 }
 
+function RecordFieldWording({ fields, onChange, legacy, depth = 0 }) {
+  return <div className="space-y-4">
+    {fields.map((field) => <div key={field.id} className="space-y-3 border-l-2 border-[#b9d6ca] pl-4" style={{ marginLeft: `${Math.min(depth, 3) * 10}px` }}>
+      <p className="font-mono text-[11px] text-[#71857d]">{field.answerKey} · {field.type}</p>
+      <FieldLabel htmlFor={`record-${field.id}-label`}>Field text</FieldLabel>
+      <Textarea id={`record-${field.id}-label`} rows={2} className="border-[#d7e4de] bg-white" value={field.label} onChange={(event) => onChange(field.id, "label", event.target.value)} />
+      {(!legacy || Object.hasOwn(field.metadata || {}, "originalDescription")) && <div className="space-y-2">
+        <FieldLabel htmlFor={`record-${field.id}-description`}>Help text</FieldLabel>
+        <Input id={`record-${field.id}-description`} className={inputClassName} value={field.description || ""} onChange={(event) => onChange(field.id, "description", event.target.value)} />
+      </div>}
+      {(!legacy || Object.hasOwn(field.metadata || {}, "originalPlaceholder")) && <div className="space-y-2">
+        <FieldLabel htmlFor={`record-${field.id}-placeholder`}>Placeholder</FieldLabel>
+        <Input id={`record-${field.id}-placeholder`} className={inputClassName} value={field.placeholder || ""} onChange={(event) => onChange(field.id, "placeholder", event.target.value)} />
+      </div>}
+      {field.options?.map((option, index) => <div key={option.value} className="space-y-1">
+        <FieldLabel htmlFor={`record-${field.id}-option-${index}`}>Option label <span className="font-mono font-normal text-[#71857d]">({option.value})</span></FieldLabel>
+        <Input id={`record-${field.id}-option-${index}`} className={inputClassName} value={option.label} onChange={(event) => onChange(field.id, "option", { index, label: event.target.value })} />
+      </div>)}
+      {field.metadata?.fields?.length ? <RecordFieldWording fields={field.metadata.fields} onChange={onChange} legacy={legacy} depth={depth + 1} /> : null}
+    </div>)}
+  </div>;
+}
+
 function EmptyPane({ onCreate }) {
   return (
     <section className="flex min-h-[560px] flex-col items-center justify-center rounded-2xl border border-dashed border-[#cbdad3] bg-white/70 px-6 text-center">
@@ -412,7 +438,7 @@ function EmptyPane({ onCreate }) {
       </div>
       <h2 className="mt-5 text-xl font-semibold text-[#17372e]">Choose a questionnaire to edit</h2>
       <p className="mt-2 max-w-md text-sm leading-6 text-[#60786f]">
-        Select a saved questionnaire or the 482 Character starter on the left. You can also create a new questionnaire for a visa page.
+        Select a saved questionnaire or a built-in visa questionnaire on the left to see its current pages and questions.
       </p>
       <Button type="button" className="mt-5 bg-[#4F726B] text-white" onClick={onCreate}>
         <Plus className="h-4 w-4" />
@@ -450,7 +476,7 @@ export default function AdminQuestionnaireBuilder() {
   );
   const isDirty = builderIsDirty || jsonHasPendingEdits;
   const isBusy = isLoading || isLoadingDefinition || isSaving || isDeleting;
-  const machineKeysLocked = Boolean(savedDefinition && savedDefinition.status !== "draft");
+  const definitionStructureLocked = Boolean(savedDefinition && savedDefinition.status !== "draft");
 
   const activePageIndex = useMemo(
     () => definition?.pages?.findIndex((page) => page.id === activePageId) ?? -1,
@@ -462,6 +488,8 @@ export default function AdminQuestionnaireBuilder() {
     [activePage, activeQuestionId]
   );
   const activeQuestion = activeQuestionIndex >= 0 ? activePage.questions[activeQuestionIndex] : null;
+  const legacyPage = activePage?.metadata?.renderer === "legacy";
+  const machineKeysLocked = definitionStructureLocked || legacyPage;
   const registeredRoutes = useMemo(() => getRegisteredRoutes(definition), [definition]);
   const conditionSourceQuestions = useMemo(
     () => flattenQuestions(activePage?.questions).filter(
@@ -492,7 +520,11 @@ export default function AdminQuestionnaireBuilder() {
 
         setDefinitions(list);
         setSavedQuestionnairesError("");
-        if (requestId !== selectionRequestId.current || !list.length) return;
+        if (requestId !== selectionRequestId.current) return;
+        if (!list.length) {
+          createDraftFrom(questionnaireBuiltInTemplates[0], { starter: true, checkDiscard: false });
+          return;
+        }
 
         const firstId = String(list[0].id || list[0].definitionId || "");
         if (!firstId) return;
@@ -509,6 +541,7 @@ export default function AdminQuestionnaireBuilder() {
       } catch (loadError) {
         if (!cancelled && currentListRequestId === listRequestId.current) {
           setSavedQuestionnairesError(`Saved questionnaires could not be loaded. ${loadError.message}`);
+          if (requestId === selectionRequestId.current) createDraftFrom(questionnaireBuiltInTemplates[0], { starter: true, checkDiscard: false });
         }
       } finally {
         if (!cancelled && currentListRequestId === listRequestId.current) setIsLoading(false);
@@ -519,6 +552,8 @@ export default function AdminQuestionnaireBuilder() {
     return () => {
       cancelled = true;
     };
+    // This is the initial load only; the request ids preserve any draft selected while it runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -550,10 +585,7 @@ export default function AdminQuestionnaireBuilder() {
       if (requestId !== selectionRequestId.current) return;
 
       if (!list.length) {
-        setSelectedId("");
-        setDefinition(null);
-        setSavedDefinition(null);
-        setIsCreating(false);
+        createDraftFrom(questionnaireBuiltInTemplates[0], { starter: true, checkDiscard: false });
         return;
       }
 
@@ -626,15 +658,15 @@ export default function AdminQuestionnaireBuilder() {
     setNotice("New draft ready. Add pages and save when you are finished.");
   }
 
-  function createDraftFrom(source, { starter = false } = {}) {
-    if (!confirmDiscard()) return;
+  function createDraftFrom(source, { starter = false, checkDiscard = true } = {}) {
+    if (checkDiscard && !confirmDiscard()) return;
     selectionRequestId.current += 1;
     setIsLoading(false);
     setIsLoadingDefinition(false);
     const draftId = `questionnaire-${crypto.randomUUID()}`;
     const draft = normalizeDefinition(createQuestionnaireDraft(source, draftId));
     setDefinition(draft);
-    setSavedDefinition(null);
+    setSavedDefinition(starter ? clone(draft) : null);
     setSelectedId(draft.id);
     setActivePageId(draft.pages[0]?.id || "");
     setActiveQuestionId(draft.pages[0]?.questions?.[0]?.id || "");
@@ -644,7 +676,7 @@ export default function AdminQuestionnaireBuilder() {
     setIsCreating(true);
     setError("");
     setNotice(starter
-      ? "482 Character starter opened as a draft. Edit the questions and answer choices, then save or publish when ready."
+      ? `${source.title} built-in questionnaire opened as a separate draft. Its existing forms and client answers are preserved while you edit the wording.`
       : "A separate draft is ready. You can change questions and options while the published questionnaire remains available to clients.");
   }
 
@@ -736,6 +768,17 @@ export default function AdminQuestionnaireBuilder() {
       ...question,
       followUps: updateQuestions(question.followUps),
     }));
+  }
+
+  function updateRecordFieldText(questionId, field, value) {
+    const updateFields = (fields) => fields.map((question) => ({
+      ...question,
+      ...(question.id === questionId ? field === "option"
+        ? { options: question.options.map((option, index) => index === value.index ? { ...option, label: value.label } : option) }
+        : { [field]: value } : {}),
+      ...(question.metadata?.fields ? { metadata: { ...question.metadata, fields: updateFields(question.metadata.fields) } } : {}),
+    }));
+    updateActiveQuestion((question) => ({ ...question, metadata: { ...question.metadata, fields: updateFields(question.metadata.fields) } }));
   }
 
   function changeQuestionType(type) {
@@ -938,6 +981,11 @@ export default function AdminQuestionnaireBuilder() {
       setError("Questionnaire ID is required.");
       return;
     }
+    const publishIssues = getLegacyQuestionnairePublishIssues({ ...definition, status: statusOverride || definition.status });
+    if (publishIssues.length) {
+      setError(publishIssues.join("\n"));
+      return;
+    }
     if (statusOverride === "active") {
       const contexts = definition.visaContexts?.length
         ? definition.visaContexts.join(", ")
@@ -1078,7 +1126,7 @@ export default function AdminQuestionnaireBuilder() {
             Admin · Questionnaires
           </p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#17372e]">
-            Questionnaires
+            Questionnaire Edit Centre
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[#60786f]">
             Edit the questions, answer options and help text shown in the Client Portal. Choose a questionnaire, select a page, then select a question to make your changes.
@@ -1106,7 +1154,7 @@ export default function AdminQuestionnaireBuilder() {
 
       <div className="rounded-xl border border-[#d7e4de] bg-white px-4 py-4 text-sm leading-6 text-[#38564b]">
         <p><strong>To edit questions or options:</strong> open a questionnaire below. For a published questionnaire, choose <strong>Edit questions &amp; options</strong> to prepare a separate draft, then <strong>Publish</strong> when it is ready.</p>
-        <p className="mt-2 text-[#60786f]">The 482 Character page is included as a starter. Other existing visa sections continue using their current forms until a questionnaire template is published for those pages. This area manages templates; each matter&apos;s Client answers tab shows that client&apos;s answers.</p>
+        <p className="mt-2 text-[#60786f]">Complete built-in visa questionnaires are always available below. Edit their question wording, help text and option labels while preserving the existing forms and saved answers. The Character page also supports managed question structure changes. Each matter&apos;s Client answers tab shows that client&apos;s answers.</p>
       </div>
 
       {savedQuestionnairesError ? (
@@ -1114,7 +1162,7 @@ export default function AdminQuestionnaireBuilder() {
           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
             <p>{savedQuestionnairesError}</p>
-            <p className="mt-1">You can still open the starter or prepare a new draft. Saving and publishing require the server connection.</p>
+            <p className="mt-1">The complete built-in questionnaires remain available for review and editing. Saving and publishing require the server connection.</p>
           </div>
         </div>
       ) : null}
@@ -1181,8 +1229,16 @@ export default function AdminQuestionnaireBuilder() {
             ) : null}
           </div>
           <div className="shrink-0 border-t border-[#e1e9e5] p-4">
-            <h3 className="text-sm font-semibold text-[#17372e]">Starter template</h3>
-            <p className="mt-1 text-xs leading-5 text-[#60786f]">482 Character · 18 questions with applicant and details follow-ups. Opens as an unpublished draft.</p>
+            <h3 className="text-sm font-semibold text-[#17372e]">Built-in questionnaires</h3>
+            <p className="mt-1 text-xs leading-5 text-[#60786f]">The existing questionnaire structure is bundled as a fallback. Choose a visa to open a separate editable draft.</p>
+            <div className="mt-3 space-y-2">
+              {questionnaireBuiltInTemplates.map((template) => (
+                <Button key={template.id} type="button" variant="outline" className="h-auto w-full justify-start whitespace-normal border-[#d7e4de] bg-white py-3 text-left text-[#38564b]" disabled={isSaving || isDeleting} onClick={() => createDraftFrom(template, { starter: true })}>
+                  <Copy className="h-4 w-4 shrink-0" />
+                  <span>{template.title}<span className="mt-1 block text-xs font-normal text-[#71857d]">{template.pages.length} pages · {definitionCounts(template).questionCount} questions</span></span>
+                </Button>
+              ))}
+            </div>
             <Button type="button" variant="outline" className="mt-3 w-full border-[#d7e4de] bg-white text-[#38564b]" disabled={isSaving || isDeleting} onClick={() => createDraftFrom(temporaryWork482Definition, { starter: true })}>
               <Copy className="h-4 w-4" />
               Use 482 Character starter
@@ -1288,7 +1344,7 @@ export default function AdminQuestionnaireBuilder() {
                 <div className="mt-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
                   <CircleAlert className="mt-1 h-4 w-4 shrink-0" />
                   <span>
-                    You can update question wording, help text and option labels here. To add or remove questions, change answer choices or adjust rules, {savedDefinition.status === "active" ? "choose Edit questions & options above to create a draft. The published version stays available until you publish its replacement." : "move this archived questionnaire to draft."}
+                    {legacyPage ? "This page uses the existing client form. Edit its wording and option labels while its answer keys, fields and validation remain preserved." : `You can update question wording, help text and option labels here. To change its structure, ${savedDefinition?.status === "active" ? "choose Edit questions & options above to create a draft." : "move this archived questionnaire to draft."}`}
                   </span>
                 </div>
               ) : null}
@@ -1416,7 +1472,7 @@ export default function AdminQuestionnaireBuilder() {
                           <span className="truncate text-sm font-semibold text-[#24453b]">{page.title}</span>
                           <ChevronRight className="h-4 w-4 shrink-0 text-[#8aa099]" />
                         </div>
-                        <p className="mt-1 text-[11px] text-[#71857d]">{page.questions.length} questions</p>
+                        <p className="mt-1 text-[11px] text-[#71857d]">{page.metadata?.profileRole ? `${({ main_applicant: "Main Applicant", spouse: "Spouse/Partner", child: "Child", non_migrating: "Other Family" })[page.metadata.profileRole] || page.metadata.profileRole} · ` : ""}{countQuestions(page.questions)} questions</p>
                       </button>
                     ))}
                     {!definition.pages.length ? (
@@ -1517,7 +1573,7 @@ export default function AdminQuestionnaireBuilder() {
                         </div>
                         <div className="space-y-2 md:col-span-2">
                           <FieldLabel htmlFor="page-intro" hint="first paragraph">Intro text</FieldLabel>
-                          <Textarea id="page-intro" rows={3} className="border-[#d7e4de] bg-white" value={getIntroText(activePage)} onChange={(event) => updateActivePage((page) => setIntroText(page, event.target.value))} />
+                          <Textarea id="page-intro" rows={3} className="border-[#d7e4de] bg-white" disabled={legacyPage && !activePage.metadata.originalIntroBlocks?.length} value={getIntroText(activePage)} onChange={(event) => updateActivePage((page) => setIntroText(page, event.target.value))} />
                           {activePage.introBlocks?.some((block) => block.type !== "paragraph") ? (
                             <p className="text-xs text-[#71857d]">Lists and additional intro blocks are preserved and can be edited in Advanced JSON.</p>
                           ) : null}
@@ -1598,7 +1654,7 @@ export default function AdminQuestionnaireBuilder() {
                                     {QUESTION_TYPES.map(([value, label]) => <option key={value} value={value} disabled={value === "repeater"}>{label}</option>)}
                                   </select>
                                   {activeQuestion.type === "repeater" ? (
-                                    <p className="text-xs text-amber-700">This imported field needs a developer-provided component and cannot be added from the visual builder.</p>
+                                    <p className="text-xs text-[#71857d]">Records preserve their existing fields and saved values. Edit the wording of their fields below.</p>
                                   ) : null}
                                 </div>
                                 <label className="flex h-10 items-center gap-3 self-end rounded-md border border-[#d7e4de] bg-[#f8fbf9] px-3 text-sm font-medium text-[#224238]">
@@ -1607,13 +1663,18 @@ export default function AdminQuestionnaireBuilder() {
                                 </label>
                                 <div className="space-y-2 md:col-span-2">
                                   <FieldLabel htmlFor="question-description">Help text</FieldLabel>
-                                  <Textarea id="question-description" rows={2} className="border-[#d7e4de] bg-white" value={activeQuestion.description || ""} onChange={(event) => updateQuestionField("description", event.target.value)} />
+                                  <Textarea id="question-description" rows={2} className="border-[#d7e4de] bg-white" disabled={legacyPage && !Object.hasOwn(activeQuestion.metadata || {}, "originalDescription")} value={activeQuestion.description || ""} onChange={(event) => updateQuestionField("description", event.target.value)} />
                                 </div>
                                 <div className="space-y-2 md:col-span-2">
                                   <FieldLabel htmlFor="question-placeholder">Placeholder</FieldLabel>
-                                  <Input id="question-placeholder" className={inputClassName} value={activeQuestion.placeholder || ""} onChange={(event) => updateQuestionField("placeholder", event.target.value)} />
+                                  <Input id="question-placeholder" className={inputClassName} disabled={legacyPage && !Object.hasOwn(activeQuestion.metadata || {}, "originalPlaceholder")} value={activeQuestion.placeholder || ""} onChange={(event) => updateQuestionField("placeholder", event.target.value)} />
                                 </div>
                               </div>
+
+                              {activeQuestion.metadata?.fields?.length ? <div className="space-y-4 rounded-xl border border-[#d9e6e0] bg-[#f8fbf9] p-4">
+                                <div><h4 className="text-sm font-semibold text-[#24453b]">Record field wording</h4><p className="text-xs text-[#71857d]">Edit the fields clients see inside each record. Their saved values and answer keys stay preserved.</p></div>
+                                <RecordFieldWording fields={activeQuestion.metadata.fields} onChange={updateRecordFieldText} legacy={legacyPage} />
+                              </div> : null}
 
                               {activeQuestion.followUps?.length ? (
                                 <div className="space-y-4 rounded-xl border border-[#d9e6e0] bg-[#f8fbf9] p-4">

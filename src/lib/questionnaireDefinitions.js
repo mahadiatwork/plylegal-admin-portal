@@ -49,7 +49,7 @@ const SAFE_ROUTE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const UNSAFE_OBJECT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 const TEMPORARY_WORK_VISA_CONTEXTS = new Set(["482", "186"]);
 const RESERVED_WORKFLOW_ROUTE = /\/(?:start|profile|submit)$/;
-const PROFILE_QUESTIONNAIRE_ROUTE = /^\/intake\/(?:temporary-work|partner|protection)\/(?:main-applicant|spouse-partner|children\/[^/]+)\//;
+const PROFILE_QUESTIONNAIRE_ROUTE = /^\/intake\/(?:temporary-work|partner|protection)\/(?:main-applicant|spouse-partner|children\/[^/]+|non-migrating\/[^/]+)\//;
 
 const DEFINITION_FIELDS = new Set([
   "id",
@@ -311,7 +311,8 @@ function validateQuestion(question, path, state, answerKeyScope, issues, depth) 
   if (!QUESTIONNAIRE_QUESTION_TYPES.includes(question.type)) {
     issues.push(`${path}.type "${String(question.type)}" is unsupported`);
   }
-  if (question.type === "repeater" && state.definitionStatus === "active") {
+  if (question.type === "repeater" && state.definitionStatus === "active" &&
+      !(Array.isArray(question.metadata?.fields) && question.metadata.fields.length)) {
     issues.push(`${path}.type repeater requires a developer component and cannot be published from the global builder`);
   }
 
@@ -363,6 +364,22 @@ function validateQuestion(question, path, state, answerKeyScope, issues, depth) 
   if (hasOwn(question, "metadata")) {
     if (!isPlainObject(question.metadata)) issues.push(`${path}.metadata must be an object`);
     else validateJsonValue(question.metadata, `${path}.metadata`, issues);
+  }
+  if (question.metadata?.fields !== undefined) {
+    if (question.type !== "repeater") {
+      issues.push(`${path}.metadata.fields is only supported for repeater questions`);
+    } else if (!Array.isArray(question.metadata.fields) || question.metadata.fields.length === 0) {
+      issues.push(`${path}.metadata.fields must contain row questions`);
+    } else {
+      if (question.metadata.collection !== undefined && !["array", "object"].includes(question.metadata.collection)) {
+        issues.push(`${path}.metadata.collection must be "array" or "object"`);
+      }
+      const rowScope = `${answerKeyScope}:${question.answerKey}`;
+      question.metadata.fields.forEach((field, index) => {
+        validateQuestion(field, `${path}.metadata.fields[${index}]`, state, rowScope, issues, depth + 1);
+      });
+      validatePageConditionReferences(question.metadata.fields, `${path}.metadata.fields`, issues);
+    }
   }
   if (hasOwn(question, "validation")) {
     if (!isPlainObject(question.validation)) {
@@ -872,7 +889,7 @@ export function getQuestionnaireDefinitionIssues(input, options = {}) {
         return;
       }
       const countBeforePage = globalQuestionState.count;
-      const answerKeyScope = `${page.scope || "shared"}:${
+      const answerKeyScope = `${page.scope || "shared"}:${page.scope === "profile" ? `${page.metadata?.profileRole || ""}:` : ""}${
         typeof page.sectionKey === "string" ? page.sectionKey.trim() : ""
       }`;
       page.questions.forEach((question, questionIndex) => {
@@ -1059,6 +1076,13 @@ export function mergeQuestionnaireDefinition(current, patch, options = {}) {
 function structuralOption(option) {
   return { value: option.value };
 }
+function structuralMetadata(metadata) {
+  if (!metadata) return null;
+  return {
+    ...metadata,
+    ...(Array.isArray(metadata.fields) ? { fields: metadata.fields.map(structuralQuestion) } : {}),
+  };
+}
 
 function structuralQuestion(question) {
   const structure = {
@@ -1080,7 +1104,7 @@ function structuralQuestion(question) {
     component: question.component || null,
     yearRange: question.yearRange ?? null,
     maxYear: question.maxYear ?? null,
-    metadata: question.metadata || null,
+    metadata: structuralMetadata(question.metadata),
     followUps: (question.followUps || []).map(structuralQuestion),
   };
   if (hasOwn(question, "defaultValue")) structure.defaultValue = question.defaultValue;

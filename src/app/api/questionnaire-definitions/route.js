@@ -3,6 +3,7 @@ import { getAdminSession } from "@/lib/adminSession";
 import { isSameOriginRequest } from "@/lib/adminLoginProtection";
 import { db, initResult } from "@/lib/firebase-admin";
 import { getRegisteredQuestionnaireRoutes } from "@/lib/routes";
+import { getLegacyQuestionnairePublishIssues } from "@/lib/questionnaireLegacyProtection";
 import {
   QUESTIONNAIRE_DEFINITION_LIMITS,
   QUESTIONNAIRE_DEFINITION_REVISIONS_COLLECTION,
@@ -66,6 +67,8 @@ function requireSafeMutationRequest(request, { expectsJson = false } = {}) {
 
 function requireRegisteredActiveRoutes(definition) {
   if (definition.status !== "active") return;
+  const legacyIssues = getLegacyQuestionnairePublishIssues(definition);
+  if (legacyIssues.length) throw new ApiError("Built-in questionnaire structure must be preserved", 400, legacyIssues);
   const registered = new Set(
     getRegisteredQuestionnaireRoutes(definition.visaType, definition.visaContexts)
       .map((route) => route.href)

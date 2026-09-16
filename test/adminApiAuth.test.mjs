@@ -59,8 +59,8 @@ const hooks = registerHooks({
     if (mocks[specifier]) {
       return { url: `data:text/javascript,${encodeURIComponent(mocks[specifier])}`, shortCircuit: true };
     }
-    if (specifier === "@/lib/zohoCorrections") {
-      return { url: pathToFileURL(path.resolve("src/lib/zohoCorrections.js")).href, shortCircuit: true };
+    if (["@/lib/zohoCorrections", "@/lib/questionnaireBuiltIns", "@/lib/questionnaireReviewDefinitions", "@/lib/questionnaireAnswerModel"].includes(specifier)) {
+      return { url: pathToFileURL(path.resolve(`src/lib/${specifier.slice("@/lib/".length)}.js`)).href, shortCircuit: true };
     }
     return nextResolve(specifier, context);
   },

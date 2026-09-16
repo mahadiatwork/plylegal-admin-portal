@@ -35,6 +35,7 @@ import SkillsInDemandQuestionnaireReview, {
   isSkillsInDemandMatter,
 } from "@/components/SkillsInDemandQuestionnaireReview";
 import { buildStructuredSections, formatLabel } from "@/lib/questionnaireSections";
+import ClientQuestionnaireReview from "@/components/ClientQuestionnaireReview";
 
 // Count total questions in a section (recursively count leaf values)
 function countQuestions(data) {
@@ -707,21 +708,31 @@ export default function QuestionnairePage() {
   const sectionRefs = useRef({});
 
   useEffect(() => {
+    const controller = new AbortController();
     async function fetchData() {
       try {
-        const res = await fetch(`/api/matter/${matterId}`);
+        setIsLoading(true);
+        const res = await fetch(`/api/matter/${encodeURIComponent(matterId)}`, { signal: controller.signal, cache: "no-store" });
         const result = await res.json();
+        if (controller.signal.aborted) return;
         if (result.success) {
           setMatterResult(result);
           setData(result.questionnaire);
+        } else {
+          setMatterResult(null);
+          setData(null);
         }
       } catch (e) {
+        if (controller.signal.aborted) return;
         console.error(e);
+        setMatterResult(null);
+        setData(null);
       } finally {
-        setIsLoading(false);
+        if (!controller.signal.aborted) setIsLoading(false);
       }
     }
     fetchData();
+    return () => controller.abort();
   }, [matterId]);
 
   // Fetch review comments
@@ -940,6 +951,18 @@ export default function QuestionnairePage() {
       <div className="flex justify-center p-12">
         <Loader2 className="h-8 w-8 animate-spin text-[#4F726B]" />
       </div>
+    );
+  }
+
+  if (matterResult?.questionnaireDefinition?.pages?.length) {
+    return (
+      <ClientQuestionnaireReview
+        key={matterResult.application?.id || matterId}
+        questionnaire={data || {}}
+        definition={matterResult.questionnaireDefinition}
+        application={matterResult.application}
+        completion={matterResult.completion}
+      />
     );
   }
 

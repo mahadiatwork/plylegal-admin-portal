@@ -4,6 +4,9 @@ import { db, initResult } from '@/lib/firebase-admin';
 import { calculateTemporaryWorkProgress, countTrueCompletionKeys } from '@/lib/questionnaireProgress';
 import { getAllRoutes } from '@/lib/routes';
 import { resolveMatterApplication } from '@/lib/matterResolver';
+import { getBuiltInQuestionnaireDefinition } from '@/lib/questionnaireBuiltIns';
+import { inferQuestionnaireAudience, loadQuestionnaireReviewDefinition } from '@/lib/questionnaireReviewDefinitions';
+import { buildQuestionnaireAnswerGroups, calculateQuestionnaireAnswerProgress } from '@/lib/questionnaireAnswerModel';
 
 export async function GET(request, { params }) {
   if (!(await getAdminSession())) {
@@ -59,16 +62,26 @@ export async function GET(request, { params }) {
     
     const questionnaireData = questionnaireSnap.exists ? questionnaireSnap.data() : {};
     const completionData = completionSnap.exists ? completionSnap.data() : {};
+    const audience = inferQuestionnaireAudience(applicationData, questionnaireData);
+    const builtInDefinition = getBuiltInQuestionnaireDefinition(audience);
+    const questionnaireTemplate = await loadQuestionnaireReviewDefinition(db, audience, builtInDefinition);
 
     // Calculate percentage using the same section model as the client portal
     // for temporary-work questionnaires.
     let percentage = 0;
-    const visaTypeCode = applicationData.visaTypeCode?.toLowerCase() || 'partner'; // default fallback
-    const visaContext = questionnaireData?.visaContext || null;
+    const visaTypeCode = audience.visaType;
+    const visaContext = audience.visaContext;
     let completedSections = 0;
     let totalSections = 0;
     
-    if (visaTypeCode === 'temporary-work') {
+    if (questionnaireTemplate.definition?.pages?.length) {
+      const progress = calculateQuestionnaireAnswerProgress(
+        buildQuestionnaireAnswerGroups(questionnaireTemplate.definition, questionnaireData), completionData
+      );
+      completedSections = progress.completedSections;
+      totalSections = progress.totalSections;
+      percentage = progress.percentage;
+    } else if (visaTypeCode === 'temporary-work') {
       const progress = calculateTemporaryWorkProgress(completionData, questionnaireData);
       completedSections = progress.completedSections;
       totalSections = progress.totalSections;
@@ -95,6 +108,8 @@ export async function GET(request, { params }) {
       success: true,
       application: applicationData,
       questionnaire: questionnaireData,
+      questionnaireDefinition: questionnaireTemplate.definition || null,
+      questionnaireDefinitionSource: questionnaireTemplate.source,
       completion: completionData,
       percentage,
       progress: {
@@ -104,7 +119,7 @@ export async function GET(request, { params }) {
       matchedBy: resolved.matchedBy,
       duplicateCount: resolved.duplicateCount || 1,
       duplicateIds: resolved.duplicateIds || [appId],
-    });
+    }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {
     console.error('Error fetching matter data:', error);
     return NextResponse.json({ success: false, error: 'Failed to fetch matter data' }, { status: 500 });

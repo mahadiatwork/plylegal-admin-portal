@@ -1,3 +1,5 @@
+import { questionnaireBuiltInPages } from './questionnaireBuiltInPages.js';
+
 // Partner Visa Routes 
 export const PARTNER_VISA_ROUTES = [
   { href: "/intake/partner/start", title: "Getting Started" },
@@ -264,6 +266,12 @@ export function getRegisteredQuestionnaireRoutes(visaType, visaContexts = []) {
       Array.isArray(route.subpages) && route.subpages.length ? route.subpages : [route]
     )
   );
+  // Dynamic people routes use stable placeholders in templates and actual ids in the portal.
+  flattened.push(...questionnaireBuiltInPages.filter(page =>
+    page.route.startsWith(`/intake/${visaType}/`) &&
+    !(visaType === 'temporary-work' && !contexts.includes('186') && /\/spouse-partner\/(?:education|language)$/.test(page.route)) &&
+    !/\/(?:start|profile|submit)$/.test(page.route)
+  ).map(page => ({ href: page.route, title: page.title })));
 
   return [...new Map(
     flattened
