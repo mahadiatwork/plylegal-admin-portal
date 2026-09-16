@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getAdminSession } from "@/lib/adminSession";
 import { db } from "@/lib/firebase-admin";
 import { resolveMatterApplication } from "@/lib/matterResolver";
 import zohoClient from "@/lib/zohoClient";
@@ -44,6 +45,13 @@ async function getZohoCorrections(resolved, matterId) {
 
 // GET /api/review-comments/[matterId] — list all comments for a matter
 export async function GET(request, { params }) {
+  if (!(await getAdminSession())) {
+    return NextResponse.json(
+      { success: false, error: "Admin session is required" },
+      { status: 401 }
+    );
+  }
+
   try {
     const { matterId } = await params;
     const sourceFilter = cleanText(new URL(request.url).searchParams.get("source"));
@@ -87,6 +95,13 @@ export async function GET(request, { params }) {
 
 // POST /api/review-comments/[matterId] — create a new comment
 export async function POST(request, { params }) {
+  if (!(await getAdminSession())) {
+    return NextResponse.json(
+      { success: false, error: "Admin session is required" },
+      { status: 401 }
+    );
+  }
+
   try {
     const { matterId } = await params;
     const body = await request.json();

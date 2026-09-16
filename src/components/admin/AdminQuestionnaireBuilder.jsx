@@ -9,12 +9,14 @@ import {
   Check,
   ChevronRight,
   CircleAlert,
+  Copy,
   FileJson,
   Layers3,
   Loader2,
   Plus,
   RefreshCw,
   Save,
+  Search,
   Send,
   Trash2,
 } from "lucide-react";
@@ -23,6 +25,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { getRegisteredQuestionnaireRoutes } from "@/lib/routes";
+import { createQuestionnaireDraft } from "@/lib/questionnaireDrafts";
+import { temporaryWork482Definition } from "@/lib/questionnaireStarterTemplates";
 
 const QUESTION_TYPES = [
   ["text", "Short text"],
@@ -250,15 +254,27 @@ function getErrorMessage(payload, fallback) {
 }
 
 async function apiRequest(url, options = {}) {
-  const response = await fetch(url, {
-    cache: "no-store",
-    ...options,
-    headers: {
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
-      ...options.headers,
-    },
-  });
-  const raw = await response.text();
+  const isRead = ["GET", "HEAD"].includes((options.method || "GET").toUpperCase());
+  const readTimeout = isRead ? AbortSignal.timeout(15_000) : undefined;
+  let response;
+  let raw;
+  try {
+    response = await fetch(url, {
+      cache: "no-store",
+      ...options,
+      ...(readTimeout ? { signal: readTimeout } : {}),
+      headers: {
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        ...options.headers,
+      },
+    });
+    raw = await response.text();
+  } catch (requestError) {
+    if (readTimeout?.aborted) {
+      throw new Error("The server took too long to respond. Try Refresh again.");
+    }
+    throw requestError;
+  }
   let payload = {};
 
   if (raw) {
@@ -394,9 +410,9 @@ function EmptyPane({ onCreate }) {
       <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#e8f4ee] text-[#4F726B]">
         <Layers3 className="h-7 w-7" />
       </div>
-      <h2 className="mt-5 text-xl font-semibold text-[#17372e]">Build your first questionnaire</h2>
+      <h2 className="mt-5 text-xl font-semibold text-[#17372e]">Choose a questionnaire to edit</h2>
       <p className="mt-2 max-w-md text-sm leading-6 text-[#60786f]">
-        Create a draft, add pages and questions, then publish it when the wording and structure are ready.
+        Select a saved questionnaire or the 482 Character starter on the left. You can also create a new questionnaire for a visa page.
       </p>
       <Button type="button" className="mt-5 bg-[#4F726B] text-white" onClick={onCreate}>
         <Plus className="h-4 w-4" />
@@ -417,13 +433,16 @@ export default function AdminQuestionnaireBuilder() {
   const [jsonError, setJsonError] = useState("");
   const [jsonHasPendingEdits, setJsonHasPendingEdits] = useState(false);
   const [error, setError] = useState("");
+  const [savedQuestionnairesError, setSavedQuestionnairesError] = useState("");
   const [notice, setNotice] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingDefinition, setIsLoadingDefinition] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [definitionSearch, setDefinitionSearch] = useState("");
   const selectionRequestId = useRef(0);
+  const listRequestId = useRef(0);
 
   const builderIsDirty = useMemo(
     () => JSON.stringify(definition) !== JSON.stringify(savedDefinition),
@@ -450,24 +469,35 @@ export default function AdminQuestionnaireBuilder() {
     ),
     [activePage, activeQuestion?.id]
   );
+  const filteredDefinitions = useMemo(() => {
+    const search = definitionSearch.trim().toLowerCase();
+    return definitions.filter((item) =>
+      [item.title, item.id, audienceLabel(item)].some((value) =>
+        String(value || "").toLowerCase().includes(search)
+      )
+    );
+  }, [definitions, definitionSearch]);
 
   useEffect(() => {
     let cancelled = false;
+    const requestId = ++selectionRequestId.current;
+    const currentListRequestId = ++listRequestId.current;
 
     async function load() {
       try {
         setIsLoading(true);
         const listPayload = await apiRequest("/api/questionnaire-definitions");
         const list = getDefinitionsFromResponse(listPayload);
-        if (cancelled) return;
+        if (cancelled || currentListRequestId !== listRequestId.current) return;
 
         setDefinitions(list);
-        if (!list.length) return;
+        setSavedQuestionnairesError("");
+        if (requestId !== selectionRequestId.current || !list.length) return;
 
         const firstId = String(list[0].id || list[0].definitionId || "");
         if (!firstId) return;
         const loaded = await fetchDefinition(firstId);
-        if (cancelled) return;
+        if (cancelled || requestId !== selectionRequestId.current) return;
 
         setSelectedId(loaded.id);
         setDefinition(loaded);
@@ -477,9 +507,11 @@ export default function AdminQuestionnaireBuilder() {
         setJsonText(JSON.stringify(loaded, null, 2));
         setJsonHasPendingEdits(false);
       } catch (loadError) {
-        if (!cancelled) setError(loadError.message);
+        if (!cancelled && currentListRequestId === listRequestId.current) {
+          setSavedQuestionnairesError(`Saved questionnaires could not be loaded. ${loadError.message}`);
+        }
       } finally {
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled && currentListRequestId === listRequestId.current) setIsLoading(false);
       }
     }
 
@@ -505,14 +537,17 @@ export default function AdminQuestionnaireBuilder() {
 
   async function loadList(preferredId = selectedId) {
     const requestId = ++selectionRequestId.current;
+    const currentListRequestId = ++listRequestId.current;
     try {
       setError("");
+      setSavedQuestionnairesError("");
       setNotice("");
       setIsLoading(true);
       const payload = await apiRequest("/api/questionnaire-definitions");
-      if (requestId !== selectionRequestId.current) return;
+      if (currentListRequestId !== listRequestId.current) return;
       const list = getDefinitionsFromResponse(payload);
       setDefinitions(list);
+      if (requestId !== selectionRequestId.current) return;
 
       if (!list.length) {
         setSelectedId("");
@@ -537,9 +572,11 @@ export default function AdminQuestionnaireBuilder() {
       setActiveQuestionId(loaded.pages[0]?.questions?.[0]?.id || "");
       setIsCreating(false);
     } catch (loadError) {
-      if (requestId === selectionRequestId.current) setError(loadError.message);
+      if (currentListRequestId === listRequestId.current) {
+        setSavedQuestionnairesError(`Saved questionnaires could not be loaded. ${loadError.message}`);
+      }
     } finally {
-      if (requestId === selectionRequestId.current) setIsLoading(false);
+      if (currentListRequestId === listRequestId.current) setIsLoading(false);
     }
   }
 
@@ -573,6 +610,8 @@ export default function AdminQuestionnaireBuilder() {
   function createDefinition() {
     if (!confirmDiscard()) return;
     selectionRequestId.current += 1;
+    setIsLoading(false);
+    setIsLoadingDefinition(false);
     const nextDefinition = makeNewDefinition();
     setDefinition(nextDefinition);
     setSavedDefinition(null);
@@ -585,6 +624,28 @@ export default function AdminQuestionnaireBuilder() {
     setIsCreating(true);
     setError("");
     setNotice("New draft ready. Add pages and save when you are finished.");
+  }
+
+  function createDraftFrom(source, { starter = false } = {}) {
+    if (!confirmDiscard()) return;
+    selectionRequestId.current += 1;
+    setIsLoading(false);
+    setIsLoadingDefinition(false);
+    const draftId = `questionnaire-${crypto.randomUUID()}`;
+    const draft = normalizeDefinition(createQuestionnaireDraft(source, draftId));
+    setDefinition(draft);
+    setSavedDefinition(null);
+    setSelectedId(draft.id);
+    setActivePageId(draft.pages[0]?.id || "");
+    setActiveQuestionId(draft.pages[0]?.questions?.[0]?.id || "");
+    setJsonText(JSON.stringify(draft, null, 2));
+    setJsonHasPendingEdits(false);
+    setJsonError("");
+    setIsCreating(true);
+    setError("");
+    setNotice(starter
+      ? "482 Character starter opened as a draft. Edit the questions and answer choices, then save or publish when ready."
+      : "A separate draft is ready. You can change questions and options while the published questionnaire remains available to clients.");
   }
 
   function updateDefinitionField(field, value) {
@@ -1014,13 +1075,13 @@ export default function AdminQuestionnaireBuilder() {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#70877e]">
-            Questionnaire Studio
+            Admin · Questionnaires
           </p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#17372e]">
-            Build client questionnaires
+            Questionnaires
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[#60786f]">
-            Manage page copy, question types, choices, and simple conditional follow-ups from one clean JSON-backed workspace.
+            Edit the questions, answer options and help text shown in the Client Portal. Choose a questionnaire, select a page, then select a question to make your changes.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1036,13 +1097,27 @@ export default function AdminQuestionnaireBuilder() {
             <RefreshCw className={isLoading ? "animate-spin" : ""} />
             Refresh
           </Button>
-          <Button type="button" className="bg-[#4F726B] text-white" disabled={isBusy} onClick={createDefinition}>
+          <Button type="button" className="bg-[#4F726B] text-white" disabled={isSaving || isDeleting} onClick={createDefinition}>
             <Plus />
             New questionnaire
           </Button>
         </div>
       </header>
 
+      <div className="rounded-xl border border-[#d7e4de] bg-white px-4 py-4 text-sm leading-6 text-[#38564b]">
+        <p><strong>To edit questions or options:</strong> open a questionnaire below. For a published questionnaire, choose <strong>Edit questions &amp; options</strong> to prepare a separate draft, then <strong>Publish</strong> when it is ready.</p>
+        <p className="mt-2 text-[#60786f]">The 482 Character page is included as a starter. Other existing visa sections continue using their current forms until a questionnaire template is published for those pages. This area manages templates; each matter&apos;s Client answers tab shows that client&apos;s answers.</p>
+      </div>
+
+      {savedQuestionnairesError ? (
+        <div role="alert" className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <p>{savedQuestionnairesError}</p>
+            <p className="mt-1">You can still open the starter or prepare a new draft. Saving and publishing require the server connection.</p>
+          </div>
+        </div>
+      ) : null}
       {error ? (
         <div role="alert" className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
@@ -1057,16 +1132,22 @@ export default function AdminQuestionnaireBuilder() {
       ) : null}
 
       <div className="grid gap-5 xl:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="overflow-hidden rounded-2xl border border-white/80 bg-white/80 shadow-sm backdrop-blur xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)]">
-          <div className="flex items-center justify-between border-b border-[#e1e9e5] px-4 py-4">
+        <aside className="flex flex-col self-start overflow-hidden rounded-2xl border border-white/80 bg-white/80 shadow-sm backdrop-blur xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)]">
+          <div className="flex shrink-0 items-center justify-between border-b border-[#e1e9e5] px-4 py-4">
             <div>
-              <h2 className="font-semibold text-[#17372e]">Definitions</h2>
+              <h2 className="font-semibold text-[#17372e]">Saved questionnaires</h2>
               <p className="text-xs text-[#71857d]">{definitions.length} saved</p>
             </div>
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin text-[#4F726B]" /> : null}
           </div>
-          <div className="max-h-[420px] space-y-2 overflow-y-auto p-3 xl:max-h-[calc(100vh-8rem)]">
-            {definitions.length ? definitions.map((item) => {
+          <div className="shrink-0 border-b border-[#e1e9e5] p-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-[#71857d]" />
+              <Input value={definitionSearch} onChange={(event) => setDefinitionSearch(event.target.value)} placeholder="Search name or visa" aria-label="Search questionnaires" className={`${inputClassName} pl-9`} />
+            </div>
+          </div>
+          <div className="min-h-0 max-h-[420px] space-y-2 overflow-y-auto p-3 xl:max-h-none">
+            {filteredDefinitions.length ? filteredDefinitions.map((item) => {
               const counts = definitionCounts(item);
               const selected = !isCreating && String(item.id) === String(selectedId);
               return (
@@ -1095,15 +1176,23 @@ export default function AdminQuestionnaireBuilder() {
               );
             }) : !isLoading ? (
               <div className="px-3 py-10 text-center text-sm text-[#71857d]">
-                No questionnaire definitions yet.
+                {savedQuestionnairesError ? "Saved questionnaires could not be loaded. Use Refresh to try again." : definitionSearch ? "No matching questionnaires." : "No saved questionnaires yet. Start with the template below or create a new one."}
               </div>
             ) : null}
           </div>
+          <div className="shrink-0 border-t border-[#e1e9e5] p-4">
+            <h3 className="text-sm font-semibold text-[#17372e]">Starter template</h3>
+            <p className="mt-1 text-xs leading-5 text-[#60786f]">482 Character · 18 questions with applicant and details follow-ups. Opens as an unpublished draft.</p>
+            <Button type="button" variant="outline" className="mt-3 w-full border-[#d7e4de] bg-white text-[#38564b]" disabled={isSaving || isDeleting} onClick={() => createDraftFrom(temporaryWork482Definition, { starter: true })}>
+              <Copy className="h-4 w-4" />
+              Use 482 Character starter
+            </Button>
+          </div>
         </aside>
 
-        {isLoadingDefinition ? (
+        {isLoading || isLoadingDefinition ? (
           <section className="flex min-h-[560px] items-center justify-center rounded-2xl border border-white/80 bg-white/80">
-            <Loader2 className="h-7 w-7 animate-spin text-[#4F726B]" />
+            <p role="status" className="flex items-center gap-3 text-sm text-[#60786f]"><Loader2 className="h-6 w-6 animate-spin text-[#4F726B]" />Loading questionnaires…</p>
           </section>
         ) : !definition ? (
           <EmptyPane onCreate={createDefinition} />
@@ -1124,7 +1213,7 @@ export default function AdminQuestionnaireBuilder() {
                       </Badge>
                     ) : null}
                   </div>
-                  <p className="mt-1 truncate font-mono text-xs text-[#71857d]">{definition.id}</p>
+                  <p className="mt-1 text-xs text-[#71857d]">{audienceLabel(definition)}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button
@@ -1153,9 +1242,10 @@ export default function AdminQuestionnaireBuilder() {
                       variant="outline"
                       className="border-amber-200 bg-amber-50 text-amber-700"
                       disabled={isSaving || isDeleting}
-                      onClick={() => saveDefinition("draft")}
+                      onClick={() => createDraftFrom(savedDefinition || definition)}
                     >
-                      Move to draft
+                      <Copy />
+                      Edit questions &amp; options
                     </Button>
                   )}
                   {definition.status === "archived" ? (
@@ -1198,16 +1288,16 @@ export default function AdminQuestionnaireBuilder() {
                 <div className="mt-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
                   <CircleAlert className="mt-1 h-4 w-4 shrink-0" />
                   <span>
-                    This definition is {savedDefinition.status}. Wording remains editable, but IDs, answer keys, routes, types, choices, conditions, and required rules are locked to protect saved client answers. Move it to draft for structural changes.
+                    You can update question wording, help text and option labels here. To add or remove questions, change answer choices or adjust rules, {savedDefinition.status === "active" ? "choose Edit questions & options above to create a draft. The published version stays available until you publish its replacement." : "move this archived questionnaire to draft."}
                   </span>
                 </div>
               ) : null}
             </section>
 
-            <section className="rounded-2xl border border-white/80 bg-white p-5 shadow-sm sm:p-6">
-              <div className="mb-5">
-                <h3 className="font-semibold text-[#17372e]">Definition details</h3>
-                <p className="mt-1 text-xs text-[#71857d]">Audience and version metadata stored with the JSON definition.</p>
+            <details className="rounded-2xl border border-white/80 bg-white p-5 shadow-sm sm:p-6" open={isCreating && !definition.pages.length}>
+              <summary className="cursor-pointer text-sm font-semibold text-[#17372e]">Questionnaire settings · title, visa type and version</summary>
+              <div className="mb-5 mt-4">
+                <p className="text-xs text-[#71857d]">Choose which visa applications use this questionnaire.</p>
               </div>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <div className="space-y-2 md:col-span-2">
@@ -1286,7 +1376,7 @@ export default function AdminQuestionnaireBuilder() {
                   />
                 </div>
               </div>
-            </section>
+            </details>
 
             <section className="overflow-hidden rounded-2xl border border-white/80 bg-white shadow-sm">
               <div className="grid lg:grid-cols-[230px_minmax(0,1fr)]">
@@ -1574,7 +1664,7 @@ export default function AdminQuestionnaireBuilder() {
                                   <div className="flex items-center justify-between gap-3">
                                     <div>
                                       <h4 className="text-sm font-semibold text-[#24453b]">Answer choices</h4>
-                                      <p className="text-xs text-[#71857d]">Labels are editable live; stored values are machine keys.</p>
+                                      <p className="text-xs text-[#71857d]">Edit the option label clients see. Keep stored values stable so existing answers continue to match.</p>
                                     </div>
                                     <Button type="button" variant="ghost" size="sm" disabled={machineKeysLocked || activeQuestion.type === "yesNo"} onClick={addOption}><Plus />Add</Button>
                                   </div>

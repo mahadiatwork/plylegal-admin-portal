@@ -4,6 +4,8 @@ import test from "node:test";
 
 process.env.SESSION_SECRET = "test-session-secret-with-sufficient-entropy";
 process.env.PORTAL_ADMIN_KEY = "test-admin-key";
+delete process.env.PORTAL_ADMIN_PASSWORD;
+delete process.env.PORTAL_ADMIN_USERNAME;
 
 const {
   ADMIN_SESSION_COOKIE,
@@ -11,6 +13,8 @@ const {
   getAdminSessionCookieOptions,
   sanitizeNextPath,
   verifyAdminKey,
+  verifyAdminCredentials,
+  isAdminLoginConfigured,
   verifyAdminSessionToken,
 } = await import("./adminSessionCore.js");
 
@@ -40,13 +44,13 @@ test("rejects tampered, expired, malformed, and extra-part tokens", () => {
   assert.equal(verifyAdminSessionToken("not-a-token"), null);
   assert.equal(
     verifyAdminSessionToken(
-      signedToken({ role: "admin", iat: 1, exp: Math.floor(Date.now() / 1000) - 1 })
+      signedToken({ role: "admin", sub: "admin", iat: 1, exp: Math.floor(Date.now() / 1000) - 1 })
     ),
     null
   );
   assert.equal(
     verifyAdminSessionToken(
-      signedToken({ role: "viewer", iat: 1, exp: Math.floor(Date.now() / 1000) + 60 })
+      signedToken({ role: "viewer", sub: "admin", iat: 1, exp: Math.floor(Date.now() / 1000) + 60 })
     ),
     null
   );
@@ -60,13 +64,46 @@ test("validates admin keys using exact values after outer whitespace", () => {
 
 test("sanitizes redirect targets and emits secure cookie options", () => {
   assert.equal(sanitizeNextPath("/admin/questionnaires"), "/admin/questionnaires");
-  assert.equal(sanitizeNextPath("https://example.com"), "/admin/resources");
-  assert.equal(sanitizeNextPath("//example.com"), "/admin/resources");
-  assert.equal(sanitizeNextPath("/\\example.com"), "/admin/resources");
-  assert.equal(sanitizeNextPath("/%5C%5Cexample.com"), "/admin/resources");
+  assert.equal(sanitizeNextPath("https://example.com"), "/");
+  assert.equal(sanitizeNextPath("//example.com"), "/");
+  assert.equal(sanitizeNextPath("/\\example.com"), "/");
+  assert.equal(sanitizeNextPath("/%5C%5Cexample.com"), "/");
+  assert.equal(sanitizeNextPath("/login?next=/login"), "/");
+  assert.equal(sanitizeNextPath("/api/resources"), "/");
+  assert.equal(sanitizeNextPath("/matter/482/resources?scope=all"), "/matter/482/resources?scope=all");
   const options = getAdminSessionCookieOptions();
   assert.equal(options.httpOnly, true);
   assert.equal(options.sameSite, "lax");
   assert.equal(options.path, "/");
   assert.equal(options.maxAge, 43_200);
+});
+
+test("username and password are both required, and configured password supersedes the old key", () => {
+  assert.equal(verifyAdminCredentials("admin", "test-admin-key"), true);
+  assert.equal(verifyAdminCredentials("wrong", "test-admin-key"), false);
+  assert.equal(verifyAdminCredentials("admin", " test-admin-key "), false);
+  process.env.PORTAL_ADMIN_USERNAME = "demo.admin";
+  process.env.PORTAL_ADMIN_PASSWORD = "test-password";
+  try {
+    assert.equal(isAdminLoginConfigured(), true);
+    assert.equal(verifyAdminCredentials("demo.admin", "test-password"), true);
+    assert.equal(verifyAdminCredentials("admin", "test-password"), false);
+    assert.equal(verifyAdminCredentials("demo.admin", "test-admin-key"), false);
+    assert.equal(verifyAdminSessionToken(createAdminSessionToken()).sub, "demo.admin");
+  } finally {
+    delete process.env.PORTAL_ADMIN_USERNAME;
+    delete process.env.PORTAL_ADMIN_PASSWORD;
+  }
+});
+
+test("missing configuration cannot create demo or forged sessions", () => {
+  const secret = process.env.SESSION_SECRET;
+  delete process.env.SESSION_SECRET;
+  try {
+    assert.equal(isAdminLoginConfigured(), false);
+    assert.equal(verifyAdminSessionToken("payload.signature"), null);
+    assert.throws(() => createAdminSessionToken(), /SESSION_SECRET/);
+  } finally {
+    process.env.SESSION_SECRET = secret;
+  }
 });

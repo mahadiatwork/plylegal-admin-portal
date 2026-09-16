@@ -1,155 +1,74 @@
 "use client";
 
-import { startTransition, useState } from "react";
-import { useRouter } from "next/navigation";
-import { AlertCircle, ArrowRight, KeyRound, Loader2, ShieldCheck } from "lucide-react";
+import { useState } from "react";
+import Image from "next/image";
+import { AlertCircle, ArrowRight, Eye, EyeOff, Loader2, LockKeyhole } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 export default function AdminLoginForm({ nextPath }) {
-  const router = useRouter();
-  const [adminKey, setAdminKey] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = async (event) => {
+  async function handleSubmit(event) {
     event.preventDefault();
-
-    if (!adminKey.trim()) {
-      setError("Enter the admin access key to continue.");
-      return;
-    }
-
+    setIsSubmitting(true);
+    setError("");
     try {
-      setIsSubmitting(true);
-      setError("");
-
       const response = await fetch("/api/admin/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          key: adminKey,
-          next: nextPath,
-        }),
+        body: JSON.stringify({ username, password, next: nextPath }),
       });
       const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || "Unable to verify the admin access key.");
-      }
-
-      startTransition(() => {
-        router.replace(data.nextPath || nextPath);
-      });
+      if (!response.ok || !data.success) throw new Error(data.error || "Unable to sign in.");
+      // Reload clears pre-login router state and sends the new cookie on every request.
+      window.location.replace(data.nextPath || "/");
     } catch (submitError) {
-      setError(submitError.message);
-    } finally {
+      setError(submitError.message || "Unable to sign in. Please try again.");
       setIsSubmitting(false);
     }
-  };
+  }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#E4E9FF] px-4 py-8 sm:px-6 lg:px-8">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute left-[-10%] top-[-12%] h-72 w-72 rounded-full bg-[#8ac6ad]/25 blur-3xl" />
-        <div className="absolute bottom-[-10%] right-[-12%] h-96 w-96 rounded-full bg-[#d7e5ff]/55 blur-3xl" />
-      </div>
-
-      <div className="relative mx-auto flex min-h-[calc(100vh-4rem)] max-w-5xl items-center justify-center">
-        <div className="grid w-full gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
-          <section className="space-y-6 text-center lg:text-left">
-            <div className="inline-flex items-center justify-center rounded-full border border-white/70 bg-white/70 px-4 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-[#4F726B] shadow-sm backdrop-blur lg:justify-start">
-              ValidifyPro Admin Portal
+    <main className="flex min-h-screen items-center justify-center bg-[#E4E9FF] px-4 py-12">
+      <section className="w-full max-w-md rounded-2xl border border-white bg-white p-8 shadow-lg sm:p-10">
+        <Image src="/Ply_Logo_black.png" alt="Ply Legal" width={188} height={62} priority className="h-auto w-44" />
+        <p className="mt-5 text-xs font-semibold uppercase tracking-[0.2em] text-[#4F726B]">Admin portal</p>
+        <h1 className="mt-2 text-3xl font-semibold text-[#17372e]">Welcome back</h1>
+        <p className="mt-3 text-sm leading-6 text-gray-600">Sign in to manage questionnaires, client resources and matters.</p>
+        <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+          <div className="space-y-2">
+            <label htmlFor="username" className="text-sm font-medium text-gray-800">Username</label>
+            <Input id="username" name="username" autoComplete="username" required maxLength={200}
+              value={username} onChange={(event) => setUsername(event.target.value)} className="h-12" />
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="password" className="text-sm font-medium text-gray-800">Password</label>
+            <div className="relative">
+              <Input id="password" name="password" type={showPassword ? "text" : "password"}
+                autoComplete="current-password" required maxLength={1024} value={password}
+                onChange={(event) => setPassword(event.target.value)} className="h-12 pr-12" />
+              <button type="button" onClick={() => setShowPassword((value) => !value)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                className="absolute inset-y-0 right-0 flex w-12 items-center justify-center text-gray-500">
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
             </div>
-
-            <div className="space-y-4">
-              <h1 className="text-4xl font-semibold tracking-tight text-[#16362d] sm:text-5xl">
-                Shared resource publishing starts here.
-              </h1>
-              <p className="max-w-xl text-base leading-7 text-[#406257] sm:text-lg">
-                Sign in with the admin access key to manage the shared resource library, control publish status, and keep client-facing resources consistent across every matter.
-              </p>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-white/75 bg-white/70 p-4 text-left shadow-sm backdrop-blur">
-                <ShieldCheck className="h-5 w-5 text-[#4F726B]" />
-                <p className="mt-3 text-sm font-semibold text-[#16362d]">Protected admin entry</p>
-                <p className="mt-1 text-sm text-[#5c746b]">
-                  Shared-resource APIs and screens stay behind a signed admin session.
-                </p>
-              </div>
-              <div className="rounded-2xl border border-white/75 bg-white/70 p-4 text-left shadow-sm backdrop-blur">
-                <KeyRound className="h-5 w-5 text-[#4F726B]" />
-                <p className="mt-3 text-sm font-semibold text-[#16362d]">Session-based access</p>
-                <p className="mt-1 text-sm text-[#5c746b]">
-                  The session is stored in an HTTP-only cookie so the client never touches the secret.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          <section className="login-glass-panel rounded-[28px] p-6 sm:p-8">
-            <div className="mb-6 flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#4F726B] text-white shadow-sm">
-                <KeyRound className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#648377]">
-                  Admin Login
-                </p>
-                <h2 className="text-2xl font-semibold text-[#16362d]">Unlock the resource library</h2>
-              </div>
-            </div>
-
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div className="space-y-2">
-                <label htmlFor="admin-key" className="text-sm font-medium text-[#24453b]">
-                  Admin access key
-                </label>
-                <Input
-                  id="admin-key"
-                  type="password"
-                  autoComplete="current-password"
-                  value={adminKey}
-                  onChange={(event) => setAdminKey(event.target.value)}
-                  placeholder="Enter the portal admin key"
-                  className="h-12 border-white/80 bg-white/85 text-[#16362d] shadow-sm"
-                />
-              </div>
-
-              {error ? (
-                <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50/90 px-4 py-3 text-sm text-red-700">
-                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>{error}</span>
-                </div>
-              ) : (
-                <p className="text-sm leading-6 text-[#5c746b]">
-                  This uses the same server-side access key already configured for the portal environment.
-                </p>
-              )}
-
-              <Button
-                type="submit"
-                disabled={isSubmitting}
-                className="h-12 w-full rounded-xl bg-[#4F726B] text-white hover:bg-[#4F726B]"
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Signing in
-                  </>
-                ) : (
-                  <>
-                    Continue to resources
-                    <ArrowRight className="h-4 w-4" />
-                  </>
-                )}
-              </Button>
-            </form>
-          </section>
-        </div>
-      </div>
-    </div>
+          </div>
+          {error && <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /><span>{error}</span>
+          </div>}
+          <Button type="submit" disabled={isSubmitting} className="h-12 w-full bg-[#4F726B] text-white hover:bg-[#3c5b54]">
+            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+            {isSubmitting ? "Signing in…" : "Sign in"}
+          </Button>
+        </form>
+        <p className="mt-6 flex items-center gap-2 text-xs text-gray-500"><LockKeyhole className="h-3.5 w-3.5" />Access is restricted to authorised staff.</p>
+      </section>
+    </main>
   );
 }

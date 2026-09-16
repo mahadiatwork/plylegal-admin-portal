@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAdminSession } from "@/lib/adminSession";
+import { isSameOriginRequest } from "@/lib/adminLoginProtection";
 import { db, initResult } from "@/lib/firebase-admin";
 import { getRegisteredQuestionnaireRoutes } from "@/lib/routes";
 import {
@@ -48,8 +49,7 @@ async function requireAdmin() {
 }
 
 function requireSafeMutationRequest(request, { expectsJson = false } = {}) {
-  const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(request.url).origin) {
+  if (!isSameOriginRequest(request)) {
     throw new ApiError("Request origin is not allowed", 403);
   }
   if (request.headers.get("sec-fetch-site") === "cross-site") {

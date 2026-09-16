@@ -1,65 +1,17 @@
 import Link from "next/link";
-import { ArrowLeft, ClipboardList, FileSearch, LibraryBig } from "lucide-react";
-import AdminLogoutButton from "@/components/admin/AdminLogoutButton";
+import Image from "next/image";
+import AdminNavigation from "@/components/admin/AdminNavigation";
+import { requireAdminSession } from "@/lib/adminSession";
 
-export default function AdminLayout({ children }) {
-  return (
-    <div className="min-h-screen bg-[#E4E9FF]">
-      <header className="border-b border-white/70 bg-white/75 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex min-w-0 items-center gap-4">
-            <Link
-              href="/"
-              className="inline-flex items-center gap-2 text-sm font-medium text-[#587267] transition-colors hover:text-[#17372e]"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Portal home
-            </Link>
-            <div className="hidden h-6 w-px bg-[#dce6e1] sm:block" />
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#4F726B] text-white shadow-sm">
-                <LibraryBig className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#70877e]">
-                  Admin Workspace
-                </p>
-                <p className="truncate text-sm font-semibold text-[#17372e]">
-                  Portal Management
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <nav className="hidden items-center gap-2 lg:flex">
-              <Link
-                href="/admin/questionnaires"
-                className="inline-flex items-center gap-2 rounded-md border border-[#d8e4de] bg-white px-3 py-2 text-sm font-medium text-[#38564b] transition-colors hover:border-[#8ac6ad] hover:text-[#17372e]"
-              >
-                <ClipboardList className="h-4 w-4" />
-                Questionnaires
-              </Link>
-              <Link
-                href="/admin/document-review"
-                className="inline-flex items-center gap-2 rounded-md border border-[#d8e4de] bg-white px-3 py-2 text-sm font-medium text-[#38564b] transition-colors hover:border-[#8ac6ad] hover:text-[#17372e]"
-              >
-                <FileSearch className="h-4 w-4" />
-                Document review
-              </Link>
-              <Link
-                href="/admin/resources"
-                className="rounded-md border border-[#d8e4de] bg-white px-3 py-2 text-sm font-medium text-[#38564b] transition-colors hover:border-[#8ac6ad] hover:text-[#17372e]"
-              >
-                Legacy library
-              </Link>
-            </nav>
-            <AdminLogoutButton />
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">{children}</main>
-    </div>
-  );
+export default async function AdminLayout({ children }) {
+  await requireAdminSession("/");
+  return <div className="min-h-screen bg-[#E4E9FF]">
+    <header className="border-b border-gray-100 bg-white">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
+        <Link href="/" aria-label="Ply Legal admin dashboard"><Image src="/Ply_Logo_black.png" alt="Ply Legal" width={156} height={52} className="h-auto w-36" /></Link>
+        <AdminNavigation />
+      </div>
+    </header>
+    <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">{children}</main>
+  </div>;
 }

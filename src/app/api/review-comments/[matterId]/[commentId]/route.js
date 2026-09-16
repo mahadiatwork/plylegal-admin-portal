@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getAdminSession } from "@/lib/adminSession";
 import { db } from "@/lib/firebase-admin";
 import { resolveMatterApplication } from "@/lib/matterResolver";
 import zohoClient from "@/lib/zohoClient";
@@ -35,6 +36,13 @@ function correctionError(message, status = 400) {
 
 // PATCH /api/review-comments/[matterId]/[commentId] — update a comment (resolve, edit)
 export async function PATCH(request, { params }) {
+  if (!(await getAdminSession())) {
+    return NextResponse.json(
+      { success: false, error: "Admin session is required" },
+      { status: 401 }
+    );
+  }
+
   try {
     const { matterId, commentId } = await params;
     const body = await request.json();
@@ -181,6 +189,13 @@ export async function PATCH(request, { params }) {
 
 // DELETE /api/review-comments/[matterId]/[commentId] — delete a comment
 export async function DELETE(request, { params }) {
+  if (!(await getAdminSession())) {
+    return NextResponse.json(
+      { success: false, error: "Admin session is required" },
+      { status: 401 }
+    );
+  }
+
   try {
     const { matterId, commentId } = await params;
 

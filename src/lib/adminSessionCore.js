@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 export const ADMIN_SESSION_COOKIE = "vp_admin_session";
 const ADMIN_ROLE = "admin";
 const ADMIN_SESSION_MAX_AGE_SECONDS = 60 * 60 * 12;
-export const DEFAULT_ADMIN_PATH = "/admin/resources";
+export const DEFAULT_ADMIN_PATH = "/";
 
 function getSessionSecret() {
   const secret = process.env.SESSION_SECRET;
@@ -12,9 +12,18 @@ function getSessionSecret() {
 }
 
 function getAdminKey() {
-  const adminKey = process.env.PORTAL_ADMIN_KEY;
-  if (!adminKey?.trim()) throw new Error("PORTAL_ADMIN_KEY is required for admin authentication");
+  const adminKey = process.env.PORTAL_ADMIN_PASSWORD || process.env.PORTAL_ADMIN_KEY;
+  if (!adminKey?.trim()) throw new Error("PORTAL_ADMIN_PASSWORD is required for admin authentication");
   return adminKey;
+}
+
+export function getAdminUsername() {
+  return process.env.PORTAL_ADMIN_USERNAME?.trim() || "admin";
+}
+
+export function isAdminLoginConfigured() {
+  return Boolean(process.env.SESSION_SECRET?.trim() &&
+    (process.env.PORTAL_ADMIN_PASSWORD || process.env.PORTAL_ADMIN_KEY)?.trim());
 }
 
 function encodePayload(payload) {
@@ -62,7 +71,19 @@ export function sanitizeNextPath(input) {
   ) {
     return DEFAULT_ADMIN_PATH;
   }
+  const pathname = new URL(trimmed, "https://portal.invalid").pathname;
+  if (pathname === "/login" || pathname.startsWith("/api/")) return DEFAULT_ADMIN_PATH;
   return trimmed;
+}
+
+export function verifyAdminCredentials(username, password) {
+  const expectedPassword = getAdminKey();
+  const suppliedUsername = typeof username === "string" ? username.trim() : "";
+  const suppliedPassword = typeof password === "string" ? password : "";
+  const digest = (value) => crypto.createHash("sha256").update(value).digest();
+  const usernameMatches = crypto.timingSafeEqual(digest(suppliedUsername), digest(getAdminUsername()));
+  const passwordMatches = crypto.timingSafeEqual(digest(suppliedPassword), digest(expectedPassword));
+  return usernameMatches && passwordMatches;
 }
 
 export function verifyAdminKey(candidate) {
@@ -75,6 +96,7 @@ export function createAdminSessionToken() {
   const now = Math.floor(Date.now() / 1000);
   const payload = {
     role: ADMIN_ROLE,
+    sub: getAdminUsername(),
     iat: now,
     exp: now + ADMIN_SESSION_MAX_AGE_SECONDS,
   };
@@ -83,7 +105,7 @@ export function createAdminSessionToken() {
 }
 
 export function verifyAdminSessionToken(token) {
-  if (typeof token !== "string") return null;
+  if (typeof token !== "string" || token.length > 4096 || !process.env.SESSION_SECRET) return null;
   const parts = token.split(".");
   if (parts.length !== 2) return null;
   const [encodedPayload, signature] = parts;
@@ -94,9 +116,11 @@ export function verifyAdminSessionToken(token) {
   if (
     !payload ||
     payload.role !== ADMIN_ROLE ||
+    payload.sub !== getAdminUsername() ||
     !Number.isInteger(payload.iat) ||
     !Number.isInteger(payload.exp) ||
     payload.iat > payload.exp ||
+    payload.iat > Math.floor(Date.now() / 1000) + 60 ||
     payload.exp <= Math.floor(Date.now() / 1000)
   ) {
     return null;

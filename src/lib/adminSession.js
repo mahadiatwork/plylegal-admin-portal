@@ -7,6 +7,8 @@ import {
   getAdminSessionCookieOptions,
   sanitizeNextPath,
   verifyAdminKey,
+  verifyAdminCredentials,
+  isAdminLoginConfigured,
   verifyAdminSessionToken,
 } from "./adminSessionCore";
 
@@ -16,6 +18,8 @@ export {
   getAdminSessionCookieOptions,
   sanitizeNextPath,
   verifyAdminKey,
+  verifyAdminCredentials,
+  isAdminLoginConfigured,
   verifyAdminSessionToken,
 };
 

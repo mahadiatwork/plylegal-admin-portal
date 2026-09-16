@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server';
+import { getAdminSession } from '@/lib/adminSession';
 import { db, initResult } from '@/lib/firebase-admin';
 import { calculateTemporaryWorkProgress, countTrueCompletionKeys } from '@/lib/questionnaireProgress';
 import { getAllRoutes } from '@/lib/routes';
 import { resolveMatterApplication } from '@/lib/matterResolver';
 
 export async function GET(request, { params }) {
+  if (!(await getAdminSession())) {
+    return NextResponse.json({ success: false, error: 'Admin session is required' }, { status: 401 });
+  }
+
   try {
     // Await params since Next.js 15+ may have it async, or just destructure if earlier
     const { matterId } = await params;

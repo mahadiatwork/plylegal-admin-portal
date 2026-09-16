@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAdminSession } from "@/lib/adminSession";
+import { getAdminSession } from "@/lib/adminSession";
 import { db, initResult } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
@@ -53,9 +53,14 @@ function serializeComment(doc, application) {
 }
 
 export async function GET() {
-  try {
-    await requireAdminSession("/admin/document-review");
+  if (!(await getAdminSession())) {
+    return NextResponse.json(
+      { success: false, error: "Admin session is required" },
+      { status: 401 }
+    );
+  }
 
+  try {
     if (!db) {
       return NextResponse.json(
         {

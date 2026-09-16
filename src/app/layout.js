@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "ValidifyPro Admin Portal",
-  description: "Read-only access to matter questionnaire, documents, and messages.",
+  title: "Ply Legal Admin Portal",
+  description: "Manage questionnaires, client resources, and matters.",
   icons: {
     icon: "https://cdn.prod.website-files.com/68df275416b515842035785c/68f9a3861f1f134bb950ee93_Favicon.svg",
   },

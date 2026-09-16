@@ -1,0 +1,32 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { ClipboardList, LayoutDashboard, LibraryBig } from "lucide-react";
+import AdminLogoutButton from "./AdminLogoutButton";
+import AdminSessionMonitor from "./AdminSessionMonitor";
+
+const links = [
+  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admin/questionnaires", label: "Questionnaires", icon: ClipboardList },
+  { href: "/admin/resources", label: "Resource Centre", icon: LibraryBig },
+];
+
+export default function AdminNavigation() {
+  const pathname = usePathname();
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <AdminSessionMonitor />
+      <nav aria-label="Admin navigation" className="flex flex-wrap items-center gap-1">
+        {links.map(({ href, label, icon: Icon }) => {
+          const active = href === "/" ? pathname === href : pathname.startsWith(href);
+          return <Link key={href} href={href} aria-current={active ? "page" : undefined}
+            className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${active ? "bg-[#e8f3ee] text-[#284d41]" : "text-gray-600 hover:bg-gray-100"}`}>
+            <Icon className="h-4 w-4" /><span>{label}</span>
+          </Link>;
+        })}
+      </nav>
+      <AdminLogoutButton />
+    </div>
+  );
+}

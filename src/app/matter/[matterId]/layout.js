@@ -6,6 +6,7 @@ import { useParams, usePathname, useRouter } from "next/navigation";
 import { ArrowLeft, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatVisaApplicationType } from "@/lib/visaDisplay";
+import AdminNavigation from "@/components/admin/AdminNavigation";
 
 const HEADER_COLLAPSE_SCROLL_Y = 120;
 const HEADER_EXPAND_SCROLL_Y = 24;
@@ -139,7 +140,7 @@ export default function MatterLayout({ children }) {
   const canonicalMatterId = application.id || matterId;
   const dealId = application.zohoId || application.zohoDealId || application.dealId;
   const tabs = [
-    { href: `/matter/${canonicalMatterId}/questionnaire`, label: "Questionnaire" },
+    { href: `/matter/${canonicalMatterId}/questionnaire`, label: "Client answers" },
     { href: `/matter/${canonicalMatterId}/resources`, label: "Resources" },
     { href: `/matter/${canonicalMatterId}/document-review`, label: "Document Review" },
   ];
@@ -156,21 +157,22 @@ export default function MatterLayout({ children }) {
         style={{ overflowAnchor: "none" }}
       >
         {/* Top Navbar (Full Width) */}
-        <div className="border-b border-gray-100 px-4 sm:px-8 py-4 flex flex-row items-center justify-between">
+        <div className="border-b border-gray-100 px-4 sm:px-8 py-4 flex flex-wrap gap-4 items-center justify-between">
           <div className="flex items-center gap-8">
             <img src="/Ply_Logo_black.png" alt="ValidifyPro Logo" className="h-7 sm:h-9" />
             <Link href="/" className="hidden sm:inline-flex items-center text-sm text-gray-500 hover:text-gray-900 transition-colors">
               <ArrowLeft className="h-4 w-4 mr-1" />
-              Back to Search
+              Dashboard
             </Link>
           </div>
+          <AdminNavigation />
         </div>
 
         <div className="mx-auto max-w-[100rem] px-4 sm:px-6 lg:px-8">
           <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isScrolled ? 'max-h-0 opacity-0' : 'max-h-[300px] opacity-100 pt-6 pb-2'}`}>
             <Link href="/" className="inline-flex sm:hidden items-center text-sm text-gray-500 hover:text-gray-900 mb-4 transition-colors">
               <ArrowLeft className="h-4 w-4 mr-1" />
-              Back to Search
+              Dashboard
             </Link>
             
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -181,7 +183,7 @@ export default function MatterLayout({ children }) {
                     {formatVisaApplicationType(application)}
                   </span>
                   <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200">
-                    Read Only
+                    Admin access
                   </span>
                 </div>
                 <p className="text-sm text-gray-500 flex items-center gap-2">
