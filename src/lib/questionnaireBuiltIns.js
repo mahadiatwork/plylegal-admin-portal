@@ -40,8 +40,8 @@ function builtInDefinition(visaType, visaContext, title) {
 export const questionnaireBuiltInTemplates = [
   builtInDefinition('temporary-work', '482', 'Skills in Demand Visa (482)'),
   builtInDefinition('temporary-work', '186', 'Employer Nomination Visa (186)'),
-  builtInDefinition('partner', null, 'Partner Visa'),
-  builtInDefinition('protection', null, 'Protection Visa'),
+  builtInDefinition('partner', null, 'Partner Visa (Subclass 820)'),
+  builtInDefinition('protection', null, 'Protection Visa (Subclass 866)'),
 ];
 
 export function getBuiltInQuestionnaireDefinition({ visaType = 'temporary-work', visaContext } = {}) {

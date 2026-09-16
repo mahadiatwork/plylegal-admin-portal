@@ -1362,8 +1362,8 @@ export default function AdminQuestionnaireBuilder() {
                     }}
                   >
                     <option value="temporary-work">Temporary work (482 / 186)</option>
-                    <option value="partner">Partner</option>
-                    <option value="protection">Protection</option>
+                    <option value="partner">Partner Visa (Subclass 820)</option>
+                    <option value="protection">Protection Visa (Subclass 866)</option>
                   </select>
                 </div>
                 <div className="space-y-2 md:col-span-2 xl:col-span-3">
