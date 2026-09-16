@@ -10,11 +10,25 @@ import {
 const viewerUrl = "https://workdrive.zohopublic.com.au/external/matter-resource";
 
 test("matter resource order accepts finite values and distinguishes omitted values", () => {
+  assert.equal(normalizeMatterResourceOrder("1"), 1);
   assert.equal(normalizeMatterResourceOrder("12"), 12);
   assert.equal(normalizeMatterResourceOrder(2.5), 2.5);
   assert.equal(normalizeMatterResourceOrder(""), undefined);
+  assert.equal(normalizeMatterResourceOrder("   "), undefined);
   assert.equal(normalizeMatterResourceOrder(null, null), null);
   assert.equal(normalizeMatterResourceOrder("first"), null);
+  for (const value of [true, false, [], [1], {}, Infinity, NaN]) {
+    assert.equal(normalizeMatterResourceOrder(value), null);
+  }
+});
+
+test("order one puts a resource ahead of existing ordered and unranked resources", () => {
+  const resources = sortMatterResources([
+    { id: "legacy", createdAt: "2026-09-16" },
+    { id: "existing", order: 10, createdAt: "2026-09-16" },
+    { id: "selected", order: "1", createdAt: "2026-01-01" },
+  ]);
+  assert.deepEqual(resources.map(({ id }) => id), ["selected", "existing", "legacy"]);
 });
 
 test("matter resources sort by explicit order then newest creation fallback", () => {
@@ -92,6 +106,41 @@ test("matter resources reorder atomically within one complete folder", async () 
     ["applications/app/resources/one", 20],
   ]);
   assert.ok(mock.writes.every(({ data }) => data.updatedBy === "admin" && data.updatedAt instanceof Date));
+});
+
+test("matter reorder requires an explicit folder before accessing the database", async () => {
+  for (const category of [undefined, null, "", "   ", 1]) {
+    await assert.rejects(reorderMatterResources({
+      db: null,
+      appId: "app",
+      category,
+      itemIds: ["one", "two"],
+      actor: "admin",
+    }), { status: 400 });
+  }
+});
+
+test("Uncategorized reorder includes legacy categories and excludes archived resources", async () => {
+  const mock = mockMatterDatabase([
+    { id: "legacy", status: "active" },
+    { id: "blank", category: "  ", status: "active" },
+    { id: "named", category: "uncategorized", status: "active" },
+    { id: "archived", category: "Uncategorized", status: "archived" },
+    { id: "review", source: "documentReview", status: "active" },
+  ]);
+  const result = await reorderMatterResources({
+    db: mock.db,
+    appId: "app",
+    category: "Uncategorized",
+    itemIds: ["named", "legacy", "blank"],
+    actor: "admin",
+  });
+  assert.deepEqual(result.items, [
+    { id: "named", order: 10 },
+    { id: "legacy", order: 20 },
+    { id: "blank", order: 30 },
+  ]);
+  assert.equal(mock.writes.length, 3);
 });
 
 test("matter resource reorder rejects stale, partial, or duplicate lists without writes", async () => {

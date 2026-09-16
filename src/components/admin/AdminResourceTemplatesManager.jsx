@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
-  BookOpen,
   CheckCircle2,
   FileText,
   Folder,
@@ -14,9 +13,7 @@ import {
   PencilLine,
   Plus,
   Search,
-  ShieldCheck,
   StickyNote,
-  Scale,
   Trash2,
   UploadCloud,
 } from "lucide-react";
@@ -24,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import ResourceFoldersSidebar, { categoryIconOptions } from "@/components/admin/ResourceFoldersSidebar";
 
 const ALL_VISAS = "all";
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
@@ -34,17 +32,6 @@ const DEFAULT_CATEGORIES = [
   { name: "Helpful Links", icon: "link" },
 ];
 const DEFAULT_CATEGORY_NAMES = DEFAULT_CATEGORIES.map((category) => category.name);
-
-const categoryIconOptions = [
-  { value: "folder", label: "Folder" },
-  { value: "guide", label: "Guide" },
-  { value: "policy", label: "Policy" },
-  { value: "link", label: "Link" },
-  { value: "file", label: "File" },
-  { value: "note", label: "Note" },
-  { value: "shield", label: "Shield" },
-  { value: "scale", label: "Legal" },
-];
 
 const resourceTypeOptions = [
   { value: "file", label: "File" },
@@ -107,22 +94,15 @@ function categoryKey(value) {
   return cleanText(value).toLowerCase();
 }
 
+function resourceItemKey(item) {
+  return `${item.visaSlug}:${item.id}`;
+}
+
 function KindIcon({ kind, className }) {
   if (kind === "link") return <Link2 className={className} />;
   if (kind === "note") return <StickyNote className={className} />;
   if (kind === "folder") return <Folder className={className} />;
   return <FileText className={className} />;
-}
-
-function CategoryIcon({ icon, className }) {
-  if (icon === "guide") return <BookOpen className={className} />;
-  if (icon === "policy") return <ShieldCheck className={className} />;
-  if (icon === "link") return <Link2 className={className} />;
-  if (icon === "file") return <FileText className={className} />;
-  if (icon === "note") return <StickyNote className={className} />;
-  if (icon === "shield") return <ShieldCheck className={className} />;
-  if (icon === "scale") return <Scale className={className} />;
-  return <Folder className={className} />;
 }
 
 function normalizeCategoryMetadata(value) {
@@ -210,6 +190,8 @@ export default function AdminResourceTemplatesManager() {
   const [draggedItemId, setDraggedItemId] = useState(null);
   const [dragOverItemId, setDragOverItemId] = useState(null);
   const [isReordering, setIsReordering] = useState(false);
+  const reorderPending = useRef(false);
+  const reorderFocusTarget = useRef(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCategorySaving, setIsCategorySaving] = useState(false);
@@ -219,6 +201,15 @@ export default function AdminResourceTemplatesManager() {
   const [message, setMessage] = useState(null);
   const [successLinks, setSuccessLinks] = useState([]);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (isReordering || !reorderFocusTarget.current) return;
+    const handle = reorderFocusTarget.current;
+    reorderFocusTarget.current = null;
+    // Disabling a focused handle during a save can move focus to the body.
+    // Restore it after the save so consecutive keyboard moves keep working.
+    if (handle.isConnected && document.activeElement === document.body) handle.focus();
+  }, [isReordering]);
 
   const templateBySlug = useMemo(
     () =>
@@ -324,13 +315,19 @@ export default function AdminResourceTemplatesManager() {
     }
 
     if (sortMode === "order") {
-      return sortByOrderThenName(items);
+      const orderedItems = sortByOrderThenName(items);
+      if (activeVisa !== ALL_VISAS) return orderedItems;
+      // Each visa has its own saved order. Keep its resources together when
+      // displaying multiple visas so a drag has the same result in both views.
+      return orderedItems.sort((a, b) =>
+        a.templateTitle.localeCompare(b.templateTitle) || a.visaSlug.localeCompare(b.visaSlug)
+      );
     }
 
     return [...items].sort(
       (a, b) => String(a.name || "").localeCompare(String(b.name || ""))
     );
-  }, [activeCategoryItems, searchQuery, sortMode]);
+  }, [activeCategoryItems, activeVisa, searchQuery, sortMode]);
 
   const nextOrder = useMemo(() => {
     const targetVisa = activeVisa === ALL_VISAS ? form.visaSlug : activeVisa;
@@ -358,6 +355,8 @@ export default function AdminResourceTemplatesManager() {
   );
 
   const handleVisaScopeChange = (visaSlug) => {
+    setDraggedItemId(null);
+    setDragOverItemId(null);
     setActiveVisa(visaSlug);
     setActiveCategory("Uncategorized");
     setSearchQuery("");
@@ -883,9 +882,13 @@ export default function AdminResourceTemplatesManager() {
     }
   };
 
-  const categoryMutationActive = Boolean(deletingCategory || renamingCategory);
+  const categoryMutationActive = isCategorySaving || Boolean(deletingCategory || renamingCategory);
+  const visaResourceCounts = tableItems.reduce((counts, item) => {
+    counts[item.visaSlug] = (counts[item.visaSlug] || 0) + 1;
+    return counts;
+  }, {});
+  const hasMultipleVisas = Object.keys(visaResourceCounts).length > 1;
   const canReorder =
-    activeVisa !== ALL_VISAS &&
     sortMode === "order" &&
     !searchQuery.trim() &&
     tableItems.length > 1 &&
@@ -897,28 +900,40 @@ export default function AdminResourceTemplatesManager() {
     !categoryMutationActive &&
     !tableItems.some((item) => item.deletionPending === true);
 
-  const handleReorderDrop = async (event, targetItemId) => {
-    event.preventDefault();
-    const sourceItemId = draggedItemId || event.dataTransfer.getData("text/plain");
-    setDraggedItemId(null);
-    setDragOverItemId(null);
+  const saveResourceOrder = async (sourceItem, targetItem) => {
+    if (!canReorder || reorderPending.current || (
+      sourceItem.id === targetItem.id && sourceItem.visaSlug === targetItem.visaSlug
+    )) return;
+    if (sourceItem.visaSlug !== targetItem.visaSlug) {
+      setError("Drag resources within the same visa type.");
+      return;
+    }
 
-    if (!canReorder || !sourceItemId || sourceItemId === targetItemId) return;
-
-    const sourceIndex = tableItems.findIndex((item) => item.id === sourceItemId);
-    const targetIndex = tableItems.findIndex((item) => item.id === targetItemId);
+    const visaSlug = sourceItem.visaSlug;
+    const folderItems = tableItems.filter((item) => item.visaSlug === visaSlug);
+    const sourceIndex = folderItems.findIndex((item) => item.id === sourceItem.id);
+    const targetIndex = folderItems.findIndex((item) => item.id === targetItem.id);
     if (sourceIndex < 0 || targetIndex < 0) return;
 
-    const reorderedItems = [...tableItems];
+    const reorderedItems = [...folderItems];
     const [movedItem] = reorderedItems.splice(sourceIndex, 1);
     reorderedItems.splice(targetIndex, 0, movedItem);
+    const previousItems = itemsBySlug[visaSlug];
+    const optimisticOrder = new Map(reorderedItems.map((item, index) => [item.id, (index + 1) * 10]));
 
     try {
+      reorderPending.current = true;
       setIsReordering(true);
       setError(null);
       setMessage(null);
       setSuccessLinks([]);
-      const response = await fetch(`/api/resource-templates/${activeVisa}/items/order`, {
+      setItemsBySlug((current) => ({
+        ...current,
+        [visaSlug]: (current[visaSlug] || []).map((item) =>
+          optimisticOrder.has(item.id) ? { ...item, order: optimisticOrder.get(item.id) } : item
+        ),
+      }));
+      const response = await fetch(`/api/resource-templates/${visaSlug}/items/order`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -934,7 +949,7 @@ export default function AdminResourceTemplatesManager() {
       const orderById = new Map(data.items.map((item) => [item.id, item.order]));
       setItemsBySlug((current) => ({
         ...current,
-        [activeVisa]: (current[activeVisa] || []).map((item) =>
+        [visaSlug]: (current[visaSlug] || []).map((item) =>
           orderById.has(item.id)
             ? {
                 ...item,
@@ -946,15 +961,38 @@ export default function AdminResourceTemplatesManager() {
         ),
       }));
       setTemplates((current) => current.map((template) =>
-        template.visaSlug === activeVisa
+        template.visaSlug === visaSlug
           ? { ...template, updatedAt: data.updatedAt, updatedBy: data.updatedBy }
           : template
       ));
       setMessage("Resource order saved.");
     } catch (reorderError) {
+      setItemsBySlug((current) => ({ ...current, [visaSlug]: previousItems }));
       setError(reorderError.message);
     } finally {
+      reorderPending.current = false;
       setIsReordering(false);
+    }
+  };
+
+  const handleReorderDrop = async (event, targetItem) => {
+    event.preventDefault();
+    const sourceKey = draggedItemId || event.dataTransfer.getData("text/plain");
+    setDraggedItemId(null);
+    setDragOverItemId(null);
+    const sourceItem = tableItems.find((item) => resourceItemKey(item) === sourceKey);
+    if (sourceItem) await saveResourceOrder(sourceItem, targetItem);
+  };
+
+  const handleReorderKeyDown = async (event, item) => {
+    if (!canReorder || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+    event.preventDefault();
+    const folderItems = tableItems.filter((resource) => resource.visaSlug === item.visaSlug);
+    const index = folderItems.findIndex((resource) => resource.id === item.id);
+    const targetItem = folderItems[index + (event.key === "ArrowUp" ? -1 : 1)];
+    if (targetItem) {
+      reorderFocusTarget.current = event.currentTarget;
+      await saveResourceOrder(item, targetItem);
     }
   };
 
@@ -962,14 +1000,16 @@ export default function AdminResourceTemplatesManager() {
     activeVisa === ALL_VISAS ? "All Resources" : templateBySlug[activeVisa]?.title || "Resources";
 
   const reorderGuidance =
-    activeVisa === ALL_VISAS
-      ? "Choose one visa scope to set a custom order."
+    isReordering
+      ? "Saving resource order..."
       : searchQuery.trim()
         ? "Clear the search to reorder every resource in this folder."
         : sortMode !== "order"
           ? "Choose Custom order to drag resources."
           : tableItems.length > 1
-            ? "Drag the handle beside a resource to change its order."
+            ? hasMultipleVisas
+              ? "Drag resources within the same visa type, or focus a handle and use the Up and Down arrow keys. Changes save automatically."
+              : "Drag the handles to reorder resources, or focus a handle and use the Up and Down arrow keys. Changes save automatically."
             : null;
 
   return (
@@ -993,6 +1033,7 @@ export default function AdminResourceTemplatesManager() {
             </label>
             <FormSelect
               id="resource-visa-scope"
+              aria-label="Visa type"
               value={activeVisa}
               onChange={handleVisaScopeChange}
               disabled={isLoading || categoryMutationActive || isReordering}
@@ -1044,155 +1085,43 @@ export default function AdminResourceTemplatesManager() {
       )}
 
       <section className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="rounded-lg border border-[#dbe7e1] bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-base font-semibold text-[#17372e]">Folders</h2>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-9 bg-white text-[#4F726B]"
-              disabled={isLoading || categoryMutationActive}
-              onClick={() => setShowNewCategory((current) => !current)}
-            >
-              <Plus className="h-4 w-4" />
-              New
-            </Button>
-          </div>
-
-          <div className="relative mt-4">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8aa099]" />
-            <Input
-              value={categorySearchQuery}
-              onChange={(event) => setCategorySearchQuery(event.target.value)}
-              placeholder="Search folders"
-              className="h-10 border-[#d7e4de] bg-white pl-9"
-            />
-          </div>
-
-          <div className="mt-4 space-y-2">
-            {visibleCategories.map((category) => {
-              const active = categoryKey(activeCategory) === categoryKey(category.name);
-              const count = categoryCounts[categoryKey(category.name)] || 0;
-              return (
-                <div
-                  key={category.name}
-                  className={`flex w-full items-center rounded-md text-sm font-medium transition-colors ${
-                    active
-                      ? "bg-[#e8f4ee] text-[#4F726B]"
-                      : "bg-white text-[#38564b] hover:bg-[#f7faf8]"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    disabled={categoryMutationActive || isReordering}
-                    onClick={() => {
-                      setActiveCategory(category.name);
-                      setForm((current) => ({ ...current, category: category.name }));
-                      setEditingItem(null);
-                      setShowResourceForm(false);
-                    }}
-                    className="flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-3 text-left"
-                  >
-                    <span className="flex min-w-0 items-center gap-2">
-                      <CategoryIcon icon={category.icon} className="h-4 w-4 shrink-0" />
-                      <span className="truncate">{category.name}</span>
-                    </span>
-                    <span>{count}</span>
-                  </button>
-                  {category.name.toLowerCase() !== "uncategorized" ? (
-                    <span className="mr-1 flex shrink-0 items-center">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        title={`Rename ${category.name}`}
-                        aria-label={`Rename ${category.name}`}
-                        disabled={isLoading || isCategorySaving || categoryMutationActive || isSubmitting || Boolean(activeMutationId) || isReordering}
-                        onClick={() => handleRenameCategory(category)}
-                        className="h-8 w-8 text-[#60786f] hover:bg-[#edf5f1] hover:text-[#17372e]"
-                      >
-                        {renamingCategory === category.name ? <Loader2 className="h-4 w-4 animate-spin" /> : <PencilLine className="h-4 w-4" />}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        title={`Delete ${category.name}`}
-                        aria-label={`Delete ${category.name}`}
-                        disabled={isLoading || isCategorySaving || categoryMutationActive || isSubmitting || Boolean(activeMutationId) || isReordering}
-                        onClick={() => handleDeleteCategory(category)}
-                        className="h-8 w-8 text-red-600 hover:bg-red-50 hover:text-red-700"
-                      >
-                        {deletingCategory === category.name ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                      </Button>
-                    </span>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="mt-4">
-            {showNewCategory ? (
-              <div className="space-y-2 rounded-md border border-[#dbe7e1] p-3">
-                <Input
-                  value={newCategoryName}
-                  onChange={(event) => setNewCategoryName(event.target.value)}
-                  placeholder="Folder name"
-                  className="h-9"
-                />
-                <div className="space-y-2">
-                  <p className="text-xs font-medium text-[#60786f]">Icon</p>
-                  <div className="grid grid-cols-4 gap-2">
-                    {categoryIconOptions.map((option) => {
-                      const selected = newCategoryIcon === option.value;
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          title={option.label}
-                          onClick={() => setNewCategoryIcon(option.value)}
-                          className={`flex h-9 items-center justify-center rounded-md border transition-colors ${
-                            selected
-                              ? "border-[#4F726B] bg-[#e8f4ee] text-[#4F726B]"
-                              : "border-[#dbe7e1] bg-white text-[#60786f] hover:border-[#8ac6ad]"
-                          }`}
-                        >
-                          <CategoryIcon icon={option.value} className="h-4 w-4" />
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    type="button"
-                    className="h-9 bg-[#4F726B] text-white hover:bg-[#4F726B]"
-                    disabled={isCategorySaving || categoryMutationActive}
-                    onClick={handleNewCategory}
-                  >
-                    {isCategorySaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                    Add
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-9 bg-white"
-                    disabled={isCategorySaving || categoryMutationActive}
-                    onClick={() => {
-                      setShowNewCategory(false);
-                      setNewCategoryName("");
-                      setNewCategoryIcon("folder");
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </aside>
+        <ResourceFoldersSidebar
+          categories={visibleCategories}
+          categoryCounts={categoryCounts}
+          activeCategory={activeCategory}
+          categorySearchQuery={categorySearchQuery}
+          onCategorySearchChange={setCategorySearchQuery}
+          onSelectCategory={(category) => {
+            setDraggedItemId(null);
+            setDragOverItemId(null);
+            setActiveCategory(category.name);
+            setForm((current) => ({ ...current, category: category.name }));
+            setEditingItem(null);
+            setShowResourceForm(false);
+          }}
+          showNewCategory={showNewCategory}
+          newCategoryName={newCategoryName}
+          newCategoryIcon={newCategoryIcon}
+          onNewCategoryNameChange={setNewCategoryName}
+          onNewCategoryIconChange={setNewCategoryIcon}
+          onToggleNewCategory={() => setShowNewCategory((current) => !current)}
+          onCancelNewCategory={() => {
+            setShowNewCategory(false);
+            setNewCategoryName("");
+            setNewCategoryIcon("folder");
+          }}
+          onNewCategory={handleNewCategory}
+          isLoading={isLoading}
+          isCategorySaving={isCategorySaving}
+          categoryMutationActive={categoryMutationActive}
+          isSubmitting={isSubmitting}
+          activeMutationId={activeMutationId}
+          isReordering={isReordering}
+          renamingCategory={renamingCategory}
+          deletingCategory={deletingCategory}
+          onRenameCategory={handleRenameCategory}
+          onDeleteCategory={handleDeleteCategory}
+        />
 
         <div className="min-w-0 space-y-5">
           {showResourceForm ? (
@@ -1363,20 +1292,22 @@ export default function AdminResourceTemplatesManager() {
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8aa099]" />
                   <Input
+                    aria-label="Search resources"
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.target.value)}
                     placeholder="Search resources"
+                    disabled={isReordering}
                     className="h-10 border-[#d7e4de] bg-white pl-9"
                   />
                 </div>
-                <FormSelect value={sortMode} onChange={setSortMode}>
+                <FormSelect aria-label="Resource sort order" value={sortMode} onChange={setSortMode} disabled={isReordering}>
                   <option value="order">Custom order</option>
                   <option value="newest">Newest first</option>
                   <option value="oldest">Oldest first</option>
                   <option value="name">Name</option>
                 </FormSelect>
             </div>
-            {reorderGuidance ? <p className="mt-2 text-xs text-[#71857d]">{reorderGuidance}</p> : null}
+            {reorderGuidance ? <p id="template-resource-reorder-guidance" role="status" className="mt-2 text-xs text-[#71857d]">{reorderGuidance}</p> : null}
           </div>
 
           {isLoading ? (
@@ -1395,45 +1326,58 @@ export default function AdminResourceTemplatesManager() {
               <div className="divide-y divide-[#edf1ef]">
                 {tableItems.map((item) => {
                   const isBusy = activeMutationId === item.id;
+                  const itemKey = resourceItemKey(item);
+                  const canReorderItem = canReorder && visaResourceCounts[item.visaSlug] > 1;
                   return (
                     <div
-                      key={`${item.visaSlug}:${item.id}`}
+                      key={itemKey}
                       onDragOver={(event) => {
-                        if (!canReorder || draggedItemId === item.id) return;
+                        const sourceItem = tableItems.find((resource) => resourceItemKey(resource) === draggedItemId);
+                        if (!canReorderItem || !sourceItem || sourceItem.visaSlug !== item.visaSlug || draggedItemId === itemKey) return;
                         event.preventDefault();
                         event.dataTransfer.dropEffect = "move";
-                        setDragOverItemId(item.id);
+                        setDragOverItemId(itemKey);
                       }}
-                      onDragLeave={() => setDragOverItemId((current) => current === item.id ? null : current)}
-                      onDrop={(event) => handleReorderDrop(event, item.id)}
+                      onDragLeave={() => setDragOverItemId((current) => current === itemKey ? null : current)}
+                      onDrop={(event) => handleReorderDrop(event, item)}
                       className={`grid gap-3 px-5 py-4 transition-colors md:grid-cols-[minmax(0,1fr)_120px_90px_56px_96px] md:items-center md:gap-4 ${
-                        dragOverItemId === item.id ? "bg-[#edf7f2]" : "bg-white"
-                      }`}
+                        dragOverItemId === itemKey ? "bg-[#edf7f2]" : "bg-white"
+                      } ${draggedItemId === itemKey ? "opacity-50" : ""}`}
                     >
                       <div className="flex min-w-0 items-center gap-3">
-                        <span
-                          draggable={canReorder}
-                          title={canReorder ? "Drag to reorder" : undefined}
+                        <button
+                          type="button"
+                          draggable={canReorderItem}
+                          disabled={!canReorderItem}
+                          aria-label={`Reorder ${item.name || item.fileName || "resource"}`}
+                          aria-describedby="template-resource-reorder-guidance"
+                          title="Drag to reorder, or use the Up and Down arrow keys"
+                          onKeyDown={(event) => handleReorderKeyDown(event, item)}
                           onDragStart={(event) => {
-                            if (!canReorder) return;
+                            if (!canReorderItem) return;
                             event.dataTransfer.effectAllowed = "move";
-                            event.dataTransfer.setData("text/plain", item.id);
-                            setDraggedItemId(item.id);
+                            event.dataTransfer.setData("text/plain", itemKey);
+                            setDraggedItemId(itemKey);
                           }}
                           onDragEnd={() => {
                             setDraggedItemId(null);
                             setDragOverItemId(null);
                           }}
-                          className={canReorder ? "cursor-grab text-[#8aa099] active:cursor-grabbing" : "text-[#c7d3ce]"}
+                          className="flex h-8 w-7 shrink-0 cursor-grab items-center justify-center rounded text-[#8aa099] hover:bg-[#edf7f2] focus-visible:outline-2 focus-visible:outline-[#4F726B] active:cursor-grabbing disabled:cursor-not-allowed disabled:text-[#c7d3ce]"
                         >
                           <GripVertical className="h-4 w-4" />
-                        </span>
+                        </button>
                         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#dbe7e1] bg-[#f7faf8] text-[#4F726B]">
                           <KindIcon kind={item.kind} className="h-4 w-4" />
                         </div>
-                        <p className="min-w-0 truncate font-semibold text-[#17372e]">
-                          {item.name || item.fileName || "Untitled resource"}
-                        </p>
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-[#17372e]">
+                            {item.name || item.fileName || "Untitled resource"}
+                          </p>
+                          {activeVisa === ALL_VISAS && hasMultipleVisas ? (
+                            <p className="mt-1 truncate text-xs text-[#71857d]">{item.templateTitle}</p>
+                          ) : null}
+                        </div>
                         {item.deletionPending ? (
                           <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
                             Deletion pending

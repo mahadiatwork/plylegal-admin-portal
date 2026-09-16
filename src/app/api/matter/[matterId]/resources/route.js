@@ -4,6 +4,7 @@ import { db, initResult } from "@/lib/firebase-admin";
 import { resolveMatterApplication } from "@/lib/matterResolver";
 import { isPdfUpload } from "@/lib/pdfUploadRules.mjs";
 import { getResourceMimeType } from "@/lib/resourceFiles.mjs";
+import { normalizeMatterResourceCategories } from "@/lib/matterResourceCategories.mjs";
 import {
   createViewOnlyMatterResourceLink,
   normalizeMatterResourceOrder,
@@ -20,8 +21,13 @@ const DOCUMENT_SOURCE = "documentReview";
 const FINAL_FILE_FIELD = "Final_File_For_Visa_Submission";
 const DEFAULT_DOCUMENT_REVIEW_FOLDER_URL =
   "https://workdrive.zoho.com.au/darpt4bf78c59b8684d9bb6b479804432d247/teams/darpt4bf78c59b8684d9bb6b479804432d247/ws/hf3e609480d012c3c4244bc51956d41cb7925/folders/h8zdkeb46cf4752f14337b5b7508081031550";
-const WORKDRIVE_FOLDER_FIELD = "Workdrive_Folder_ID";
-const WORKDRIVE_FOLDER_FIELD_LEGACY = "WorkDrive_Folder_ID";
+const WORKDRIVE_FOLDER_FIELDS = [
+  "Workdrive_Folder_ID",
+  "WorkDrive_Folder_ID",
+  "Matter_Folder_ID",
+  "Matter_Workdrive_Folder_URL",
+  "Matter_Folder_URL",
+];
 
 function errorResponse(error, status = 500, details = null) {
   return NextResponse.json({ success: false, error, details }, { status });
@@ -100,8 +106,22 @@ function normalizeFolderId(rawValue) {
   value = cleanText(value);
   if (!value) return null;
 
-  const folderUrlMatch = value.match(/\/folders\/([^/?#]+)/);
-  return folderUrlMatch?.[1] || value;
+  if (/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(value)) return value;
+
+  try {
+    const url = new URL(value);
+    if (!["http:", "https:"].includes(url.protocol)) return null;
+
+    const folderUrlMatch = url.pathname.match(/\/folders?\/([A-Za-z0-9][A-Za-z0-9_-]*)\/?$/);
+    if (folderUrlMatch && folderUrlMatch[1] !== "files") return folderUrlMatch[1];
+
+    const workspaceUrlMatch = url.pathname.match(
+      /\/ws\/([A-Za-z0-9][A-Za-z0-9_-]*)\/folders(?:\/files)?\/?$/
+    );
+    return workspaceUrlMatch?.[1] || null;
+  } catch {
+    return null;
+  }
 }
 
 function getDocumentReviewRootFolderId() {
@@ -178,7 +198,7 @@ async function getWorkDriveFolder(application, matterId) {
   const dealRecord = await zohoClient.getRecord(
     "Deals",
     dealId,
-    `id,${WORKDRIVE_FOLDER_FIELD},${WORKDRIVE_FOLDER_FIELD_LEGACY}`
+    ["id", ...WORKDRIVE_FOLDER_FIELDS].join(",")
   );
 
   if (!dealRecord) {
@@ -188,13 +208,13 @@ async function getWorkDriveFolder(application, matterId) {
     };
   }
 
-  const folderId = normalizeFolderId(
-    dealRecord[WORKDRIVE_FOLDER_FIELD] ?? dealRecord[WORKDRIVE_FOLDER_FIELD_LEGACY]
-  );
+  const folderId = WORKDRIVE_FOLDER_FIELDS
+    .map((field) => normalizeFolderId(dealRecord[field]))
+    .find(Boolean);
 
   if (!folderId) {
     return {
-      error: `${WORKDRIVE_FOLDER_FIELD} is missing on the Zoho Deal`,
+      error: "No usable WorkDrive folder ID or folder URL is configured on the Zoho Deal",
       status: 400,
     };
   }
@@ -260,7 +280,11 @@ export async function GET(request, { params }) {
         )
     );
 
-    return NextResponse.json({ success: true, resources });
+    const categories = normalizeMatterResourceCategories(
+      resolved.application?.resourceCategories,
+      resources
+    );
+    return NextResponse.json({ success: true, resources, categories });
   } catch (error) {
     console.error("Error fetching resources:", error);
     return errorResponse("Failed to fetch resources", 500, error.message);

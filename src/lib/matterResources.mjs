@@ -12,9 +12,14 @@ function matterResourceError(message, status) {
 }
 
 export function normalizeMatterResourceOrder(rawValue, fallback = undefined) {
-  if (rawValue === null || rawValue === undefined || rawValue === "") {
+  if (
+    rawValue === null || rawValue === undefined ||
+    (typeof rawValue === "string" && !rawValue.trim())
+  ) {
     return fallback;
   }
+
+  if (typeof rawValue !== "number" && typeof rawValue !== "string") return null;
 
   const parsed = Number(rawValue);
   return Number.isFinite(parsed) ? parsed : null;
@@ -63,6 +68,9 @@ export async function reorderMatterResources({
   itemIds,
   actor,
 }) {
+  if (typeof category !== "string" || !category.trim()) {
+    throw matterResourceError("Resource category is required", 400);
+  }
   const normalizedCategory = matterCategory(category);
   if (!Array.isArray(itemIds) || itemIds.length < 2) {
     throw matterResourceError("At least two resources are required to reorder", 400);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   AlertCircle,
@@ -15,14 +15,18 @@ import {
   Library,
   Link2,
   Loader2,
+  PackageOpen,
+  Plus,
   Search,
   StickyNote,
   UploadCloud,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import AdminResourceTemplatesManager from "@/components/admin/AdminResourceTemplatesManager";
+import ResourceFoldersSidebar from "@/components/admin/ResourceFoldersSidebar";
 import { getWorkDrivePreviewUrl } from "@/lib/workDrivePreviewUrl.mjs";
 
 const RESOURCE_TABS = [
@@ -73,23 +77,34 @@ function formatDate(value) {
 }
 
 function categoryKey(value) {
-  return String(value || DEFAULT_MATTER_CATEGORY).trim().toLowerCase();
+  return (String(value || "").trim() || DEFAULT_MATTER_CATEGORY).toLowerCase();
 }
 
 function sortMatterResourcesForDisplay(resources) {
   return [...resources].sort((left, right) => {
-    const leftHasOrder = left.order !== null && left.order !== undefined && left.order !== "" && Number.isFinite(Number(left.order));
-    const rightHasOrder = right.order !== null && right.order !== undefined && right.order !== "" && Number.isFinite(Number(right.order));
+    const leftHasOrder =
+      left.order !== null &&
+      left.order !== undefined &&
+      left.order !== "" &&
+      Number.isFinite(Number(left.order));
+    const rightHasOrder =
+      right.order !== null &&
+      right.order !== undefined &&
+      right.order !== "" &&
+      Number.isFinite(Number(right.order));
     const leftOrder = leftHasOrder ? Number(left.order) : null;
     const rightOrder = rightHasOrder ? Number(right.order) : null;
 
-    if (leftHasOrder && rightHasOrder && leftOrder !== rightOrder) return leftOrder - rightOrder;
+    if (leftHasOrder && rightHasOrder && leftOrder !== rightOrder)
+      return leftOrder - rightOrder;
     if (leftHasOrder !== rightHasOrder) return leftHasOrder ? -1 : 1;
 
-    const createdDiff = new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime();
+    const createdDiff =
+      new Date(right.createdAt || 0).getTime() -
+      new Date(left.createdAt || 0).getTime();
     if (createdDiff) return createdDiff;
     return String(left.title || left.fileName || "").localeCompare(
-      String(right.title || right.fileName || "")
+      String(right.title || right.fileName || ""),
     );
   });
 }
@@ -143,6 +158,7 @@ function ResourceRow({
   onDragOver,
   onDrop,
   onDragEnd,
+  onReorderKeyDown,
 }) {
   const url = resource.publicUrl || resource.url;
   const previewUrl =
@@ -159,7 +175,7 @@ function ResourceRow({
 
   return (
     <div
-      className={`flex flex-col gap-4 border-b border-gray-100 px-5 py-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between ${
+      className={`grid gap-3 border-b border-[#edf1ef] px-5 py-4 last:border-b-0 md:grid-cols-[minmax(0,1fr)_120px_90px_100px_100px] md:items-center md:gap-4 ${
         isDragOver ? "bg-emerald-50/70" : ""
       } ${isDragged ? "opacity-50" : ""}`}
       onDragOver={canReorder ? onDragOver : undefined}
@@ -173,9 +189,15 @@ function ResourceRow({
             disabled={!canReorder}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
-            className="mt-1 flex h-8 w-7 shrink-0 cursor-grab items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-[#4F726B] disabled:cursor-not-allowed disabled:opacity-30"
+            onKeyDown={onReorderKeyDown}
+            className="mt-1 flex h-8 w-7 shrink-0 cursor-grab items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-[#4F726B] focus-visible:outline-2 focus-visible:outline-[#4F726B] disabled:cursor-not-allowed disabled:opacity-30"
             aria-label={`Reorder ${resource.title || resource.fileName || "resource"}`}
-            title={canReorder ? "Drag to reorder within this folder" : "Reordering is unavailable"}
+            aria-describedby="matter-resource-reorder-guidance"
+            title={
+              canReorder
+                ? "Drag to reorder within this folder, or use the Up and Down arrow keys"
+                : "Reordering is unavailable"
+            }
           >
             <GripVertical className="h-4 w-4" />
           </button>
@@ -186,20 +208,9 @@ function ResourceRow({
             <h3 className="truncate text-sm font-semibold text-gray-900">
               {resource.title || resource.fileName || "Untitled resource"}
             </h3>
-            <span className="rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-gray-500">
-              {resource.type}
-            </span>
             {needsCleanup ? (
               <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
                 WorkDrive cleanup pending
-              </span>
-            ) : null}
-            <span className="rounded-md border border-[#d9e7e0] bg-[#f5faf7] px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-[#4d6f62]">
-              {tabId === "shared" ? "All matters" : "This matter"}
-            </span>
-            {resource.category ? (
-              <span className="rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-500">
-                {resource.category}
               </span>
             ) : null}
           </div>
@@ -210,13 +221,32 @@ function ResourceRow({
           )}
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-400">
             {resource.fileName && <span>{resource.fileName}</span>}
-            {resource.fileSize ? <span>{formatFileSize(resource.fileSize)}</span> : null}
-            {resource.createdAt && <span>{formatDate(resource.createdAt)}</span>}
+            {resource.fileSize ? (
+              <span>{formatFileSize(resource.fileSize)}</span>
+            ) : null}
           </div>
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="text-sm text-[#60786f]">
+        <span className="font-medium text-[#71857d] md:hidden">Updated: </span>
+        {formatDate(resource.updatedAt || resource.createdAt)}
+      </div>
+      <div>
+        <Badge
+          variant="outline"
+          className={
+            resource.type === "link"
+              ? "border-blue-100 bg-blue-50 text-blue-700"
+              : resource.type === "note"
+                ? "border-amber-100 bg-amber-50 text-amber-700"
+                : "border-slate-200 bg-slate-50 text-slate-600"
+          }
+        >
+          {resource.type}
+        </Badge>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 md:justify-end">
         {previewUrl ? (
           <Button asChild variant="outline" size="sm" className="h-8 px-3">
             <a href={previewUrl} target="_blank" rel="noreferrer">
@@ -226,7 +256,8 @@ function ResourceRow({
           </Button>
         ) : null}
         {resource.type === "file" &&
-        (resource.downloadAllowed === true || resource.source === DOCUMENT_REVIEW_SOURCE) &&
+        (resource.downloadAllowed === true ||
+          resource.source === DOCUMENT_REVIEW_SOURCE) &&
         downloadUrl ? (
           <Button asChild variant="outline" size="sm" className="h-8 px-3">
             <a href={downloadUrl} target="_blank" rel="noreferrer">
@@ -242,6 +273,8 @@ function ResourceRow({
             </a>
           </Button>
         ) : null}
+      </div>
+      <div className="flex items-center md:justify-end">
         <Button
           type="button"
           variant="ghost"
@@ -266,12 +299,28 @@ export default function ResourcesPage() {
   const params = useParams();
   const matterId = params.matterId;
 
+  return <MatterResourcesManager key={matterId} matterId={matterId} />;
+}
+
+function MatterResourcesManager({ matterId }) {
   const [activeTab, setActiveTab] = useState("shared");
   const [individualResources, setIndividualResources] = useState([]);
   const [isIndividualLoading, setIsIndividualLoading] = useState(true);
   const [mode, setMode] = useState("file");
-  const [selectedCategory, setSelectedCategory] = useState(DEFAULT_MATTER_CATEGORY);
-  const [localCategories, setLocalCategories] = useState([]);
+  const [activeCategory, setActiveCategory] = useState(DEFAULT_MATTER_CATEGORY);
+  const [selectedCategory, setSelectedCategory] = useState(
+    DEFAULT_MATTER_CATEGORY,
+  );
+  const [savedCategories, setSavedCategories] = useState([]);
+  const [categorySearchQuery, setCategorySearchQuery] = useState("");
+  const [showNewCategory, setShowNewCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [newCategoryIcon, setNewCategoryIcon] = useState("folder");
+  const [isCategorySaving, setIsCategorySaving] = useState(false);
+  const [renamingCategory, setRenamingCategory] = useState(null);
+  const [deletingCategory, setDeletingCategory] = useState(null);
+  const [showResourceForm, setShowResourceForm] = useState(false);
+  const [sortMode, setSortMode] = useState("order");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [url, setUrl] = useState("");
@@ -281,12 +330,23 @@ export default function ResourcesPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [archiveId, setArchiveId] = useState(null);
   const [draggedMatterResourceId, setDraggedMatterResourceId] = useState(null);
-  const [dragOverMatterResourceId, setDragOverMatterResourceId] = useState(null);
-  const [isReorderingMatterResources, setIsReorderingMatterResources] = useState(false);
+  const [dragOverMatterResourceId, setDragOverMatterResourceId] =
+    useState(null);
+  const [isReorderingMatterResources, setIsReorderingMatterResources] =
+    useState(false);
+  const matterReorderPending = useRef(false);
+  const matterReorderFocusTarget = useRef(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [individualError, setIndividualError] = useState(null);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState("");
+
+  useEffect(() => {
+    if (isReorderingMatterResources || !matterReorderFocusTarget.current) return;
+    const handle = matterReorderFocusTarget.current;
+    matterReorderFocusTarget.current = null;
+    if (handle.isConnected && document.activeElement === document.body) handle.focus();
+  }, [isReorderingMatterResources]);
 
   useEffect(() => {
     let isMounted = true;
@@ -299,16 +359,19 @@ export default function ResourcesPage() {
         const data = await response.json();
 
         if (!response.ok || !data.success) {
-          throw new Error(data.error || "Failed to load resources for this matter");
+          throw new Error(
+            data.error || "Failed to load resources for this matter",
+          );
         }
 
         if (isMounted) {
+          setSavedCategories(data.categories || []);
           setIndividualResources(
             (data.resources || []).filter(
               (resource) =>
                 resource.source !== DOCUMENT_REVIEW_SOURCE ||
-                resource.workDriveCleanupPending === true
-            )
+                resource.workDriveCleanupPending === true,
+            ),
           );
         }
       } catch (fetchError) {
@@ -331,42 +394,123 @@ export default function ResourcesPage() {
     };
   }, [matterId]);
 
-  const filteredResources = useMemo(
-    () => individualResources.filter((resource) => resourceMatches(resource, searchQuery)),
-    [individualResources, searchQuery]
-  );
-
   const matterCategories = useMemo(() => {
-    const byName = new Map([[DEFAULT_MATTER_CATEGORY.toLowerCase(), DEFAULT_MATTER_CATEGORY]]);
-    for (const name of localCategories) {
-      const normalized = name.trim();
-      if (normalized) byName.set(normalized.toLowerCase(), normalized);
-    }
+    const byName = new Map([
+      [
+        categoryKey(DEFAULT_MATTER_CATEGORY),
+        { name: DEFAULT_MATTER_CATEGORY, icon: "folder" },
+      ],
+    ]);
     for (const resource of individualResources) {
       const normalized = String(resource.category || "").trim();
-      if (normalized) byName.set(normalized.toLowerCase(), normalized);
+      if (normalized)
+        byName.set(categoryKey(normalized), {
+          name: normalized,
+          icon: "folder",
+        });
+    }
+    for (const category of savedCategories) {
+      const normalized =
+        typeof category === "string"
+          ? category.trim()
+          : String(category.name || "").trim();
+      if (normalized)
+        byName.set(categoryKey(normalized), {
+          name: normalized,
+          icon: category.icon || "folder",
+        });
     }
     return [...byName.values()].sort((a, b) => {
-      if (a === DEFAULT_MATTER_CATEGORY) return -1;
-      if (b === DEFAULT_MATTER_CATEGORY) return 1;
-      return a.localeCompare(b);
+      if (categoryKey(a.name) === categoryKey(DEFAULT_MATTER_CATEGORY))
+        return -1;
+      if (categoryKey(b.name) === categoryKey(DEFAULT_MATTER_CATEGORY))
+        return 1;
+      return a.name.localeCompare(b.name);
     });
-  }, [individualResources, localCategories]);
+  }, [individualResources, savedCategories]);
 
-  const groupedFilteredResources = useMemo(() => {
-    const groups = new Map();
-    for (const resource of filteredResources) {
-      const category = String(resource.category || DEFAULT_MATTER_CATEGORY).trim() || DEFAULT_MATTER_CATEGORY;
-      const key = categoryKey(category);
-      if (!groups.has(key)) groups.set(key, { name: category, resources: [] });
-      groups.get(key).resources.push(resource);
+  const visibleCategories = useMemo(
+    () =>
+      matterCategories.filter((category) =>
+        category.name
+          .toLowerCase()
+          .includes(categorySearchQuery.trim().toLowerCase()),
+      ),
+    [matterCategories, categorySearchQuery],
+  );
+
+  const categoryCounts = useMemo(
+    () =>
+      individualResources.reduce((counts, resource) => {
+        const key = categoryKey(resource.category);
+        counts[key] = (counts[key] || 0) + 1;
+        return counts;
+      }, {}),
+    [individualResources],
+  );
+
+  const activeCategoryResources = useMemo(
+    () =>
+      individualResources.filter(
+        (resource) =>
+          categoryKey(resource.category) === categoryKey(activeCategory),
+      ),
+    [individualResources, activeCategory],
+  );
+
+  const filteredResources = useMemo(() => {
+    const resources = activeCategoryResources.filter((resource) =>
+      resourceMatches(resource, searchQuery),
+    );
+    if (sortMode === "name") {
+      return resources.sort((left, right) =>
+        String(left.title || left.fileName || "").localeCompare(
+          String(right.title || right.fileName || ""),
+          undefined,
+          { sensitivity: "base" },
+        ),
+      );
     }
-    return [...groups.values()].sort((left, right) => {
-      if (categoryKey(left.name) === categoryKey(DEFAULT_MATTER_CATEGORY)) return -1;
-      if (categoryKey(right.name) === categoryKey(DEFAULT_MATTER_CATEGORY)) return 1;
-      return left.name.localeCompare(right.name);
-    });
-  }, [filteredResources]);
+    if (sortMode === "newest" || sortMode === "oldest") {
+      const direction = sortMode === "newest" ? -1 : 1;
+      return resources.sort(
+        (left, right) =>
+          direction *
+          (new Date(left.updatedAt || left.createdAt || 0) -
+            new Date(right.updatedAt || right.createdAt || 0)),
+      );
+    }
+    return sortMatterResourcesForDisplay(resources);
+  }, [activeCategoryResources, searchQuery, sortMode]);
+
+  const categoryMutationActive =
+    isCategorySaving || Boolean(renamingCategory || deletingCategory);
+  const interactionPending =
+    categoryMutationActive ||
+    isSubmitting ||
+    Boolean(archiveId) ||
+    isReorderingMatterResources;
+  const canReorder =
+    filteredResources.length > 1 &&
+    sortMode === "order" &&
+    !searchQuery.trim() &&
+    !interactionPending &&
+    !isIndividualLoading &&
+    !individualError &&
+    !showResourceForm &&
+    filteredResources.every(
+      (resource) =>
+        resource.status !== "archived" &&
+        resource.source !== DOCUMENT_REVIEW_SOURCE,
+    );
+
+  const reorderGuidance = isReorderingMatterResources
+    ? "Saving resource order..."
+    : searchQuery.trim()
+      ? "Clear the search to reorder every resource in this folder."
+      : sortMode !== "order"
+        ? "Choose Custom order to drag and reorder resources."
+        : "Drag the handles to reorder resources, or focus a handle and use the Up and Down arrow keys. Changes save automatically.";
 
   const resetForm = () => {
     setTitle("");
@@ -390,21 +534,145 @@ export default function ResourcesPage() {
     handleFileSelect(event.dataTransfer.files?.[0]);
   };
 
-  const handleNewCategory = () => {
-    const value = window.prompt("Folder name");
-    const category = value?.trim();
+  const cancelNewCategory = () => {
+    setShowNewCategory(false);
+    setNewCategoryName("");
+    setNewCategoryIcon("folder");
+  };
+
+  const applyCategoryMutation = (data) => {
+    setSavedCategories(data.categories || []);
+    const changesById = new Map(
+      (data.items || []).map((item) => [item.id, item]),
+    );
+    setIndividualResources((current) =>
+      sortMatterResourcesForDisplay(
+        current.map((resource) => {
+          const change = changesById.get(resource.id);
+          return change
+            ? {
+                ...resource,
+                ...change,
+                updatedAt: data.updatedAt,
+                updatedBy: data.updatedBy,
+              }
+            : resource;
+        }),
+      ),
+    );
+  };
+
+  const mutateCategory = async (method, payload) => {
+    const response = await fetch(
+      `/api/matter/${matterId}/resources/categories`,
+      {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    );
+    const data = await response.json();
+    if (!response.ok || !data.success)
+      throw new Error(data.error || "Failed to update the folder.");
+    applyCategoryMutation(data);
+    return data;
+  };
+
+  const handleNewCategory = async () => {
+    const category = newCategoryName.trim();
     if (!category) return;
 
     const existing = matterCategories.find(
-      (name) => name.toLowerCase() === category.toLowerCase()
+      (item) => categoryKey(item.name) === categoryKey(category),
     );
-    const nextCategory = existing || category;
-    if (!existing) {
-      setLocalCategories((current) => [...current, nextCategory]);
+    if (existing) {
+      setError("A folder with this name already exists.");
+      return;
     }
-    setSelectedCategory(nextCategory);
-    setSuccessMessage(`“${nextCategory}” is ready. Add a resource to save this folder.`);
+
+    try {
+      setIsCategorySaving(true);
+      setError(null);
+      setSuccessMessage("");
+      await mutateCategory("POST", { name: category, icon: newCategoryIcon });
+      setActiveCategory(category);
+      setSelectedCategory(category);
+      cancelNewCategory();
+      setSuccessMessage(`Folder “${category}” created for this matter.`);
+    } catch (categoryError) {
+      setError(categoryError.message);
+    } finally {
+      setIsCategorySaving(false);
+    }
+  };
+
+  const handleRenameCategory = async (category) => {
+    const nextName = window.prompt("Rename folder", category.name)?.trim();
+    if (!nextName || nextName === category.name) return;
+
+    try {
+      setRenamingCategory(category.name);
+      setError(null);
+      setSuccessMessage("");
+      await mutateCategory("PATCH", { name: category.name, nextName });
+      setActiveCategory((current) =>
+        categoryKey(current) === categoryKey(category.name)
+          ? nextName
+          : current,
+      );
+      setSelectedCategory((current) =>
+        categoryKey(current) === categoryKey(category.name)
+          ? nextName
+          : current,
+      );
+      setSuccessMessage(`Folder renamed to “${nextName}”.`);
+    } catch (categoryError) {
+      setError(categoryError.message);
+    } finally {
+      setRenamingCategory(null);
+    }
+  };
+
+  const handleDeleteCategory = async (category) => {
+    if (
+      !window.confirm(
+        `Delete the “${category.name}” folder? Existing resources will be moved to Uncategorized. Files, notes, and links will be kept.`,
+      )
+    )
+      return;
+
+    try {
+      setDeletingCategory(category.name);
+      setError(null);
+      setSuccessMessage("");
+      await mutateCategory("DELETE", { name: category.name });
+      setActiveCategory((current) =>
+        categoryKey(current) === categoryKey(category.name)
+          ? DEFAULT_MATTER_CATEGORY
+          : current,
+      );
+      setSelectedCategory((current) =>
+        categoryKey(current) === categoryKey(category.name)
+          ? DEFAULT_MATTER_CATEGORY
+          : current,
+      );
+      setSuccessMessage(
+        "Folder deleted. Its resources were moved to Uncategorized.",
+      );
+    } catch (categoryError) {
+      setError(categoryError.message);
+    } finally {
+      setDeletingCategory(null);
+    }
+  };
+
+  const handleAddResource = () => {
+    resetForm();
+    setSelectedCategory(activeCategory);
+    setMode("file");
+    setShowResourceForm(true);
     setError(null);
+    setSuccessMessage("");
   };
 
   const handleSubmit = async (event) => {
@@ -434,14 +702,26 @@ export default function ResourcesPage() {
     formData.append("noteText", description.trim());
     formData.append("category", selectedCategory);
     const categoryResources = individualResources.filter(
-      (resource) => categoryKey(resource.category) === categoryKey(selectedCategory)
+      (resource) =>
+        categoryKey(resource.category) === categoryKey(selectedCategory),
     );
     const categoryOrders = categoryResources
-      .filter((resource) => resource.order !== null && resource.order !== undefined && resource.order !== "")
+      .filter(
+        (resource) =>
+          resource.order !== null &&
+          resource.order !== undefined &&
+          resource.order !== "",
+      )
       .map((resource) => Number(resource.order))
       .filter(Number.isFinite);
-    if (!categoryResources.length || categoryOrders.length === categoryResources.length) {
-      formData.append("order", String((categoryOrders.length ? Math.max(...categoryOrders) : 0) + 10));
+    if (
+      !categoryResources.length ||
+      categoryOrders.length === categoryResources.length
+    ) {
+      formData.append(
+        "order",
+        String((categoryOrders.length ? Math.max(...categoryOrders) : 0) + 10),
+      );
     }
 
     if (mode === "file") {
@@ -463,16 +743,20 @@ export default function ResourcesPage() {
         throw new Error(`${data.error || "Failed to save resource"}${details}`);
       }
 
-      setIndividualResources((current) => sortMatterResourcesForDisplay([...current, data.resource]));
+      setIndividualResources((current) =>
+        sortMatterResourcesForDisplay([...current, data.resource]),
+      );
 
       setSuccessMessage(
         mode === "file"
           ? "File resource uploaded."
           : mode === "note"
             ? "Note resource saved."
-            : "Link resource saved."
+            : "Link resource saved.",
       );
       resetForm();
+      setActiveCategory(selectedCategory);
+      setShowResourceForm(false);
     } catch (submitError) {
       setError(submitError.message);
     } finally {
@@ -484,7 +768,7 @@ export default function ResourcesPage() {
     const confirmed = window.confirm(
       resource.workDriveCleanupPending
         ? `Retry WorkDrive cleanup for "${resource.title || resource.fileName}"?`
-        : `Archive "${resource.title || resource.fileName}"?`
+        : `Archive "${resource.title || resource.fileName}"?`,
     );
     if (!confirmed) return;
 
@@ -494,11 +778,14 @@ export default function ResourcesPage() {
       setArchiveId(currentArchiveId);
       setError(null);
 
-      const response = await fetch(`/api/matter/${matterId}/resources/${resource.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "archived" }),
-      });
+      const response = await fetch(
+        `/api/matter/${matterId}/resources/${resource.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "archived" }),
+        },
+      );
       const data = await response.json();
 
       if (data.cleanupPending) {
@@ -506,12 +793,12 @@ export default function ResourcesPage() {
           current.map((item) =>
             item.id === resource.id
               ? { ...item, status: "archived", workDriveCleanupPending: true }
-              : item
-          )
+              : item,
+          ),
         );
         throw new Error(
           data.error ||
-            "Resource is hidden from the client portal, but WorkDrive cleanup is still pending."
+            "Resource is hidden from the client portal, but WorkDrive cleanup is still pending.",
         );
       }
 
@@ -519,7 +806,9 @@ export default function ResourcesPage() {
         throw new Error(data.error || "Failed to archive resource");
       }
 
-      setIndividualResources((current) => current.filter((item) => item.id !== resource.id));
+      setIndividualResources((current) =>
+        current.filter((item) => item.id !== resource.id),
+      );
       setSuccessMessage("Resource archived.");
     } catch (archiveError) {
       setError(archiveError.message);
@@ -528,39 +817,47 @@ export default function ResourcesPage() {
     }
   };
 
-  const handleMatterReorderDrop = async (event, category, resources, targetItemId) => {
-    event.preventDefault();
-    const sourceItemId =
-      draggedMatterResourceId || event.dataTransfer.getData("text/plain");
-    setDraggedMatterResourceId(null);
-    setDragOverMatterResourceId(null);
-
+  const saveMatterResourceOrder = async (sourceItemId, targetItemId) => {
     if (
-      isReorderingMatterResources ||
-      searchQuery.trim() ||
+      !canReorder ||
+      matterReorderPending.current ||
       !sourceItemId ||
       sourceItemId === targetItemId
     ) {
       return;
     }
 
-    const sourceIndex = resources.findIndex((resource) => resource.id === sourceItemId);
-    const targetIndex = resources.findIndex((resource) => resource.id === targetItemId);
+    const sourceIndex = filteredResources.findIndex(
+      (resource) => resource.id === sourceItemId,
+    );
+    const targetIndex = filteredResources.findIndex(
+      (resource) => resource.id === targetItemId,
+    );
     if (sourceIndex < 0 || targetIndex < 0) return;
 
-    const reorderedResources = [...resources];
+    const reorderedResources = [...filteredResources];
     const [movedResource] = reorderedResources.splice(sourceIndex, 1);
     reorderedResources.splice(targetIndex, 0, movedResource);
+    const previousResources = individualResources;
+    const optimisticOrder = new Map(
+      reorderedResources.map((resource, index) => [resource.id, (index + 1) * 10]),
+    );
 
     try {
+      matterReorderPending.current = true;
       setIsReorderingMatterResources(true);
       setError(null);
       setSuccessMessage("");
+      setIndividualResources((current) => current.map((resource) =>
+        optimisticOrder.has(resource.id)
+          ? { ...resource, order: optimisticOrder.get(resource.id) }
+          : resource,
+      ));
       const response = await fetch(`/api/matter/${matterId}/resources`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          category,
+          category: activeCategory,
           itemIds: reorderedResources.map((resource) => resource.id),
         }),
       });
@@ -569,7 +866,9 @@ export default function ResourcesPage() {
         throw new Error(data.error || "Failed to reorder resources.");
       }
 
-      const orderById = new Map(data.items.map((item) => [item.id, item.order]));
+      const orderById = new Map(
+        data.items.map((item) => [item.id, item.order]),
+      );
       setIndividualResources((current) =>
         sortMatterResourcesForDisplay(
           current.map((resource) =>
@@ -580,15 +879,37 @@ export default function ResourcesPage() {
                   updatedAt: data.updatedAt,
                   updatedBy: data.updatedBy,
                 }
-              : resource
-          )
-        )
+              : resource,
+          ),
+        ),
       );
       setSuccessMessage("Resource order saved.");
     } catch (reorderError) {
+      setIndividualResources(previousResources);
       setError(reorderError.message);
     } finally {
+      matterReorderPending.current = false;
       setIsReorderingMatterResources(false);
+    }
+  };
+
+  const handleMatterReorderDrop = async (event, targetItemId) => {
+    event.preventDefault();
+    const sourceItemId =
+      draggedMatterResourceId || event.dataTransfer.getData("text/plain");
+    setDraggedMatterResourceId(null);
+    setDragOverMatterResourceId(null);
+    await saveMatterResourceOrder(sourceItemId, targetItemId);
+  };
+
+  const handleMatterReorderKeyDown = async (event, resource) => {
+    if (!canReorder || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+    event.preventDefault();
+    const index = filteredResources.findIndex((item) => item.id === resource.id);
+    const target = filteredResources[index + (event.key === "ArrowUp" ? -1 : 1)];
+    if (target) {
+      matterReorderFocusTarget.current = event.currentTarget;
+      await saveMatterResourceOrder(resource.id, target.id);
     }
   };
 
@@ -598,24 +919,13 @@ export default function ResourcesPage() {
         <h1 className="text-2xl font-bold tracking-tight text-gray-900">
           Resources
         </h1>
-
-        {activeTab === "individual" ? (
-          <div className="relative w-full">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8ac6ad]" />
-            <Input
-              type="search"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search resources for this matter"
-              className="h-10 bg-white pl-9"
-            />
-          </div>
-        ) : null}
       </section>
 
       <section className="rounded-lg border border-gray-200 bg-white px-5 py-4 shadow-sm">
         <p className="text-sm font-medium text-gray-600">
-          Manage the resources available to clients through the Client Portal. Add, edit and organise resources, and select whether they are available generally or for a specific matter.
+          Manage the resources available to clients through the Client Portal.
+          Add, edit and organise resources, and select whether they are
+          available generally or for a specific matter.
         </p>
       </section>
 
@@ -624,7 +934,8 @@ export default function ResourcesPage() {
           {RESOURCE_TABS.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
-            const count = tab.id === "shared" ? "Templates" : individualResources.length;
+            const count =
+              tab.id === "shared" ? "Templates" : individualResources.length;
 
             return (
               <button
@@ -651,14 +962,18 @@ export default function ResourcesPage() {
                   </div>
                   <div>
                     <p className="text-sm font-semibold">{tab.label}</p>
-                    <p className={`text-xs ${isActive ? "text-white/75" : "text-gray-500"}`}>
+                    <p
+                      className={`text-xs ${isActive ? "text-white/75" : "text-gray-500"}`}
+                    >
                       {tab.subtitle}
                     </p>
                   </div>
                 </div>
                 <span
                   className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                    isActive ? "bg-white/15 text-white" : "bg-gray-100 text-gray-600"
+                    isActive
+                      ? "bg-white/15 text-white"
+                      : "bg-gray-100 text-gray-600"
                   }`}
                 >
                   {count}
@@ -673,12 +988,21 @@ export default function ResourcesPage() {
         <AdminResourceTemplatesManager />
       ) : (
         <>
-          <section className="rounded-lg border border-[#dfe5ef] bg-[#f7f9fc] px-5 py-4 shadow-sm">
-            <p className="text-sm font-semibold text-gray-900">
-              These resources stay attached only to this matter.
-            </p>
-            <p className="mt-1 text-sm text-gray-600">
-              Use this area when a file, note, or link should only belong to this specific matter.
+          <section className="rounded-lg border border-[#dbe7e1] bg-white px-5 py-6 shadow-sm">
+            <div className="flex flex-wrap items-center gap-3">
+              <h2 className="text-xl font-semibold tracking-tight text-[#17372e]">
+                Resource Centre
+              </h2>
+              <Badge
+                variant="outline"
+                className="border-[#dbe7e1] bg-[#f7faf8] text-[#60786f]"
+              >
+                {individualResources.length} resources
+              </Badge>
+            </div>
+            <p className="mt-1 text-sm text-[#60786f]">
+              Add, edit and organise resources by folder. These resources stay
+              attached only to this matter.
             </p>
           </section>
 
@@ -699,290 +1023,438 @@ export default function ResourcesPage() {
             </div>
           )}
 
-          <section className="space-y-2">
-            <p className="text-sm font-medium text-gray-400">Add new</p>
-            <div className="flex flex-wrap gap-3">
-              {addResourceActions.map((item) => {
-                const Icon = item.icon;
-                const active = mode === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    disabled={!item.enabled}
-                    title={item.enabled ? `Add ${item.label.toLowerCase()}` : `${item.label} resources are not available yet`}
-                    onClick={() => {
-                      if (!item.enabled) return;
-                      setMode(item.id);
-                      setError(null);
-                      setSuccessMessage("");
-                    }}
-                    className={`inline-flex h-9 items-center justify-center gap-2 rounded-md border px-4 text-sm font-medium shadow-xs transition-colors ${
-                      active
-                        ? "border-[#08071f] bg-[#08071f] text-white"
-                        : item.enabled
-                          ? "border-gray-200 bg-white text-gray-600 hover:border-[#8ac6ad] hover:text-[#4F726B]"
-                          : "cursor-not-allowed border-gray-200 bg-white text-gray-300 opacity-70"
-                    }`}
+          <section className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
+            <ResourceFoldersSidebar
+              categories={visibleCategories}
+              categoryCounts={categoryCounts}
+              activeCategory={activeCategory}
+              categorySearchQuery={categorySearchQuery}
+              onCategorySearchChange={setCategorySearchQuery}
+              onSelectCategory={(category) => {
+                setDraggedMatterResourceId(null);
+                setDragOverMatterResourceId(null);
+                setActiveCategory(category.name);
+                setSelectedCategory(category.name);
+                setShowResourceForm(false);
+                resetForm();
+              }}
+              showNewCategory={showNewCategory}
+              newCategoryName={newCategoryName}
+              newCategoryIcon={newCategoryIcon}
+              onNewCategoryNameChange={setNewCategoryName}
+              onNewCategoryIconChange={setNewCategoryIcon}
+              onToggleNewCategory={() =>
+                setShowNewCategory((current) => !current)
+              }
+              onCancelNewCategory={cancelNewCategory}
+              onNewCategory={handleNewCategory}
+              isLoading={isIndividualLoading || Boolean(individualError)}
+              isCategorySaving={isCategorySaving}
+              categoryMutationActive={interactionPending}
+              isSubmitting={isSubmitting}
+              activeMutationId={archiveId}
+              isReordering={isReorderingMatterResources}
+              renamingCategory={renamingCategory}
+              deletingCategory={deletingCategory}
+              onRenameCategory={handleRenameCategory}
+              onDeleteCategory={handleDeleteCategory}
+            />
+
+            <div className="min-w-0 space-y-5">
+              {showResourceForm ? (
+                <section className="rounded-lg border border-[#dbe7e1] bg-white p-5 shadow-sm">
+                  <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h2 className="text-base font-semibold text-[#17372e]">
+                        Add resource
+                      </h2>
+                      <p className="mt-1 text-xs text-[#71857d]">
+                        Only This Matter / {selectedCategory}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={interactionPending}
+                      onClick={() => {
+                        setShowResourceForm(false);
+                        resetForm();
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                  <div className="mb-4 space-y-2">
+                    <p className="text-sm font-medium text-[#60786f]">
+                      Resource type
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                      {addResourceActions.map((item) => {
+                        const Icon = item.icon;
+                        const active = mode === item.id;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            disabled={interactionPending}
+                            title={
+                              item.enabled
+                                ? `Add ${item.label.toLowerCase()}`
+                                : `${item.label} resources are not available yet`
+                            }
+                            onClick={() => {
+                              if (!item.enabled) return;
+                              setMode(item.id);
+                              setError(null);
+                              setSuccessMessage("");
+                            }}
+                            className={`inline-flex h-9 items-center justify-center gap-2 rounded-md border px-4 text-sm font-medium shadow-xs transition-colors ${
+                              active
+                                ? "border-[#08071f] bg-[#08071f] text-white"
+                                : item.enabled
+                                  ? "border-gray-200 bg-white text-gray-600 hover:border-[#8ac6ad] hover:text-[#4F726B]"
+                                  : "cursor-not-allowed border-gray-200 bg-white text-gray-300 opacity-70"
+                            }`}
+                          >
+                            <Icon className="h-4 w-4" />
+                            {item.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <form
+                    onSubmit={handleSubmit}
+                    className="grid gap-4 md:grid-cols-2"
+                    aria-label="Add matter resource"
                   >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </button>
-                );
-              })}
+                    <fieldset
+                      disabled={interactionPending}
+                      className="contents"
+                    >
+                      {mode === "file" ? (
+                        <label
+                          htmlFor="resource-file"
+                          onDragOver={(event) => {
+                            event.preventDefault();
+                            setIsDragging(true);
+                          }}
+                          onDragLeave={() => setIsDragging(false)}
+                          onDrop={handleDrop}
+                          className={`flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed px-5 py-6 text-center transition-colors ${
+                            isDragging
+                              ? "border-[#4F726B] bg-[#4F726B]/5"
+                              : "border-gray-300 bg-gray-50 hover:border-[#8ac6ad] hover:bg-emerald-50/30"
+                          }`}
+                        >
+                          <UploadCloud className="mb-3 h-8 w-8 text-[#4F726B]" />
+                          <span className="text-sm font-semibold text-gray-900">
+                            {file ? file.name : "Choose or drop a file"}
+                          </span>
+                          <span className="mt-1 text-xs text-gray-500">
+                            {file
+                              ? formatFileSize(file.size)
+                              : "Maximum upload size: 50 MB"}
+                          </span>
+                          <input
+                            key={fileInputKey}
+                            id="resource-file"
+                            type="file"
+                            className="sr-only"
+                            onChange={(event) =>
+                              handleFileSelect(event.target.files?.[0])
+                            }
+                          />
+                        </label>
+                      ) : mode === "link" ? (
+                        <div className="space-y-2">
+                          <label
+                            htmlFor="resource-url"
+                            className="text-sm font-medium text-gray-700"
+                          >
+                            URL
+                          </label>
+                          <Input
+                            id="resource-url"
+                            type="url"
+                            value={url}
+                            onChange={(event) => setUrl(event.target.value)}
+                            placeholder="https://example.com/resource"
+                            className="h-10 bg-white"
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex min-h-40 flex-col items-center justify-center rounded-lg border border-amber-100 bg-amber-50/60 px-5 py-6 text-center">
+                          <StickyNote className="mb-3 h-8 w-8 text-amber-700" />
+                          <span className="text-sm font-semibold text-gray-900">
+                            Write a client note
+                          </span>
+                          <span className="mt-1 text-xs text-gray-500">
+                            Notes appear in this matter&apos;s resources list.
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <label
+                            htmlFor="resource-category"
+                            className="text-sm font-medium text-gray-700"
+                          >
+                            Folder
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setShowNewCategory(true)}
+                            disabled={interactionPending}
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#4F726B] hover:text-[#17372e]"
+                          >
+                            <FolderPlus className="h-3.5 w-3.5" />
+                            New folder
+                          </button>
+                        </div>
+                        <select
+                          id="resource-category"
+                          value={selectedCategory}
+                          onChange={(event) =>
+                            setSelectedCategory(event.target.value)
+                          }
+                          className="flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#8ac6ad]"
+                        >
+                          {matterCategories.map((category) => (
+                            <option key={category.name} value={category.name}>
+                              {category.name}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-xs text-gray-500">
+                          The resource will appear in this folder in the client
+                          portal.
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label
+                          htmlFor="resource-title"
+                          className="text-sm font-medium text-gray-700"
+                        >
+                          Title
+                        </label>
+                        <Input
+                          id="resource-title"
+                          value={title}
+                          onChange={(event) => setTitle(event.target.value)}
+                          placeholder={
+                            mode === "note" ? "Note title" : "Resource title"
+                          }
+                          className="h-10 bg-white"
+                        />
+                      </div>
+
+                      <div className="space-y-2 md:col-span-2">
+                        <label
+                          htmlFor="resource-description"
+                          className="text-sm font-medium text-gray-700"
+                        >
+                          {mode === "note" ? "Note" : "Description"}
+                        </label>
+                        <Textarea
+                          id="resource-description"
+                          value={description}
+                          onChange={(event) =>
+                            setDescription(event.target.value)
+                          }
+                          placeholder={
+                            mode === "note"
+                              ? "Write the note for this matter"
+                              : "Optional note"
+                          }
+                          rows={mode === "note" ? 5 : 3}
+                          className="bg-white"
+                        />
+                      </div>
+
+                      {isSubmitting && (
+                        <div className="h-1 overflow-hidden rounded-full bg-gray-100 md:col-span-2">
+                          <div className="h-full w-1/2 animate-pulse rounded-full bg-[#4F726B]" />
+                        </div>
+                      )}
+                    </fieldset>
+                    <Button
+                      type="submit"
+                      disabled={
+                        interactionPending ||
+                        isIndividualLoading ||
+                        Boolean(individualError)
+                      }
+                      className="h-10 w-full bg-[#4F726B] text-white hover:bg-[#4F726B] md:col-span-2"
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          {mode === "file" ? "Uploading" : "Saving"}
+                        </>
+                      ) : mode === "file" ? (
+                        "Upload resource"
+                      ) : mode === "note" ? (
+                        "Save note"
+                      ) : (
+                        "Save link"
+                      )}
+                    </Button>
+                  </form>
+                </section>
+              ) : null}
+
+              <section className="overflow-hidden rounded-lg border border-[#dbe7e1] bg-white shadow-sm">
+                <div className="border-b border-[#dbe7e1] px-5 py-4">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="text-base font-semibold text-[#17372e]">
+                          {activeCategory}
+                        </h2>
+                        <Badge
+                          variant="outline"
+                          className="border-[#dbe7e1] bg-[#f7faf8] text-[#60786f]"
+                        >
+                          {filteredResources.length}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-xs text-[#71857d]">
+                        Only This Matter / {activeCategory}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      onClick={handleAddResource}
+                      disabled={
+                        isIndividualLoading ||
+                        Boolean(individualError) ||
+                        interactionPending ||
+                        showResourceForm
+                      }
+                      className="bg-[#4F726B] text-white hover:bg-[#4F726B]"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add resource
+                    </Button>
+                  </div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_170px]">
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8aa099]" />
+                      <Input
+                        type="search"
+                        aria-label="Search resources"
+                        value={searchQuery}
+                        onChange={(event) => setSearchQuery(event.target.value)}
+                        placeholder="Search resources"
+                        disabled={isReorderingMatterResources}
+                        className="h-10 border-[#d7e4de] bg-white pl-9"
+                      />
+                    </div>
+                    <select
+                      value={sortMode}
+                      onChange={(event) => setSortMode(event.target.value)}
+                      aria-label="Resource sort order"
+                      disabled={isReorderingMatterResources}
+                      className="flex h-10 w-full rounded-md border border-[#cfded7] bg-white px-3 py-2 text-sm text-[#17372e] focus:outline-none focus:ring-2 focus:ring-[#8ac6ad]"
+                    >
+                      <option value="order">Custom order</option>
+                      <option value="newest">Newest first</option>
+                      <option value="oldest">Oldest first</option>
+                      <option value="name">Name</option>
+                    </select>
+                  </div>
+                  <p id="matter-resource-reorder-guidance" role="status" className="mt-2 text-xs text-[#71857d]">
+                    {reorderGuidance}
+                  </p>
+                </div>
+
+                {isIndividualLoading ? (
+                  <div className="flex min-h-[420px] items-center justify-center p-12 text-[#4F726B]">
+                    <Loader2 className="h-7 w-7 animate-spin" />
+                  </div>
+                ) : filteredResources.length > 0 ? (
+                  <div className="text-sm">
+                    <div className="hidden border-b border-[#edf1ef] bg-[#fbfdfc] px-5 py-3 text-xs font-semibold text-[#71857d] md:grid md:grid-cols-[minmax(0,1fr)_120px_90px_100px_100px] md:items-center md:gap-4">
+                      <span>Name</span>
+                      <span>Updated</span>
+                      <span>Type</span>
+                      <span className="text-right">Link</span>
+                      <span className="text-right">Actions</span>
+                    </div>
+                    {filteredResources.map((resource) => (
+                      <ResourceRow
+                        key={resource.id}
+                        resource={resource}
+                        archiveId={archiveId}
+                        onArchive={handleArchive}
+                        tabId="individual"
+                        canReorder={canReorder}
+                        isDragged={draggedMatterResourceId === resource.id}
+                        isDragOver={dragOverMatterResourceId === resource.id}
+                        interactionPending={interactionPending}
+                        onDragStart={(event) => {
+                          if (!canReorder) return;
+                          setDraggedMatterResourceId(resource.id);
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData("text/plain", resource.id);
+                        }}
+                        onDragOver={(event) => {
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = "move";
+                          if (draggedMatterResourceId !== resource.id) {
+                            setDragOverMatterResourceId(resource.id);
+                          }
+                        }}
+                        onDrop={(event) =>
+                          handleMatterReorderDrop(
+                            event,
+                            resource.id,
+                          )
+                        }
+                        onReorderKeyDown={(event) => handleMatterReorderKeyDown(event, resource)}
+                        onDragEnd={() => {
+                          setDraggedMatterResourceId(null);
+                          setDragOverMatterResourceId(null);
+                        }}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex min-h-[420px] flex-col items-center justify-center px-6 py-14 text-center">
+                    <PackageOpen className="h-16 w-16 text-[#9fb4ac]" />
+                    <h3 className="mt-4 text-lg font-semibold text-[#17372e]">
+                      {searchQuery.trim()
+                        ? "No resources found"
+                        : "No resources yet"}
+                    </h3>
+                    <p className="mt-1 max-w-sm text-sm text-gray-500">
+                      {searchQuery
+                        ? "Try a different search term."
+                        : "Add a file, note or link to this folder."}
+                    </p>
+                    <Button
+                      type="button"
+                      onClick={handleAddResource}
+                      disabled={
+                        isIndividualLoading ||
+                        Boolean(individualError) ||
+                        interactionPending ||
+                        showResourceForm
+                      }
+                      className="mt-4 bg-[#4F726B] text-white hover:bg-[#4F726B]"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add resource
+                    </Button>
+                  </div>
+                )}
+              </section>
             </div>
           </section>
-
-          <div className="grid gap-6 lg:grid-cols-[minmax(320px,420px)_1fr]">
-        <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {mode === "file" ? (
-              <label
-                htmlFor="resource-file"
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  setIsDragging(true);
-                }}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={handleDrop}
-                className={`flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed px-5 py-6 text-center transition-colors ${
-                  isDragging
-                    ? "border-[#4F726B] bg-[#4F726B]/5"
-                    : "border-gray-300 bg-gray-50 hover:border-[#8ac6ad] hover:bg-emerald-50/30"
-                }`}
-              >
-                <UploadCloud className="mb-3 h-8 w-8 text-[#4F726B]" />
-                <span className="text-sm font-semibold text-gray-900">
-                  {file ? file.name : "Choose or drop a file"}
-                </span>
-                <span className="mt-1 text-xs text-gray-500">
-                  {file ? formatFileSize(file.size) : "Maximum upload size: 50 MB"}
-                </span>
-                <input
-                  key={fileInputKey}
-                  id="resource-file"
-                  type="file"
-                  className="sr-only"
-                  onChange={(event) => handleFileSelect(event.target.files?.[0])}
-                />
-              </label>
-            ) : mode === "link" ? (
-              <div className="space-y-2">
-                <label htmlFor="resource-url" className="text-sm font-medium text-gray-700">
-                  URL
-                </label>
-                <Input
-                  id="resource-url"
-                  type="url"
-                  value={url}
-                  onChange={(event) => setUrl(event.target.value)}
-                  placeholder="https://example.com/resource"
-                  className="h-10 bg-white"
-                />
-              </div>
-            ) : (
-              <div className="flex min-h-40 flex-col items-center justify-center rounded-lg border border-amber-100 bg-amber-50/60 px-5 py-6 text-center">
-                <StickyNote className="mb-3 h-8 w-8 text-amber-700" />
-                <span className="text-sm font-semibold text-gray-900">
-                  Write a client note
-                </span>
-                <span className="mt-1 text-xs text-gray-500">
-                  Notes appear in this matter&apos;s resources list.
-                </span>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-3">
-                <label htmlFor="resource-category" className="text-sm font-medium text-gray-700">
-                  Folder
-                </label>
-                <button
-                  type="button"
-                  onClick={handleNewCategory}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#4F726B] hover:text-[#17372e]"
-                >
-                  <FolderPlus className="h-3.5 w-3.5" />
-                  New folder
-                </button>
-              </div>
-              <select
-                id="resource-category"
-                value={selectedCategory}
-                onChange={(event) => setSelectedCategory(event.target.value)}
-                className="flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#8ac6ad]"
-              >
-                {matterCategories.map((category) => (
-                  <option key={category} value={category}>{category}</option>
-                ))}
-              </select>
-              <p className="text-xs text-gray-500">
-                The resource will appear in this folder in the client portal.
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="resource-title" className="text-sm font-medium text-gray-700">
-                Title
-              </label>
-              <Input
-                id="resource-title"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder={mode === "note" ? "Note title" : "Resource title"}
-                className="h-10 bg-white"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="resource-description" className="text-sm font-medium text-gray-700">
-                {mode === "note" ? "Note" : "Description"}
-              </label>
-              <Textarea
-                id="resource-description"
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                placeholder={
-                  mode === "note"
-                    ? "Write the note for this matter"
-                    : "Optional note"
-                }
-                rows={mode === "note" ? 5 : 3}
-                className="bg-white"
-              />
-            </div>
-
-            {isSubmitting && (
-              <div className="h-1 overflow-hidden rounded-full bg-gray-100">
-                <div className="h-full w-1/2 animate-pulse rounded-full bg-[#4F726B]" />
-              </div>
-            )}
-
-            <Button
-              type="submit"
-              disabled={isSubmitting}
-              className="h-10 w-full bg-[#4F726B] text-white hover:bg-[#4F726B]"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  {mode === "file" ? "Uploading" : "Saving"}
-                </>
-              ) : mode === "file" ? (
-                "Upload resource"
-              ) : mode === "note" ? (
-                "Save note"
-              ) : (
-                "Save link"
-              )}
-            </Button>
-          </form>
-        </section>
-
-        <section className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-2 border-b border-gray-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-gray-900">
-                Resources for this matter
-              </h2>
-              <p className="text-sm text-gray-500">
-                {filteredResources.length} {filteredResources.length === 1 ? "resource" : "resources"}
-              </p>
-              {groupedFilteredResources.some(({ resources }) => resources.length > 1) ? (
-                <p className="mt-1 text-xs text-gray-400">
-                  {isReorderingMatterResources
-                    ? "Saving resource order..."
-                    : searchQuery.trim()
-                      ? "Clear the search to drag and reorder resources."
-                      : "Drag the handles to reorder resources within a folder."}
-                </p>
-              ) : null}
-            </div>
-          </div>
-
-          {isIndividualLoading ? (
-            <div className="flex items-center justify-center p-12 text-[#4F726B]">
-              <Loader2 className="h-7 w-7 animate-spin" />
-            </div>
-          ) : filteredResources.length > 0 ? (
-            <div className="divide-y divide-gray-200">
-              {groupedFilteredResources.map(({ name: category, resources }) => {
-                const showReorderHandles = resources.length > 1;
-                const canReorder =
-                  showReorderHandles &&
-                  !searchQuery.trim() &&
-                  !archiveId &&
-                  !isReorderingMatterResources &&
-                  resources.every(
-                    (resource) =>
-                      resource.status !== "archived" &&
-                      resource.source !== DOCUMENT_REVIEW_SOURCE
-                  );
-
-                return (
-                <section key={categoryKey(category)}>
-                  <div className="flex items-center justify-between bg-gray-50 px-5 py-2.5">
-                    <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
-                      <FolderPlus className="h-4 w-4 text-[#4F726B]" />
-                      {category}
-                    </div>
-                    <span className="text-xs font-medium text-gray-400">
-                      {resources.length} {resources.length === 1 ? "resource" : "resources"}
-                    </span>
-                  </div>
-                  {resources.map((resource) => (
-                    <ResourceRow
-                      key={resource.id}
-                      resource={resource}
-                      archiveId={archiveId}
-                      onArchive={handleArchive}
-                      tabId="individual"
-                      canReorder={canReorder}
-                      isDragged={draggedMatterResourceId === resource.id}
-                      isDragOver={dragOverMatterResourceId === resource.id}
-                      interactionPending={isReorderingMatterResources}
-                      onDragStart={showReorderHandles ? (event) => {
-                        setDraggedMatterResourceId(resource.id);
-                        event.dataTransfer.effectAllowed = "move";
-                        event.dataTransfer.setData("text/plain", resource.id);
-                      } : undefined}
-                      onDragOver={(event) => {
-                        event.preventDefault();
-                        event.dataTransfer.dropEffect = "move";
-                        if (draggedMatterResourceId !== resource.id) {
-                          setDragOverMatterResourceId(resource.id);
-                        }
-                      }}
-                      onDrop={(event) =>
-                        handleMatterReorderDrop(event, category, resources, resource.id)
-                      }
-                      onDragEnd={() => {
-                        setDraggedMatterResourceId(null);
-                        setDragOverMatterResourceId(null);
-                      }}
-                    />
-                  ))}
-                </section>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
-              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-lg border border-gray-200 bg-gray-50">
-                <FileText className="h-6 w-6 text-gray-400" />
-              </div>
-              <h3 className="text-sm font-semibold text-gray-900">
-                No resources found
-              </h3>
-              <p className="mt-1 max-w-sm text-sm text-gray-500">
-                {searchQuery
-                  ? "Try a different search term."
-                  : "Add the first resource for this matter."}
-              </p>
-            </div>
-          )}
-        </section>
-      </div>
         </>
       )}
     </div>

@@ -89,6 +89,53 @@ test("reorders every resource in one visa category with stable gaps", async () =
   assert.equal(mock.writes, 4);
 });
 
+test("visa reorder preserves another visa even when resource IDs match", async () => {
+  const original = {
+    "resourceTemplates/186": { title: "Subclass 186" },
+    "resourceTemplates/186/items/one": { kind: "file", category: "Guides", order: 0 },
+    "resourceTemplates/186/items/two": { kind: "note", category: "Guides", order: 0 },
+    "resourceTemplates/482": { title: "Subclass 482" },
+    "resourceTemplates/482/items/one": { kind: "file", category: "Guides", order: 0 },
+    "resourceTemplates/482/items/two": { kind: "note", category: "Guides", order: 10 },
+  };
+  const mock = mockDatabase(original);
+  await reorderResourceTemplateItems({
+    db: mock.db,
+    visaSlug: "186",
+    category: "Guides",
+    itemIds: ["two", "one"],
+    actor: "admin",
+  });
+  assert.equal(mock.documents["resourceTemplates/186/items/two"].order, 10);
+  assert.equal(mock.documents["resourceTemplates/186/items/one"].order, 20);
+  for (const documentPath of Object.keys(original).filter((path) => path.startsWith("resourceTemplates/482"))) {
+    assert.deepEqual(mock.documents[documentPath], original[documentPath]);
+  }
+});
+
+test("template Uncategorized reorder includes unassigned legacy items and hidden resources", async () => {
+  const mock = mockDatabase({
+    "resourceTemplates/186": { title: "Subclass 186" },
+    "resourceTemplates/186/items/legacy": { kind: "file" },
+    "resourceTemplates/186/items/blank": { kind: "link", category: "   " },
+    "resourceTemplates/186/items/hidden": { kind: "note", category: "Uncategorized", status: "hidden" },
+    "resourceTemplates/186/items/folder": { kind: "folder", category: "Uncategorized" },
+  });
+  const result = await reorderResourceTemplateItems({
+    db: mock.db,
+    visaSlug: "186",
+    category: "Uncategorized",
+    itemIds: ["hidden", "legacy", "blank"],
+    actor: "admin",
+  });
+  assert.deepEqual(result.items, [
+    { id: "hidden", order: 10 },
+    { id: "legacy", order: 20 },
+    { id: "blank", order: 30 },
+  ]);
+  assert.deepEqual(mock.documents["resourceTemplates/186/items/folder"], { kind: "folder", category: "Uncategorized" });
+});
+
 test("rejects stale or partial category lists without writing", async () => {
   const original = {
     "resourceTemplates/186": { title: "Subclass 186" },
