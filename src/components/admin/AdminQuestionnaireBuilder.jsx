@@ -468,7 +468,7 @@ function EmptyPane({ onCreate }) {
   );
 }
 
-export default function AdminQuestionnaireBuilder() {
+export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } = {}) {
   const [definitions, setDefinitions] = useState([]);
   const [selectedId, setSelectedId] = useState("");
   const [definition, setDefinition] = useState(null);
@@ -1124,10 +1124,10 @@ export default function AdminQuestionnaireBuilder() {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#70877e]">
-            Admin · Questionnaires
+            {embeddedInMatter ? "Matter workspace" : "Admin · Questionnaires"}
           </p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#17372e]">
-            Questionnaire Edit Centre
+            {embeddedInMatter ? "Questionnaire builder" : "Questionnaire Edit Centre"}
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[#60786f]">
             Edit the questions, answer options and help text shown in the Client Portal. Choose a questionnaire, select a page, make your changes, then save.
@@ -1181,7 +1181,11 @@ export default function AdminQuestionnaireBuilder() {
       ) : null}
 
       <div className="grid gap-5 xl:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="flex flex-col self-start overflow-hidden rounded-2xl border border-white/80 bg-white/80 shadow-sm backdrop-blur xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)]">
+        <aside className={`flex flex-col self-start overflow-hidden rounded-2xl border border-white/80 bg-white/80 shadow-sm backdrop-blur xl:sticky ${
+          embeddedInMatter
+            ? "xl:top-[calc(var(--matter-header-height)+1.5rem)] xl:max-h-[calc(100vh-var(--matter-header-height)-3rem)]"
+            : "xl:top-6 xl:max-h-[calc(100vh-3rem)]"
+        }`}>
           <div className="flex shrink-0 items-center justify-between border-b border-[#e1e9e5] px-4 py-4">
             <div>
               <h2 className="font-semibold text-[#17372e]">Saved questionnaires</h2>

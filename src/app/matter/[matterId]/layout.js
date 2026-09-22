@@ -3,10 +3,11 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
-import { ArrowLeft, Loader2, AlertCircle } from "lucide-react";
+import { Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatVisaApplicationType } from "@/lib/visaDisplay";
-import AdminNavigation from "@/components/admin/AdminNavigation";
+import AdminLogoutButton from "@/components/admin/AdminLogoutButton";
+import AdminSessionMonitor from "@/components/admin/AdminSessionMonitor";
 
 const HEADER_COLLAPSE_SCROLL_Y = 120;
 const HEADER_EXPAND_SCROLL_Y = 24;
@@ -48,22 +49,12 @@ export default function MatterLayout({ children }) {
     async function fetchMatter() {
       try {
         setIsLoading(true);
+        setError(null);
         const res = await fetch(`/api/matter/${matterId}`);
         const data = await res.json();
 
         if (data.success) {
           setMatterData(data);
-          const canonicalApplicationId = data.application?.id;
-
-          if (
-            canonicalApplicationId &&
-            canonicalApplicationId !== matterId &&
-            pathname?.startsWith(`/matter/${matterId}`)
-          ) {
-            router.replace(
-              pathname.replace(`/matter/${matterId}`, `/matter/${canonicalApplicationId}`)
-            );
-          }
         } else {
           setError(data.error + (data.details ? `: ${data.details}` : ""));
         }
@@ -74,7 +65,20 @@ export default function MatterLayout({ children }) {
       }
     }
     fetchMatter();
-  }, [matterId, pathname, router]);
+  }, [matterId]);
+
+  useEffect(() => {
+    const canonicalApplicationId = matterData?.application?.id;
+    if (
+      canonicalApplicationId &&
+      canonicalApplicationId !== matterId &&
+      pathname?.startsWith(`/matter/${matterId}`)
+    ) {
+      router.replace(
+        pathname.replace(`/matter/${matterId}`, `/matter/${canonicalApplicationId}`)
+      );
+    }
+  }, [matterData, matterId, pathname, router]);
 
   useEffect(() => {
     const header = headerRef.current;
@@ -142,6 +146,7 @@ export default function MatterLayout({ children }) {
   const tabs = [
     { href: `/matter/${canonicalMatterId}/questionnaire`, label: "Client answers" },
     { href: `/matter/${canonicalMatterId}/resources`, label: "Resources" },
+    { href: `/matter/${canonicalMatterId}/questionnaire-builder`, label: "Questionnaire builder" },
   ];
 
   return (
@@ -155,25 +160,16 @@ export default function MatterLayout({ children }) {
         className="bg-white border-b border-gray-200 print:hidden sticky top-0 z-30 transition-all duration-200 shadow-sm"
         style={{ overflowAnchor: "none" }}
       >
-        {/* Top Navbar (Full Width) */}
-        <div className="border-b border-gray-100 px-4 sm:px-8 py-4 flex flex-wrap gap-4 items-center justify-between">
-          <div className="flex items-center gap-8">
-            <img src="/Ply_Logo_black.png" alt="ValidifyPro Logo" className="h-7 sm:h-9" />
-            <Link href="/" className="hidden rounded-md px-2 py-1 text-sm text-gray-500 transition-colors hover:bg-[#e8f3ee] hover:text-[#284d41] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B] sm:inline-flex sm:items-center">
-              <ArrowLeft className="h-4 w-4 mr-1" />
-              Dashboard
-            </Link>
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-100 px-4 py-4 sm:px-8">
+          <img src="/Ply_Logo_black.png" alt="Ply Legal" className="h-7 sm:h-9" />
+          <div className="flex items-center gap-2">
+            <AdminSessionMonitor />
+            <AdminLogoutButton />
           </div>
-          <AdminNavigation />
         </div>
 
         <div className="mx-auto max-w-[100rem] px-4 sm:px-6 lg:px-8">
           <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isScrolled ? 'max-h-0 opacity-0' : 'max-h-[300px] opacity-100 pt-6 pb-2'}`}>
-            <Link href="/" className="mb-4 inline-flex items-center rounded-md px-2 py-1 text-sm text-gray-500 transition-colors hover:bg-[#e8f3ee] hover:text-[#284d41] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B] sm:hidden">
-              <ArrowLeft className="h-4 w-4 mr-1" />
-              Dashboard
-            </Link>
-            
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <div className="flex items-center gap-3 mb-1">

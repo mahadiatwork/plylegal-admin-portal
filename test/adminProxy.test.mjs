@@ -16,7 +16,7 @@ const { proxy, config } = await import("../src/proxy.js");
 hooks.deregister();
 
 test("proxy covers dashboard, direct matter links and every admin API, leaving login/assets available", () => {
-  for (const url of ["/", "/admin/questionnaires", "/matter/123/resources", "/api/matter/123", "/api/review-comments/123", "/api/admin/session"]) {
+  for (const url of ["/", "/admin/questionnaires", "/matter/123/resources", "/matter/123/questionnaire-builder", "/api/matter/123", "/api/review-comments/123", "/api/admin/session"]) {
     assert.equal(doesProxyMatch({ config, nextConfig: {}, url }), true, url);
   }
   for (const url of ["/login", "/Ply_Logo_black.png", "/_next/static/chunk.js"]) {
@@ -26,11 +26,13 @@ test("proxy covers dashboard, direct matter links and every admin API, leaving l
 
 test("anonymous and tampered sessions redirect pages to login and return API 401", async () => {
   for (const cookie of ["", "vp_admin_session=forged.signature"]) {
-    const page = proxy(new NextRequest("https://portal.test/matter/123/resources?scope=all", { headers: { cookie } }));
-    assert.equal(page.status, 307);
-    const redirect = new URL(page.headers.get("location"));
-    assert.equal(redirect.pathname, "/login");
-    assert.equal(redirect.searchParams.get("next"), "/matter/123/resources?scope=all");
+    for (const path of ["/matter/123/resources?scope=all", "/matter/123/questionnaire-builder"]) {
+      const page = proxy(new NextRequest(`https://portal.test${path}`, { headers: { cookie } }));
+      assert.equal(page.status, 307);
+      const redirect = new URL(page.headers.get("location"));
+      assert.equal(redirect.pathname, "/login");
+      assert.equal(redirect.searchParams.get("next"), path);
+    }
     const api = proxy(new NextRequest("https://portal.test/api/resources", { headers: { cookie } }));
     assert.equal(api.status, 401);
     assert.equal((await api.json()).success, false);
@@ -39,7 +41,7 @@ test("anonymous and tampered sessions redirect pages to login and return API 401
 
 test("valid login can reach resources and questionnaires, but cross-origin mutations cannot", () => {
   const cookie = `vp_admin_session=${createAdminSessionToken()}`;
-  for (const path of ["/", "/admin/questionnaires", "/matter/123/resources", "/api/resource-templates"]) {
+  for (const path of ["/", "/admin/questionnaires", "/matter/123/resources", "/matter/123/questionnaire-builder", "/api/resource-templates"]) {
     const response = proxy(new NextRequest(`https://portal.test${path}`, { headers: { cookie } }));
     assert.equal(response.headers.get("x-middleware-next"), "1");
     assert.match(response.headers.get("Cache-Control"), /no-store/);
