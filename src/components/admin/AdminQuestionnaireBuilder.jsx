@@ -1130,7 +1130,9 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
             {embeddedInMatter ? "Questionnaire builder" : "Questionnaire Edit Centre"}
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[#60786f]">
-            Edit the questions, answer options and help text shown in the Client Portal. Choose a questionnaire, select a page, make your changes, then save.
+            {embeddedInMatter
+              ? "Choose a page and question, update the wording shown to the client, then save."
+              : "Edit the questions, answer options and help text shown in the Client Portal. Choose a questionnaire, select a page, make your changes, then save."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1146,16 +1148,24 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
             <RefreshCw className={isLoading ? "animate-spin" : ""} />
             Refresh
           </Button>
-          <Button type="button" className="bg-[#4F726B] text-white" disabled={isSaving || isDeleting} onClick={createDefinition}>
-            <Plus />
-            New questionnaire
-          </Button>
+          {!embeddedInMatter ? (
+            <Button type="button" className="bg-[#4F726B] text-white" disabled={isSaving || isDeleting} onClick={createDefinition}>
+              <Plus />
+              New questionnaire
+            </Button>
+          ) : null}
         </div>
       </header>
 
       <div className="rounded-xl border border-[#d7e4de] bg-white px-4 py-4 text-sm leading-6 text-[#38564b]">
-        <p><strong>To edit a questionnaire:</strong> open it below, choose a page and question, make your changes, then select <strong>Save</strong>.</p>
-        <p className="mt-2 text-[#60786f]">Changes are saved directly to the questionnaire used by clients. Built-in visa questionnaires preserve their existing forms and saved answers while you edit their wording and options.</p>
+        {embeddedInMatter ? (
+          <p>Choose a page and question below. Edit the visible text, then select <strong>Save</strong>.</p>
+        ) : (
+          <>
+            <p><strong>To edit a questionnaire:</strong> open it below, choose a page and question, make your changes, then select <strong>Save</strong>.</p>
+            <p className="mt-2 text-[#60786f]">Changes are saved directly to the questionnaire used by clients. Built-in visa questionnaires preserve their existing forms and saved answers while you edit their wording and options.</p>
+          </>
+        )}
       </div>
 
       {savedQuestionnairesError ? (
@@ -1220,9 +1230,11 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                       {item.title || item.id}
                     </span>
                   </div>
-                  <p className="mt-2 truncate text-xs text-[#60786f]">{audienceLabel(item)}</p>
+                  {!embeddedInMatter ? (
+                    <p className="mt-2 truncate text-xs text-[#60786f]">{audienceLabel(item)}</p>
+                  ) : null}
                   <p className="mt-2 text-[11px] text-[#80928b]">
-                    {counts.pageCount} pages · {counts.questionCount} questions · v{item.version || "1.0.0"}
+                    {counts.pageCount} pages · {counts.questionCount} questions{!embeddedInMatter ? ` · v${item.version || "1.0.0"}` : ""}
                   </p>
                 </button>
               );
@@ -1232,22 +1244,24 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
               </div>
             ) : null}
           </div>
-          <div className="shrink-0 border-t border-[#e1e9e5] p-4">
-            <h3 className="text-sm font-semibold text-[#17372e]">Built-in questionnaires</h3>
-            <p className="mt-1 text-xs leading-5 text-[#60786f]">The existing questionnaire structure is bundled as a fallback. Choose a visa to open it as a new editable questionnaire.</p>
-            <div className="mt-3 space-y-2">
-              {questionnaireBuiltInTemplates.map((template) => (
-                <Button key={template.id} type="button" variant="outline" className="h-auto w-full justify-start whitespace-normal border-[#d7e4de] bg-white py-3 text-left text-[#38564b]" disabled={isSaving || isDeleting} onClick={() => createDefinitionFrom(template, { starter: true })}>
-                  <Copy className="h-4 w-4 shrink-0" />
-                  <span>{template.title}<span className="mt-1 block text-xs font-normal text-[#71857d]">{template.pages.length} pages · {definitionCounts(template).questionCount} questions</span></span>
-                </Button>
-              ))}
+          {!embeddedInMatter ? (
+            <div className="shrink-0 border-t border-[#e1e9e5] p-4">
+              <h3 className="text-sm font-semibold text-[#17372e]">Built-in questionnaires</h3>
+              <p className="mt-1 text-xs leading-5 text-[#60786f]">The existing questionnaire structure is bundled as a fallback. Choose a visa to open it as a new editable questionnaire.</p>
+              <div className="mt-3 space-y-2">
+                {questionnaireBuiltInTemplates.map((template) => (
+                  <Button key={template.id} type="button" variant="outline" className="h-auto w-full justify-start whitespace-normal border-[#d7e4de] bg-white py-3 text-left text-[#38564b]" disabled={isSaving || isDeleting} onClick={() => createDefinitionFrom(template, { starter: true })}>
+                    <Copy className="h-4 w-4 shrink-0" />
+                    <span>{template.title}<span className="mt-1 block text-xs font-normal text-[#71857d]">{template.pages.length} pages · {definitionCounts(template).questionCount} questions</span></span>
+                  </Button>
+                ))}
+              </div>
+              <Button type="button" variant="outline" className="mt-3 w-full border-[#d7e4de] bg-white text-[#38564b]" disabled={isSaving || isDeleting} onClick={() => createDefinitionFrom(temporaryWork482Definition, { starter: true })}>
+                <Copy className="h-4 w-4" />
+                Use 482 Character starter
+              </Button>
             </div>
-            <Button type="button" variant="outline" className="mt-3 w-full border-[#d7e4de] bg-white text-[#38564b]" disabled={isSaving || isDeleting} onClick={() => createDefinitionFrom(temporaryWork482Definition, { starter: true })}>
-              <Copy className="h-4 w-4" />
-              Use 482 Character starter
-            </Button>
-          </div>
+          ) : null}
         </aside>
 
         {isLoading || isLoadingDefinition ? (
@@ -1255,7 +1269,16 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
             <p role="status" className="flex items-center gap-3 text-sm text-[#60786f]"><Loader2 className="h-6 w-6 animate-spin text-[#4F726B]" />Loading questionnaires…</p>
           </section>
         ) : !definition ? (
-          <EmptyPane onCreate={createDefinition} />
+          embeddedInMatter ? (
+            <section className="flex min-h-[360px] items-center justify-center rounded-2xl border border-white/80 bg-white/80 px-6 text-center">
+              <div>
+                <h2 className="font-semibold text-[#17372e]">No questionnaire available</h2>
+                <p className="mt-2 text-sm text-[#71857d]">There is no saved questionnaire to edit yet.</p>
+              </div>
+            </section>
+          ) : (
+            <EmptyPane onCreate={createDefinition} />
+          )
         ) : (
           <fieldset
             disabled={isSaving || isDeleting}
@@ -1272,7 +1295,11 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                       </Badge>
                     ) : null}
                   </div>
-                  <p className="mt-1 text-xs text-[#71857d]">{audienceLabel(definition)}</p>
+                  <p className="mt-1 text-xs text-[#71857d]">
+                    {embeddedInMatter
+                      ? `${definitionCounts(definition).pageCount} pages · ${definitionCounts(definition).questionCount} questions`
+                      : audienceLabel(definition)}
+                  </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button
@@ -1284,20 +1311,22 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                     {isSaving ? <Loader2 className="animate-spin" /> : <Save />}
                     Save
                   </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                    disabled={isSaving || isDeleting || isCreating}
-                    onClick={deleteDefinition}
-                    aria-label="Delete questionnaire"
-                  >
-                    {isDeleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
-                  </Button>
+                  {!embeddedInMatter ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                      disabled={isSaving || isDeleting || isCreating}
+                      onClick={deleteDefinition}
+                      aria-label="Delete questionnaire"
+                    >
+                      {isDeleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                    </Button>
+                  ) : null}
                 </div>
               </div>
 
-              {machineKeysLocked ? (
+              {machineKeysLocked && !embeddedInMatter ? (
                 <div className="mt-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
                   <CircleAlert className="mt-1 h-4 w-4 shrink-0" />
                   <span>
@@ -1307,12 +1336,13 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
               ) : null}
             </section>
 
-            <details className="rounded-2xl border border-white/80 bg-white p-5 shadow-sm sm:p-6" open={isCreating && !definition.pages.length}>
-              <summary className="cursor-pointer text-sm font-semibold text-[#17372e]">Questionnaire settings · title, visa type and version</summary>
-              <div className="mb-5 mt-4">
-                <p className="text-xs text-[#71857d]">Choose which visa applications use this questionnaire.</p>
-              </div>
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {!embeddedInMatter ? (
+              <details className="rounded-2xl border border-white/80 bg-white p-5 shadow-sm sm:p-6" open={isCreating && !definition.pages.length}>
+                <summary className="cursor-pointer text-sm font-semibold text-[#17372e]">Questionnaire settings · title, visa type and version</summary>
+                <div className="mb-5 mt-4">
+                  <p className="text-xs text-[#71857d]">Choose which visa applications use this questionnaire.</p>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <div className="space-y-2 md:col-span-2">
                   <FieldLabel htmlFor="questionnaire-title">Title</FieldLabel>
                   <Input
@@ -1388,8 +1418,9 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                     }
                   />
                 </div>
-              </div>
-            </details>
+                </div>
+              </details>
+            ) : null}
 
             <section className="overflow-hidden rounded-2xl border border-white/80 bg-white shadow-sm">
               <div className="grid lg:grid-cols-[230px_minmax(0,1fr)]">
@@ -1399,16 +1430,18 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                       <h3 className="font-semibold text-[#17372e]">Pages</h3>
                       <p className="text-xs text-[#71857d]">{definition.pages.length} total</p>
                     </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      disabled={machineKeysLocked}
-                      onClick={addPage}
-                      aria-label="Add page"
-                    >
-                      <Plus />
-                    </Button>
+                    {!embeddedInMatter ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={machineKeysLocked}
+                        onClick={addPage}
+                        aria-label="Add page"
+                      >
+                        <Plus />
+                      </Button>
+                    ) : null}
                   </div>
                   <div className="flex gap-2 overflow-x-auto p-3 lg:block lg:max-h-[760px] lg:space-y-2 lg:overflow-y-auto">
                     {definition.pages.map((page, index) => (
@@ -1444,94 +1477,106 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                   {!activePage ? (
                     <div className="flex min-h-[360px] flex-col items-center justify-center text-center">
                       <FileJson className="h-10 w-10 text-[#9fb4ac]" />
-                      <h3 className="mt-4 font-semibold text-[#17372e]">Add a questionnaire page</h3>
-                      <p className="mt-1 text-sm text-[#71857d]">Pages group related questions and control where answers are stored.</p>
-                      <Button
-                        type="button"
-                        className="mt-4 bg-[#4F726B] text-white"
-                        disabled={machineKeysLocked}
-                        onClick={addPage}
-                      >
-                        <Plus />
-                        Add page
-                      </Button>
+                      <h3 className="mt-4 font-semibold text-[#17372e]">
+                        {embeddedInMatter ? "No pages available" : "Add a questionnaire page"}
+                      </h3>
+                      <p className="mt-1 text-sm text-[#71857d]">
+                        {embeddedInMatter ? "This questionnaire does not have any pages to edit." : "Pages group related questions and control where answers are stored."}
+                      </p>
+                      {!embeddedInMatter ? (
+                        <Button
+                          type="button"
+                          className="mt-4 bg-[#4F726B] text-white"
+                          disabled={machineKeysLocked}
+                          onClick={addPage}
+                        >
+                          <Plus />
+                          Add page
+                        </Button>
+                      ) : null}
                     </div>
                   ) : (
                     <div className="space-y-6">
                       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#edf1ef] pb-4">
                         <div>
-                          <h3 className="font-semibold text-[#17372e]">Page settings</h3>
+                          <h3 className="font-semibold text-[#17372e]">Page details</h3>
                           <p className="text-xs text-[#71857d]">Order {activePageIndex + 1} of {definition.pages.length}</p>
                         </div>
-                        <div className="flex gap-1">
-                          <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activePageIndex === 0} onClick={() => movePage(-1)} aria-label="Move page up">
-                            <ArrowUp />
-                          </Button>
-                          <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activePageIndex === definition.pages.length - 1} onClick={() => movePage(1)} aria-label="Move page down">
-                            <ArrowDown />
-                          </Button>
-                          <Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" disabled={machineKeysLocked} onClick={deletePage} aria-label="Delete page">
-                            <Trash2 />
-                          </Button>
-                        </div>
+                        {!embeddedInMatter ? (
+                          <div className="flex gap-1">
+                            <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activePageIndex === 0} onClick={() => movePage(-1)} aria-label="Move page up">
+                              <ArrowUp />
+                            </Button>
+                            <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activePageIndex === definition.pages.length - 1} onClick={() => movePage(1)} aria-label="Move page down">
+                              <ArrowDown />
+                            </Button>
+                            <Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" disabled={machineKeysLocked} onClick={deletePage} aria-label="Delete page">
+                              <Trash2 />
+                            </Button>
+                          </div>
+                        ) : null}
                       </div>
 
                       <div className="grid gap-4 md:grid-cols-2">
-                        <div className="space-y-2">
+                        <div className="space-y-2 md:col-span-2">
                           <FieldLabel htmlFor="page-title">Page title</FieldLabel>
                           <Input id="page-title" className={inputClassName} value={activePage.title} onChange={(event) => updatePageField("title", event.target.value)} />
                         </div>
-                        <div className="space-y-2">
-                          <FieldLabel htmlFor="page-id" hint="machine key">Page ID</FieldLabel>
-                          <Input id="page-id" className={`${inputClassName} font-mono`} value={activePage.id} disabled={machineKeysLocked} onChange={(event) => updatePageField("id", event.target.value)} />
-                        </div>
-                        <div className="space-y-2 md:col-span-2">
-                          <FieldLabel htmlFor="page-route" hint="must already exist in the client portal">Client route</FieldLabel>
-                          <Input
-                            id="page-route"
-                            list="registered-questionnaire-routes"
-                            className={`${inputClassName} font-mono`}
-                            value={activePage.route}
-                            disabled={machineKeysLocked}
-                            placeholder="/intake/temporary-work/all-applicants/character"
-                            onChange={(event) => {
-                              const route = event.target.value;
-                              updateActivePage((page) => ({
-                                ...page,
-                                route,
-                                completionKey: route.replace(/^\/intake\//, ""),
-                                scope: getRouteScope(route),
-                              }));
-                            }}
-                          />
-                          <datalist id="registered-questionnaire-routes">
-                            {registeredRoutes.map((route) => (
-                              <option key={route.href} value={route.href}>{route.title}</option>
-                            ))}
-                          </datalist>
-                          <p className="text-xs leading-5 text-[#71857d]">
-                            Choose a registered route to replace that page with this JSON definition. A brand-new URL still requires a client release.
-                          </p>
-                        </div>
-                        <div className="space-y-2">
-                          <FieldLabel htmlFor="page-section" hint="answer storage key">Section key</FieldLabel>
-                          <Input id="page-section" className={`${inputClassName} font-mono`} value={activePage.sectionKey} disabled={machineKeysLocked} onChange={(event) => updatePageField("sectionKey", event.target.value)} />
-                        </div>
-                        <div className="space-y-2">
-                          <FieldLabel htmlFor="page-completion" hint="progress key">Completion key</FieldLabel>
-                          <Input id="page-completion" className={`${inputClassName} font-mono`} value={activePage.completionKey} disabled />
-                        </div>
-                        <div className="space-y-2">
-                          <FieldLabel htmlFor="page-scope">Answer scope</FieldLabel>
-                          <select id="page-scope" className={selectClassName} value={activePage.scope} disabled={machineKeysLocked} onChange={(event) => updatePageField("scope", event.target.value)}>
-                            <option value="shared">Shared / application</option>
-                            <option value="profile">Per applicant profile</option>
-                          </select>
-                        </div>
+                        {!embeddedInMatter ? (
+                          <>
+                            <div className="space-y-2">
+                              <FieldLabel htmlFor="page-id" hint="machine key">Page ID</FieldLabel>
+                              <Input id="page-id" className={`${inputClassName} font-mono`} value={activePage.id} disabled={machineKeysLocked} onChange={(event) => updatePageField("id", event.target.value)} />
+                            </div>
+                            <div className="space-y-2 md:col-span-2">
+                              <FieldLabel htmlFor="page-route" hint="must already exist in the client portal">Client route</FieldLabel>
+                              <Input
+                                id="page-route"
+                                list="registered-questionnaire-routes"
+                                className={`${inputClassName} font-mono`}
+                                value={activePage.route}
+                                disabled={machineKeysLocked}
+                                placeholder="/intake/temporary-work/all-applicants/character"
+                                onChange={(event) => {
+                                  const route = event.target.value;
+                                  updateActivePage((page) => ({
+                                    ...page,
+                                    route,
+                                    completionKey: route.replace(/^\/intake\//, ""),
+                                    scope: getRouteScope(route),
+                                  }));
+                                }}
+                              />
+                              <datalist id="registered-questionnaire-routes">
+                                {registeredRoutes.map((route) => (
+                                  <option key={route.href} value={route.href}>{route.title}</option>
+                                ))}
+                              </datalist>
+                              <p className="text-xs leading-5 text-[#71857d]">
+                                Choose a registered route to replace that page with this JSON definition. A brand-new URL still requires a client release.
+                              </p>
+                            </div>
+                            <div className="space-y-2">
+                              <FieldLabel htmlFor="page-section" hint="answer storage key">Section key</FieldLabel>
+                              <Input id="page-section" className={`${inputClassName} font-mono`} value={activePage.sectionKey} disabled={machineKeysLocked} onChange={(event) => updatePageField("sectionKey", event.target.value)} />
+                            </div>
+                            <div className="space-y-2">
+                              <FieldLabel htmlFor="page-completion" hint="progress key">Completion key</FieldLabel>
+                              <Input id="page-completion" className={`${inputClassName} font-mono`} value={activePage.completionKey} disabled />
+                            </div>
+                            <div className="space-y-2">
+                              <FieldLabel htmlFor="page-scope">Answer scope</FieldLabel>
+                              <select id="page-scope" className={selectClassName} value={activePage.scope} disabled={machineKeysLocked} onChange={(event) => updatePageField("scope", event.target.value)}>
+                                <option value="shared">Shared / application</option>
+                                <option value="profile">Per applicant profile</option>
+                              </select>
+                            </div>
+                          </>
+                        ) : null}
                         <div className="space-y-2 md:col-span-2">
                           <FieldLabel htmlFor="page-intro" hint="first paragraph">Intro text</FieldLabel>
                           <Textarea id="page-intro" rows={3} className="border-[#d7e4de] bg-white" disabled={legacyPage && !activePage.metadata.originalIntroBlocks?.length} value={getIntroText(activePage)} onChange={(event) => updateActivePage((page) => setIntroText(page, event.target.value))} />
-                          {activePage.introBlocks?.some((block) => block.type !== "paragraph") ? (
+                          {!embeddedInMatter && activePage.introBlocks?.some((block) => block.type !== "paragraph") ? (
                             <p className="text-xs text-[#71857d]">Lists and additional intro blocks are preserved and can be edited in Advanced JSON.</p>
                           ) : null}
                         </div>
@@ -1541,12 +1586,16 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                           <div>
                             <h3 className="font-semibold text-[#17372e]">Questions</h3>
-                            <p className="text-xs text-[#71857d]">Choose a question to edit its text and behavior.</p>
+                            <p className="text-xs text-[#71857d]">
+                              {embeddedInMatter ? "Choose a question to edit its wording." : "Choose a question to edit its text and behavior."}
+                            </p>
                           </div>
-                          <Button type="button" variant="outline" className="border-[#d7e4de] bg-white text-[#38564b]" disabled={machineKeysLocked} onClick={addQuestion}>
-                            <Plus />
-                            Add question
-                          </Button>
+                          {!embeddedInMatter ? (
+                            <Button type="button" variant="outline" className="border-[#d7e4de] bg-white text-[#38564b]" disabled={machineKeysLocked} onClick={addQuestion}>
+                              <Plus />
+                              Add question
+                            </Button>
+                          ) : null}
                         </div>
 
                         <div className="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
@@ -1562,11 +1611,20 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                     : "border-transparent hover:border-[#8ac6ad] hover:bg-white"
                                 }`}
                               >
-                                <p className="line-clamp-2 text-xs font-semibold leading-5 text-[#24453b]">{question.label}</p>
-                                <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-[#71857d]">
-                                  <span>{question.type}</span>
-                                  {question.followUps?.length ? <span>+{question.followUps.length} follow-up</span> : null}
-                                </div>
+                                {embeddedInMatter ? (
+                                  <>
+                                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#70877e]">Question {index + 1}</p>
+                                    <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-[#24453b]">{question.label}</p>
+                                  </>
+                                ) : (
+                                  <>
+                                    <p className="line-clamp-2 text-xs font-semibold leading-5 text-[#24453b]">{question.label}</p>
+                                    <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-[#71857d]">
+                                      <span>{question.type}</span>
+                                      {question.followUps?.length ? <span>+{question.followUps.length} follow-up</span> : null}
+                                    </div>
+                                  </>
+                                )}
                               </button>
                             ))}
                             {!activePage.questions.length ? (
@@ -1576,20 +1634,24 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
 
                           {!activeQuestion ? (
                             <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-dashed border-[#cbdad3] px-6 text-center text-sm text-[#71857d]">
-                              Add or select a question to edit it.
+                              {embeddedInMatter ? "Select a question to edit its wording." : "Add or select a question to edit it."}
                             </div>
                           ) : (
                             <div className="space-y-5 rounded-xl border border-[#e1e9e5] p-4 sm:p-5">
                               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#edf1ef] pb-4">
                                 <div>
                                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#70877e]">Question {activeQuestionIndex + 1}</p>
-                                  <p className="mt-1 font-mono text-xs text-[#60786f]">{activeQuestion.answerKey}</p>
+                                  {!embeddedInMatter ? (
+                                    <p className="mt-1 font-mono text-xs text-[#60786f]">{activeQuestion.answerKey}</p>
+                                  ) : null}
                                 </div>
-                                <div className="flex gap-1">
-                                  <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activeQuestionIndex === 0} onClick={() => moveQuestion(-1)} aria-label="Move question up"><ArrowUp /></Button>
-                                  <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activeQuestionIndex === activePage.questions.length - 1} onClick={() => moveQuestion(1)} aria-label="Move question down"><ArrowDown /></Button>
-                                  <Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" disabled={machineKeysLocked} onClick={deleteQuestion} aria-label="Delete question"><Trash2 /></Button>
-                                </div>
+                                {!embeddedInMatter ? (
+                                  <div className="flex gap-1">
+                                    <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activeQuestionIndex === 0} onClick={() => moveQuestion(-1)} aria-label="Move question up"><ArrowUp /></Button>
+                                    <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activeQuestionIndex === activePage.questions.length - 1} onClick={() => moveQuestion(1)} aria-label="Move question down"><ArrowDown /></Button>
+                                    <Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" disabled={machineKeysLocked} onClick={deleteQuestion} aria-label="Delete question"><Trash2 /></Button>
+                                  </div>
+                                ) : null}
                               </div>
 
                               <div className="grid gap-4 md:grid-cols-2">
@@ -1597,27 +1659,31 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                   <FieldLabel htmlFor="question-label">Question text</FieldLabel>
                                   <Textarea id="question-label" rows={3} className="border-[#d7e4de] bg-white" value={activeQuestion.label} onChange={(event) => updateQuestionField("label", event.target.value)} />
                                 </div>
-                                <div className="space-y-2">
-                                  <FieldLabel htmlFor="question-id" hint="machine key">Question ID</FieldLabel>
-                                  <Input id="question-id" className={`${inputClassName} font-mono`} value={activeQuestion.id} disabled={machineKeysLocked} onChange={(event) => updateQuestionField("id", event.target.value)} />
-                                </div>
-                                <div className="space-y-2">
-                                  <FieldLabel htmlFor="question-key" hint="saved answer key">Answer key</FieldLabel>
-                                  <Input id="question-key" className={`${inputClassName} font-mono`} value={activeQuestion.answerKey} disabled={machineKeysLocked} onChange={(event) => updateQuestionField("answerKey", event.target.value)} />
-                                </div>
-                                <div className="space-y-2">
-                                  <FieldLabel htmlFor="question-type">Question type</FieldLabel>
-                                  <select id="question-type" className={selectClassName} value={activeQuestion.type} disabled={machineKeysLocked} onChange={(event) => changeQuestionType(event.target.value)}>
-                                    {QUESTION_TYPES.map(([value, label]) => <option key={value} value={value} disabled={value === "repeater"}>{label}</option>)}
-                                  </select>
-                                  {activeQuestion.type === "repeater" ? (
-                                    <p className="text-xs text-[#71857d]">Records preserve their existing fields and saved values. Edit the wording of their fields below.</p>
-                                  ) : null}
-                                </div>
-                                <label className="flex h-10 items-center gap-3 self-end rounded-md border border-[#d7e4de] bg-[#f8fbf9] px-3 text-sm font-medium text-[#224238]">
-                                  <input type="checkbox" className="h-4 w-4 accent-[#4F726B]" checked={activeQuestion.required} disabled={machineKeysLocked} onChange={(event) => updateQuestionField("required", event.target.checked)} />
-                                  Required answer
-                                </label>
+                                {!embeddedInMatter ? (
+                                  <>
+                                    <div className="space-y-2">
+                                      <FieldLabel htmlFor="question-id" hint="machine key">Question ID</FieldLabel>
+                                      <Input id="question-id" className={`${inputClassName} font-mono`} value={activeQuestion.id} disabled={machineKeysLocked} onChange={(event) => updateQuestionField("id", event.target.value)} />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <FieldLabel htmlFor="question-key" hint="saved answer key">Answer key</FieldLabel>
+                                      <Input id="question-key" className={`${inputClassName} font-mono`} value={activeQuestion.answerKey} disabled={machineKeysLocked} onChange={(event) => updateQuestionField("answerKey", event.target.value)} />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <FieldLabel htmlFor="question-type">Question type</FieldLabel>
+                                      <select id="question-type" className={selectClassName} value={activeQuestion.type} disabled={machineKeysLocked} onChange={(event) => changeQuestionType(event.target.value)}>
+                                        {QUESTION_TYPES.map(([value, label]) => <option key={value} value={value} disabled={value === "repeater"}>{label}</option>)}
+                                      </select>
+                                      {activeQuestion.type === "repeater" ? (
+                                        <p className="text-xs text-[#71857d]">Records preserve their existing fields and saved values. Edit the wording of their fields below.</p>
+                                      ) : null}
+                                    </div>
+                                    <label className="flex h-10 items-center gap-3 self-end rounded-md border border-[#d7e4de] bg-[#f8fbf9] px-3 text-sm font-medium text-[#224238]">
+                                      <input type="checkbox" className="h-4 w-4 accent-[#4F726B]" checked={activeQuestion.required} disabled={machineKeysLocked} onChange={(event) => updateQuestionField("required", event.target.checked)} />
+                                      Required answer
+                                    </label>
+                                  </>
+                                ) : null}
                                 <div className="space-y-2 md:col-span-2">
                                   <FieldLabel htmlFor="question-description">Help text</FieldLabel>
                                   <Textarea id="question-description" rows={2} className="border-[#d7e4de] bg-white" disabled={legacyPage && !Object.hasOwn(activeQuestion.metadata || {}, "originalDescription")} value={activeQuestion.description || ""} onChange={(event) => updateQuestionField("description", event.target.value)} />
@@ -1628,12 +1694,14 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                 </div>
                               </div>
 
-                              {activeQuestion.metadata?.fields?.length ? <div className="space-y-4 rounded-xl border border-[#d9e6e0] bg-[#f8fbf9] p-4">
-                                <div><h4 className="text-sm font-semibold text-[#24453b]">Record field wording</h4><p className="text-xs text-[#71857d]">Edit the fields clients see inside each record. Their saved values and answer keys stay preserved.</p></div>
-                                <RecordFieldWording fields={activeQuestion.metadata.fields} onChange={updateRecordFieldText} legacy={legacyPage} />
-                              </div> : null}
+                              {!embeddedInMatter ? (
+                                <>
+                                  {activeQuestion.metadata?.fields?.length ? <div className="space-y-4 rounded-xl border border-[#d9e6e0] bg-[#f8fbf9] p-4">
+                                    <div><h4 className="text-sm font-semibold text-[#24453b]">Record field wording</h4><p className="text-xs text-[#71857d]">Edit the fields clients see inside each record. Their saved values and answer keys stay preserved.</p></div>
+                                    <RecordFieldWording fields={activeQuestion.metadata.fields} onChange={updateRecordFieldText} legacy={legacyPage} />
+                                  </div> : null}
 
-                              {activeQuestion.followUps?.length ? (
+                                  {activeQuestion.followUps?.length ? (
                                 <div className="space-y-4 rounded-xl border border-[#d9e6e0] bg-[#f8fbf9] p-4">
                                   <div>
                                     <h4 className="text-sm font-semibold text-[#24453b]">Follow-up wording</h4>
@@ -1675,9 +1743,9 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                     </div>
                                   ))}
                                 </div>
-                              ) : null}
+                                  ) : null}
 
-                              {showOptions ? (
+                                  {showOptions ? (
                                 <div className="space-y-3 rounded-xl border border-[#e1e9e5] bg-[#f8fbf9] p-4">
                                   <div className="flex items-center justify-between gap-3">
                                     <div>
@@ -1696,9 +1764,9 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                     ))}
                                   </div>
                                 </div>
-                              ) : null}
+                                  ) : null}
 
-                              <div className="space-y-3 rounded-xl border border-[#e1e9e5] p-4">
+                                  <div className="space-y-3 rounded-xl border border-[#e1e9e5] p-4">
                                 <label className="flex items-center gap-3 text-sm font-semibold text-[#24453b]">
                                   <input type="checkbox" className="h-4 w-4 accent-[#4F726B]" checked={Boolean(firstCondition)} disabled={machineKeysLocked} onChange={(event) => toggleCondition(event.target.checked)} />
                                   Show this question conditionally
@@ -1777,7 +1845,9 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                 {activeQuestion.followUps?.length ? (
                                   <p className="text-xs text-[#60786f]">This question contains {activeQuestion.followUps.length} nested follow-up question{activeQuestion.followUps.length === 1 ? "" : "s"}. They are preserved and editable in Advanced JSON.</p>
                                 ) : null}
-                              </div>
+                                  </div>
+                                </>
+                              ) : null}
                             </div>
                           )}
                         </div>
@@ -1788,15 +1858,16 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
               </div>
             </section>
 
-            <details
-              className="group overflow-hidden rounded-2xl border border-white/80 bg-white shadow-sm"
-              onToggle={(event) => {
-                if (event.currentTarget.open && !jsonHasPendingEdits) {
-                  setJsonText(JSON.stringify(definition, null, 2));
-                  setJsonError("");
-                }
-              }}
-            >
+            {!embeddedInMatter ? (
+              <details
+                className="group overflow-hidden rounded-2xl border border-white/80 bg-white shadow-sm"
+                onToggle={(event) => {
+                  if (event.currentTarget.open && !jsonHasPendingEdits) {
+                    setJsonText(JSON.stringify(definition, null, 2));
+                    setJsonError("");
+                  }
+                }}
+              >
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-5 sm:px-6">
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e8f4ee] text-[#4F726B]">
@@ -1854,7 +1925,8 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                   </label>
                 </div>
               </div>
-            </details>
+              </details>
+            ) : null}
           </fieldset>
         )}
       </div>
