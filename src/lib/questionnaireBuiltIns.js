@@ -2,19 +2,22 @@ import { questionnaireBuiltInPages } from './questionnaireBuiltInPages.js';
 import { temporaryWork482Definition } from './questionnaireStarterTemplates.js';
 import { applyQuestionnaireBuiltInDetails } from './questionnaireBuiltInDetails.js';
 import { applyQuestionnaireBuiltInIdentity } from './questionnaireBuiltInIdentity.js';
+import { applyQuestionnaireBuiltInCharacter } from './questionnaireBuiltInCharacter.js';
 import { applyQuestionnaireBuiltInChoices } from './questionnaireBuiltInChoices.js';
 import { applyQuestionnaireBuiltInConditionalRules } from './questionnaireBuiltInConditionalRules.js';
 
-export const QUESTIONNAIRE_LEGACY_CATALOG_VERSION = 2;
+export const QUESTIONNAIRE_LEGACY_CATALOG_VERSION = 3;
 
 function builtInDefinition(visaType, visaContext, title) {
   const pages = applyQuestionnaireBuiltInConditionalRules(
     applyQuestionnaireBuiltInChoices(
-      applyQuestionnaireBuiltInIdentity(
-        applyQuestionnaireBuiltInDetails(structuredClone(questionnaireBuiltInPages.filter(page =>
-          page.route.startsWith(`/intake/${visaType}/`) &&
-          !(visaContext === '482' && /\/spouse-partner\/(education|language)$/.test(page.route))
-        )))
+      applyQuestionnaireBuiltInCharacter(
+        applyQuestionnaireBuiltInIdentity(
+          applyQuestionnaireBuiltInDetails(structuredClone(questionnaireBuiltInPages.filter(page =>
+            page.route.startsWith(`/intake/${visaType}/`) &&
+            !(visaContext === '482' && /\/spouse-partner\/(education|language)$/.test(page.route))
+          )))
+        )
       )
     )
   );

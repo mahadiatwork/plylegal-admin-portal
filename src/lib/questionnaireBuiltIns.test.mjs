@@ -119,6 +119,23 @@ test('reviewed nested client choices retain their exact stored values and editab
   assert.equal(residenceApplicant.type, 'select');
   assert.equal(residenceApplicant.optionsSource, 'applicants');
   assert.equal(residenceApplicant.options, undefined);
+
+  const previousSponsorshipSubclass = findTemplateQuestion(
+    byTemplateId.get('built-in-partner'),
+    'partner-family-sponsor-previous-sponsorship-previous_sponsorships-visa_subclass',
+  );
+  assert.equal(previousSponsorshipSubclass.type, 'select');
+  assert.equal(previousSponsorshipSubclass.options.length, 183);
+  assert.equal(previousSponsorshipSubclass.options[0].value, '100');
+  assert.equal(previousSponsorshipSubclass.options.at(-1).value, '899');
+  const sponsorTravelSubclass = findTemplateQuestion(
+    byTemplateId.get('built-in-partner'),
+    'partner-family-sponsor-travel-australian_visas-visa_subclass',
+  );
+  assert.equal(sponsorTravelSubclass.type, 'select');
+  assert.equal(sponsorTravelSubclass.options.length, 192);
+  assert.equal(sponsorTravelSubclass.options[0].value, '010 - Bridging (Class A)');
+  assert.equal(sponsorTravelSubclass.options.at(-1).value, '899');
 });
 
 test('choice casing and conditional rows match the client answer contract', () => {
