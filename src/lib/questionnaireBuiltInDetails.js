@@ -45,6 +45,7 @@ export function createQuestionnaireBuiltInDetailsQuestions(pageId, role) {
     field(pageId, "citizenship_of_passport_country", "Is this applicant a citizen of their country of passport?", "yesNo", "Citizenships"),
     field(pageId, "citizenship_other_than_birth", "Is this applicant a citizen of any other country?", "yesNo", "Citizenships"),
     field(pageId, "citizenships", "Other citizenships", "repeater", "Citizenships", {
+      required: true,
       description: "Enter details of each other citizenship held by this applicant.",
       visibleIf: [{ field: "citizenship_other_than_birth", op: "equals", value: "yes" }],
       metadata: { fields: [
@@ -81,6 +82,12 @@ export function applyQuestionnaireBuiltInDetails(pages = []) {
     if (role !== "spouse") hiddenAnswerKeys.push("preferred_names");
     return { ...page, title: "Details", introBlocks: [{ type: "paragraph", text: intro }],
       questions,
-      metadata: { ...page.metadata, originalTitle: "Details", originalIntroBlocks: [{ type: "paragraph", text: intro }], hiddenAnswerKeys } };
+      metadata: {
+        ...page.metadata,
+        ...(visaType === "partner" && role === "spouse" ? { profileSection: "details" } : {}),
+        originalTitle: "Details",
+        originalIntroBlocks: [{ type: "paragraph", text: intro }],
+        hiddenAnswerKeys,
+      } };
   });
 }

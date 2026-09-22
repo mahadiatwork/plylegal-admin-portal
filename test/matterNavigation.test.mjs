@@ -85,6 +85,9 @@ async function loadComponent(relativePath, overrides = {}) {
     if (specifier === "@/components/admin/AdminSessionMonitor") {
       return { __esModule: true, default: () => null };
     }
+    if (specifier === "@/components/matter/MatterDataContext") {
+      return { MatterDataProvider: ({ children }) => children };
+    }
     if (specifier === "@/lib/visaDisplay") {
       return { formatVisaApplicationType: () => "Subclass 186" };
     }
@@ -212,4 +215,14 @@ test("matter questionnaire-builder page renders the shared builder in embedded m
   const page = pageModule.default();
   assert.equal(page.type, BuilderSentinel);
   assert.equal(page.props.embeddedInMatter, true);
+});
+
+test("client answer review does not render a circular back-to-application link", async () => {
+  const source = await readFile(
+    path.resolve("src/components/ClientQuestionnaireReview.jsx"),
+    "utf8",
+  );
+
+  assert.equal(source.includes("Back to Application"), false);
+  assert.equal(source.includes("ArrowLeft"), false);
 });

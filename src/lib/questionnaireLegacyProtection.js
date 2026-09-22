@@ -1,7 +1,191 @@
-import { questionnaireBuiltInTemplates } from './questionnaireBuiltIns.js';
+import {
+  QUESTIONNAIRE_LEGACY_CATALOG_VERSION,
+  questionnaireBuiltInTemplates,
+} from './questionnaireBuiltIns.js';
 
 const legacyPages = questionnaireBuiltInTemplates.flatMap(definition => definition.pages)
   .filter(page => page.metadata?.renderer === 'legacy');
+const legacyPagesByRoute = new Map(legacyPages.map(page => [page.route, page]));
+
+function questionsById(questions, result = new Map()) {
+  for (const question of questions || []) {
+    if (question?.id) result.set(question.id, question);
+    questionsById(question?.followUps, result);
+    questionsById(question?.metadata?.fields, result);
+  }
+  return result;
+}
+
+function upgradeQuestionRequirements(questions, baselineById) {
+  let changed = false;
+  const upgraded = (questions || []).map(question => {
+    const baseline = baselineById.get(question?.id);
+    const matchesBaselineField = baseline
+      && baseline.answerKey === question.answerKey
+      && baseline.type === question.type;
+    let next = question;
+
+    // Before legacyCatalogVersion 2, generated built-in fields were all
+    // stored as optional. Restore only requirements present in today's exact
+    // built-in field contract; every other structural value remains protected.
+    if (matchesBaselineField && baseline.required === true && question.required !== true) {
+      next = { ...next, required: true };
+      changed = true;
+    }
+
+    const followUps = upgradeQuestionRequirements(next.followUps, baselineById);
+    if (followUps.changed) {
+      next = { ...next, followUps: followUps.questions };
+      changed = true;
+    }
+
+    const fields = upgradeQuestionRequirements(next.metadata?.fields, baselineById);
+    if (fields.changed) {
+      next = {
+        ...next,
+        metadata: { ...next.metadata, fields: fields.questions },
+      };
+      changed = true;
+    }
+    return next;
+  });
+
+  return { changed, questions: changed ? upgraded : questions };
+}
+
+function copyVisibleOptionLabels(baselineOptions, savedOptions) {
+  if (!Array.isArray(baselineOptions)) return baselineOptions;
+  const savedByValue = new Map(
+    (savedOptions || [])
+      .filter(option => option && Object.hasOwn(option, 'value'))
+      .map(option => [option.value, option])
+  );
+  return baselineOptions.map(option => {
+    const saved = savedByValue.get(option.value);
+    return typeof saved?.label === 'string' ? { ...option, label: saved.label } : option;
+  });
+}
+
+function overlayQuestionCopy(baseline, savedById) {
+  const saved = savedById.get(baseline.id);
+  let question = structuredClone(baseline);
+  if (saved) {
+    for (const field of ['label', 'description', 'placeholder']) {
+      if (Object.hasOwn(saved, field)) question[field] = saved[field];
+    }
+    if (baseline.options) {
+      question.options = copyVisibleOptionLabels(baseline.options, saved.options);
+    }
+    if (baseline.monthOptions) {
+      question.monthOptions = copyVisibleOptionLabels(baseline.monthOptions, saved.monthOptions);
+    }
+  }
+
+  if (baseline.followUps) {
+    question.followUps = baseline.followUps.map(followUp =>
+      overlayQuestionCopy(followUp, savedById)
+    );
+  }
+
+  if (baseline.metadata?.fields) {
+    question.metadata = {
+      ...question.metadata,
+      fields: baseline.metadata.fields.map(field =>
+        overlayQuestionCopy(field, savedById)
+      ),
+    };
+  }
+  return question;
+}
+
+function overlayIntroCopy(baselineBlocks, savedBlocks) {
+  if (!Array.isArray(baselineBlocks)) return baselineBlocks;
+  return baselineBlocks.map((block, index) => {
+    const saved = savedBlocks?.[index];
+    if (!saved || saved.type !== block.type) return structuredClone(block);
+    if (block.type === 'paragraph') {
+      return typeof saved.text === 'string' ? { ...block, text: saved.text } : block;
+    }
+    return {
+      ...block,
+      ...(typeof saved.lead === 'string' ? { lead: saved.lead } : {}),
+      items: block.items.map((item, itemIndex) =>
+        typeof saved.items?.[itemIndex] === 'string' ? saved.items[itemIndex] : item
+      ),
+    };
+  });
+}
+
+function hydrateLegacyPage(page, baseline) {
+  const savedById = questionsById(page.questions);
+  return {
+    ...structuredClone(baseline),
+    title: typeof page.title === 'string' ? page.title : baseline.title,
+    order: Number.isFinite(page.order) ? page.order : baseline.order,
+    questions: baseline.questions.map(question =>
+      overlayQuestionCopy(question, savedById)
+    ),
+    ...(baseline.introBlocks
+      ? { introBlocks: overlayIntroCopy(baseline.introBlocks, page.introBlocks) }
+      : {}),
+    metadata: {
+      ...baseline.metadata,
+      legacyCatalogVersion: QUESTIONNAIRE_LEGACY_CATALOG_VERSION,
+    },
+  };
+}
+
+/**
+ * Hydrate saved built-in snapshots created before the current legacy catalog.
+ *
+ * The version marker distinguishes an old snapshot from a current structural
+ * edit. Legacy pages receive the latest protected storage structure while
+ * retaining their editable wording and option labels. A full old definition
+ * also lets us carry corrected requirements onto the one page being promoted
+ * to the dynamic renderer in the same save.
+ */
+export function hydrateLegacyQuestionnaireDefinition(definition) {
+  if (!definition || !Array.isArray(definition.pages)) return definition;
+
+  const needsMigration = definition.pages.some(page =>
+    page?.metadata?.renderer === 'legacy'
+      && page.metadata?.legacyCatalogVersion !== QUESTIONNAIRE_LEGACY_CATALOG_VERSION
+      && legacyPagesByRoute.has(page.route)
+  );
+  if (!needsMigration) return definition;
+
+  let changed = false;
+  const pages = definition.pages.map(page => {
+    const baseline = legacyPagesByRoute.get(page.route);
+    if (
+      !baseline
+      || page.metadata?.legacyCatalogVersion === QUESTIONNAIRE_LEGACY_CATALOG_VERSION
+    ) {
+      return page;
+    }
+
+    if (page.metadata?.renderer === 'legacy') {
+      changed = true;
+      return hydrateLegacyPage(page, baseline);
+    }
+
+    const requirements = upgradeQuestionRequirements(
+      page.questions,
+      questionsById(baseline.questions)
+    );
+    changed = true;
+    return {
+      ...page,
+      questions: requirements.questions,
+      metadata: {
+        ...page.metadata,
+        legacyCatalogVersion: QUESTIONNAIRE_LEGACY_CATALOG_VERSION,
+      },
+    };
+  });
+
+  return changed ? { ...definition, pages } : definition;
+}
 function stable(value) {
   if (Array.isArray(value)) return value.map(stable);
   if (!value || typeof value !== 'object') return value;
@@ -62,8 +246,15 @@ function ambiguousCopyIssues(page, baseline) {
 /** Preserve the storage contract of the shipped forms when saving edits. */
 export function getLegacyQuestionnairePublishIssues(definition) {
   if (definition.status !== 'active') return [];
+  definition = hydrateLegacyQuestionnaireDefinition(definition);
   const issues = [];
   for (const page of definition.pages || []) {
+    // A page that has been deliberately promoted to the schema renderer is no
+    // longer coupled to its shipped React form. Its storage keys are still
+    // validated by the questionnaire schema, while choices and display rules
+    // may now change through the owner-facing builder.
+    if (page.metadata?.renderer !== 'legacy') continue;
+
     const baseline = legacyPages.find(candidate => candidate.route === page.route);
     if (!baseline) {
       if (page.metadata?.renderer === 'legacy') issues.push(`${page.title}: the original built-in page could not be found`);

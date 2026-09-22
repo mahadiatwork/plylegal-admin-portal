@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { formatVisaApplicationType } from "@/lib/visaDisplay";
 import AdminLogoutButton from "@/components/admin/AdminLogoutButton";
 import AdminSessionMonitor from "@/components/admin/AdminSessionMonitor";
+import { MatterDataProvider } from "@/components/matter/MatterDataContext";
 
 const HEADER_COLLAPSE_SCROLL_Y = 120;
 const HEADER_EXPAND_SCROLL_Y = 24;
@@ -243,7 +244,9 @@ export default function MatterLayout({ children }) {
 
       {/* Main Content Area */}
       <main className="mx-auto w-full max-w-[100rem] flex-1 px-4 py-8 sm:px-6 lg:px-8">
-        {children}
+        <MatterDataProvider value={matterData}>
+          {children}
+        </MatterDataProvider>
       </main>
     </div>
   );

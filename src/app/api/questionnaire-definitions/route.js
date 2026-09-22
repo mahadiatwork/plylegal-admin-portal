@@ -3,7 +3,10 @@ import { getAdminSession } from "@/lib/adminSession";
 import { isSameOriginRequest } from "@/lib/adminLoginProtection";
 import { db, initResult } from "@/lib/firebase-admin";
 import { getRegisteredQuestionnaireRoutes } from "@/lib/routes";
-import { getLegacyQuestionnairePublishIssues } from "@/lib/questionnaireLegacyProtection";
+import {
+  getLegacyQuestionnairePublishIssues,
+  hydrateLegacyQuestionnaireDefinition,
+} from "@/lib/questionnaireLegacyProtection";
 import {
   QUESTIONNAIRE_DEFINITION_LIMITS,
   QUESTIONNAIRE_DEFINITION_REVISIONS_COLLECTION,
@@ -220,7 +223,9 @@ export async function GET() {
     const snapshot = await collectionRef.get();
     const definitions = await Promise.all(
       snapshot.docs.map(async (doc) =>
-        serializeQuestionnaireDefinitionDoc(doc, await getLegacyPages(doc))
+        hydrateLegacyQuestionnaireDefinition(
+          serializeQuestionnaireDefinitionDoc(doc, await getLegacyPages(doc))
+        )
       )
     );
     return NextResponse.json({
@@ -242,9 +247,11 @@ export async function POST(request) {
       ? body.id.trim()
       : generateQuestionnaireDefinitionId(body);
     const normalized = normalizeQuestionnaireDefinition(
+      hydrateLegacyQuestionnaireDefinition(
       // Client reads use the active marker. Lifecycle choices are no longer
       // exposed in the admin editor, so every saved questionnaire is active.
-      { ...body, id: definitionId, revision: 0, status: "active" },
+        { ...body, id: definitionId, revision: 0, status: "active" }
+      ),
       { id: definitionId }
     );
     requireRegisteredActiveRoutes(normalized);

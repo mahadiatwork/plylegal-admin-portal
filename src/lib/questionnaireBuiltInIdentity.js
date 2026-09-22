@@ -1,4 +1,5 @@
 const YES_NO = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }];
+const CURRENT_YEAR = new Date().getFullYear();
 const choices = values => values.map(value => ({ value, label: value }));
 function field(prefix, key, label, type = 'text', extra = {}) {
   return { id: `${prefix}-${key}`, answerKey: key, label, type, required: false, ...extra,
@@ -20,7 +21,10 @@ function passportFields(prefix) {
     date(prefix, 'date_issued', 'Date of Issue'),
     field(prefix, 'is_original_date', 'Is this the Original Date of Issue?', 'yesNo', { options: YES_NO }),
     date(prefix, 'original_date', 'Original Date of Issue', { visibleIf: conditional('is_original_date', 'no') }),
-    date(prefix, 'date_expiry', 'Date of Expiry'),
+    date(prefix, 'date_expiry', 'Date of Expiry', {
+      maxYear: CURRENT_YEAR + 50,
+      yearRange: CURRENT_YEAR + 50 - 2016 + 1,
+    }),
     field(prefix, 'document_status', 'Document Status', 'select', { options: choices(['Current', 'Expired', 'Lost', 'Stolen', 'Cancelled', 'Damaged']) }),
   ];
 }
@@ -66,7 +70,11 @@ export function applyQuestionnaireBuiltInIdentity(pages) {
           return { ...setLabel(question, 'Residence rights'), visibleIf: conditional('permanent_residency_rights'), metadata: { ...question.metadata, originalLabel: 'Residence rights', fields: [
             field(question.id, 'country', 'Country'),
             field(question.id, 'status', 'Residence right', 'select', { options: choices(['Permanent', 'Temporary']) }),
-            date(question.id, 'expiry', 'Expiry date', { visibleIf: conditional('status', 'Temporary') }),
+            date(question.id, 'expiry', 'Expiry date', {
+              visibleIf: conditional('status', 'Temporary'),
+              maxYear: CURRENT_YEAR + 79,
+              yearRange: 80,
+            }),
           ] } };
         default: return question;
       }

@@ -79,6 +79,9 @@ async function loadComponent(relativePath) {
     if (specifier === "@/components/ui/button") return { Button: "button" };
     if (specifier === "@/components/ui/input") return { Input: "input" };
     if (specifier === "@/components/ui/textarea") return { Textarea: "textarea" };
+    if (specifier === "@/components/matter/MatterDataContext") {
+      return { useMatterData: () => null };
+    }
     if (specifier === "@/lib/routes") {
       return { getRegisteredQuestionnaireRoutes: () => [] };
     }
@@ -87,6 +90,9 @@ async function loadComponent(relativePath) {
     }
     if (specifier === "@/lib/questionnaireBuiltIns") {
       return { questionnaireBuiltInTemplates: [] };
+    }
+    if (specifier === "@/lib/questionnaireLegacyProtection") {
+      return { hydrateLegacyQuestionnaireDefinition: (definition) => definition };
     }
     return require(specifier);
   };
@@ -153,6 +159,12 @@ function createHarness(Component, props = {}) {
         `Expected ${label} button was not found`,
       );
     },
+    buttonMatching(pattern, message = `Expected button matching ${pattern} was not found`) {
+      return this.find(
+        (node) => node.type === "button" && pattern.test(text(node)),
+        message,
+      );
+    },
   };
 }
 
@@ -216,19 +228,23 @@ function richDefinition() {
               { value: "no_internal", label: "No label", metadata: { retain: 2 } },
             ],
             visibleIf: [
-              { field: "eligibility_internal", op: "equals", value: "yes" },
-              { field: "eligibility_internal", op: "notEquals", value: "no" },
+              { field: "eligibility_internal", op: "equals", value: "eligible_internal" },
+              { field: "eligibility_internal", op: "notEquals", value: "ineligible_internal" },
             ],
             followUps: [
               {
                 id: "follow-up-internal-id",
                 answerKey: "follow_up_internal_key",
                 label: "Original follow-up text",
-                type: "textarea",
+                type: "radio",
                 required: false,
                 description: "Follow-up help",
                 placeholder: "Follow-up placeholder",
                 rows: 4,
+                options: [
+                  { value: "follow_up_yes_internal", label: "Follow-up yes", metadata: { retain: 3 } },
+                  { value: "follow_up_no_internal", label: "Follow-up no", metadata: { retain: 4 } },
+                ],
                 visibleIf: [
                   { field: "answer_key_internal", op: "equals", value: "yes_internal" },
                 ],
@@ -243,8 +259,8 @@ function richDefinition() {
             type: "yesNo",
             required: true,
             options: [
-              { value: "yes", label: "Yes" },
-              { value: "no", label: "No" },
+              { value: "eligible_internal", label: "Eligible" },
+              { value: "ineligible_internal", label: "Not eligible" },
             ],
           },
           {
@@ -259,10 +275,17 @@ function richDefinition() {
                   id: "record-field-internal-id",
                   answerKey: "record_field_internal",
                   label: "Record field text",
-                  type: "text",
+                  type: "select",
                   required: false,
                   description: "Record field help",
                   placeholder: "Record field placeholder",
+                  options: [
+                    { value: "record_one_internal", label: "Record choice one", metadata: { retain: 5 } },
+                    { value: "record_two_internal", label: "Record choice two", metadata: { retain: 6 } },
+                  ],
+                  visibleIf: [
+                    { field: "eligibility_internal", op: "equals", value: "eligible_internal" },
+                  ],
                 },
               ],
             },
@@ -273,10 +296,9 @@ function richDefinition() {
   };
 }
 
-async function mountBuilder(t) {
+async function mountBuilder(t, { definition = richDefinition() } = {}) {
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
-  const definition = richDefinition();
   const calls = [];
   globalThis.window = {
     addEventListener() {},
@@ -288,10 +310,10 @@ async function mountBuilder(t) {
     if (url === "/api/questionnaire-definitions" && !options.method) {
       return jsonResponse({ definitions: [definition] });
     }
-    if (url === "/api/questionnaire-definitions/rich-questionnaire" && !options.method) {
+    if (url === `/api/questionnaire-definitions/${definition.id}` && !options.method) {
       return jsonResponse({ definition });
     }
-    if (url === "/api/questionnaire-definitions/rich-questionnaire" && options.method === "PUT") {
+    if (url === `/api/questionnaire-definitions/${definition.id}` && options.method === "PUT") {
       return jsonResponse({ definition: JSON.parse(options.body) });
     }
     assert.fail(`Unexpected request: ${options.method || "GET"} ${url}`);
@@ -307,7 +329,7 @@ async function mountBuilder(t) {
   return { harness, calls, definition };
 }
 
-test("embedded builder exposes only the simple page and question wording controls", async (t) => {
+test("embedded builder exposes client-editable choices, conditions, and follow-up wording without developer fields", async (t) => {
   const { harness } = await mountBuilder(t);
 
   for (const id of [
@@ -316,6 +338,17 @@ test("embedded builder exposes only the simple page and question wording control
     "question-label",
     "question-description",
     "question-placeholder",
+    "follow-up-follow-up-internal-id-label",
+    "follow-up-follow-up-internal-id-description",
+    "follow-up-follow-up-internal-id-placeholder",
+    "follow-up-follow-up-internal-id-option-1-label",
+    "follow-up-follow-up-internal-id-option-2-label",
+    "follow-up-follow-up-internal-id-condition-question",
+    "follow-up-follow-up-internal-id-condition-operator",
+    "follow-up-follow-up-internal-id-condition-answer",
+    "condition-question",
+    "condition-operator",
+    "condition-answer",
   ]) {
     assert.ok(harness.maybeControl(id), `${id} should remain editable`);
   }
@@ -335,11 +368,9 @@ test("embedded builder exposes only the simple page and question wording control
     "question-key",
     "question-type",
     "condition-field",
-    "condition-operator",
     "condition-value",
     "Questionnaire JSON",
     "Option 1 value",
-    "Option 1 label",
   ]) {
     assert.equal(harness.maybeControl(id), undefined, `${id} should be hidden`);
   }
@@ -348,13 +379,17 @@ test("embedded builder exposes only the simple page and question wording control
   for (const label of [
     "Questionnaire settings · title, visa type and version",
     "Required answer",
-    "Answer options",
-    "Show this question conditionally",
-    "Record field wording",
-    "Follow-up wording",
     "Advanced JSON",
   ]) {
     assert.equal(renderedText.includes(label), false, `${label} should be hidden`);
+  }
+
+  for (const label of [
+    "Answer choices",
+    "Show this question conditionally",
+    "Follow-up wording",
+  ]) {
+    assert.ok(renderedText.includes(label), `${label} should be available`);
   }
 
   for (const label of [
@@ -371,6 +406,32 @@ test("embedded builder exposes only the simple page and question wording control
     assert.equal(harness.maybeControl(label), undefined, `${label} should be hidden`);
   }
 
+  const choiceLabels = harness.nodes().filter((node) =>
+    node.type === "input" && ["Yes label", "No label"].includes(node.props.value)
+  );
+  assert.equal(choiceLabels.length, 2, "answer choice labels should be editable");
+  assert.equal(
+    harness.nodes().some((node) =>
+      node.type === "input" && ["yes_internal", "no_internal"].includes(node.props.value)
+    ),
+    false,
+    "stored answer values must not be exposed in text inputs",
+  );
+  assert.ok(harness.buttonMatching(/^Add choice$/));
+  assert.ok(harness.maybeControl("Delete choice 1"));
+  assert.ok(harness.maybeControl("Delete choice 2"));
+
+  const questionCondition = harness.control("condition-question");
+  const answerCondition = harness.control("condition-answer");
+  const questionChoices = text(questionCondition.props.children);
+  const answerChoices = text(answerCondition.props.children);
+  assert.ok(questionChoices.includes("Eligibility source"));
+  assert.equal(questionChoices.includes("eligibility_internal"), false);
+  assert.ok(answerChoices.includes("Eligible"));
+  assert.ok(answerChoices.includes("Not eligible"));
+  assert.equal(answerChoices.includes("eligible_internal"), false);
+  assert.equal(answerChoices.includes("ineligible_internal"), false);
+
   assert.equal(
     harness.nodes().some((node) =>
       node.type === "p" && ["answer_key_internal", "radio"].includes(text(node))
@@ -378,6 +439,17 @@ test("embedded builder exposes only the simple page and question wording control
     false,
     "machine keys and question types should not be shown as question details",
   );
+  for (const machineKey of [
+    "answer_key_internal",
+    "follow_up_internal_key",
+    "eligibility_internal",
+    "yes_internal",
+    "no_internal",
+    "follow_up_yes_internal",
+    "follow_up_no_internal",
+  ]) {
+    assert.equal(renderedText.includes(machineKey), false, `${machineKey} must not be shown to the user`);
+  }
   assert.ok(renderedText.includes("Page details"));
   assert.ok(renderedText.includes("Question 1"));
 
@@ -386,11 +458,26 @@ test("embedded builder exposes only the simple page and question wording control
     "Expected the record question selector",
   ).props.onClick();
   harness.render();
-  assert.equal(harness.maybeControl("record-record-field-internal-id-label"), undefined);
-  assert.equal(text(harness.tree).includes("Record field wording"), false);
+  for (const id of [
+    "record-record-field-internal-id-label",
+    "record-record-field-internal-id-description",
+    "record-record-field-internal-id-placeholder",
+    "record-record-field-internal-id-option-1-label",
+    "record-record-field-internal-id-option-2-label",
+    "record-record-field-internal-id-condition-question",
+    "record-record-field-internal-id-condition-operator",
+    "record-record-field-internal-id-condition-answer",
+  ]) {
+    assert.ok(harness.maybeControl(id), `${id} should remain editable`);
+  }
+  assert.ok(text(harness.tree).includes("Record field wording"));
+  assert.equal(text(harness.control("record-record-field-internal-id-condition-question").props.children).includes("Eligibility source"), false);
+  assert.equal(text(harness.control("record-record-field-internal-id-condition-answer").props.children).includes("Eligible"), false);
+  assert.equal(text(harness.tree).includes("record_field_internal"), false);
+  assert.equal(text(harness.tree).includes("record_one_internal"), false);
 });
 
-test("simple wording edits preserve hidden questionnaire structure when saved", async (t) => {
+test("embedded edits serialize hidden choice and condition values while preserving metadata", async (t) => {
   const { harness, calls, definition } = await mountBuilder(t);
   const originalPage = structuredClone(definition.pages[0]);
   const originalQuestion = structuredClone(originalPage.questions[0]);
@@ -402,11 +489,46 @@ test("simple wording edits preserve hidden questionnaire structure when saved", 
   harness.control("question-placeholder").props.onChange({ target: { value: "Updated placeholder" } });
   harness.render();
 
+  harness.find(
+    (node) => node.type === "input" && node.props.value === "Yes label",
+    "Expected the first answer choice label input",
+  ).props.onChange({ target: { value: "Definitely" } });
+  harness.render();
+  harness.control("Delete choice 2").props.onClick();
+  harness.render();
+  harness.button("Add choice").props.onClick();
+  harness.render();
+  harness.find(
+    (node) => node.type === "input" && node.props.value === "Option 2",
+    "Expected the newly added answer choice label input",
+  ).props.onChange({ target: { value: "Maybe" } });
+  harness.render();
+
+  harness.control("condition-question").props.onChange({
+    target: { value: "eligibility_internal" },
+  });
+  harness.render();
+  harness.control("condition-answer").props.onChange({
+    target: { value: "ineligible_internal" },
+  });
+  harness.render();
+
+  harness.control("follow-up-follow-up-internal-id-label").props.onChange({
+    target: { value: "Updated follow-up text" },
+  });
+  harness.control("follow-up-follow-up-internal-id-description").props.onChange({
+    target: { value: "Updated follow-up help" },
+  });
+  harness.control("follow-up-follow-up-internal-id-placeholder").props.onChange({
+    target: { value: "Updated follow-up placeholder" },
+  });
+  harness.render();
+
   await harness.button("Save").props.onClick();
   harness.render();
 
   const saveCall = calls.find(({ url, options }) =>
-    url === "/api/questionnaire-definitions/rich-questionnaire" && options.method === "PUT"
+    url === `/api/questionnaire-definitions/${definition.id}` && options.method === "PUT"
   );
   assert.ok(saveCall, "Expected the edited questionnaire to be saved");
   const payload = JSON.parse(saveCall.options.body);
@@ -418,6 +540,41 @@ test("simple wording edits preserve hidden questionnaire structure when saved", 
   assert.equal(savedQuestion.label, "Updated question text?");
   assert.equal(savedQuestion.description, "Updated help text.");
   assert.equal(savedQuestion.placeholder, "Updated placeholder");
+
+  assert.equal(savedQuestion.options.length, 2);
+  assert.deepEqual(savedQuestion.options[0], {
+    value: "yes_internal",
+    label: "Definitely",
+    metadata: { retain: 1 },
+  });
+  assert.equal(
+    savedQuestion.options.some((option) => option.value === "no_internal"),
+    false,
+    "deleting a choice should remove its stored value",
+  );
+  assert.equal(savedQuestion.options[1].label, "Maybe");
+  assert.match(savedQuestion.options[1].value, /^[a-z0-9_]+$/);
+  assert.notEqual(savedQuestion.options[1].value, savedQuestion.options[1].label);
+  assert.deepEqual(savedQuestion.visibleIf[0], {
+    field: "eligibility_internal",
+    op: "equals",
+    value: "ineligible_internal",
+  });
+  assert.deepEqual(
+    savedQuestion.visibleIf.slice(1),
+    originalQuestion.visibleIf.slice(1),
+    "additional conditions must remain intact",
+  );
+  assert.equal(savedQuestion.followUps[0].label, "Updated follow-up text");
+  assert.equal(savedQuestion.followUps[0].description, "Updated follow-up help");
+  assert.equal(savedQuestion.followUps[0].placeholder, "Updated follow-up placeholder");
+  for (const field of ["id", "answerKey", "type", "required", "visibleIf", "metadata"]) {
+    assert.deepEqual(
+      savedQuestion.followUps[0][field],
+      originalQuestion.followUps[0][field],
+      `follow-up ${field} must be preserved`,
+    );
+  }
 
   assert.deepEqual(
     savedPage.introBlocks.slice(1),
@@ -442,9 +599,6 @@ test("simple wording edits preserve hidden questionnaire structure when saved", 
     "type",
     "required",
     "rows",
-    "options",
-    "visibleIf",
-    "followUps",
     "metadata",
     "customQuestionFlag",
   ]) {
@@ -457,4 +611,166 @@ test("simple wording edits preserve hidden questionnaire structure when saved", 
   );
   assert.equal(payload.revision, definition.revision);
   assert.deepEqual(payload.metadata, definition.metadata);
+});
+
+test("nested follow-up and record controls save structural edits without exposing their keys", async (t) => {
+  const definition = richDefinition();
+  definition.id = "nested-legacy-questionnaire";
+  definition.pages[0].metadata.renderer = "legacy";
+  const originalPageMetadata = structuredClone(definition.pages[0].metadata);
+  const { harness, calls } = await mountBuilder(t, { definition });
+
+  harness.control("follow-up-follow-up-internal-id-label").props.onChange({
+    target: { value: "Updated nested follow-up" },
+  });
+  harness.control("follow-up-follow-up-internal-id-option-1-label").props.onChange({
+    target: { value: "Updated follow-up choice" },
+  });
+  harness.control("follow-up-follow-up-internal-id-delete-option-2").props.onClick();
+  harness.render();
+  harness.control("follow-up-follow-up-internal-id-add-option").props.onClick();
+  harness.render();
+  harness.find(
+    (node) => node.type === "input" && node.props.value === "Option 2",
+    "Expected a new follow-up choice",
+  ).props.onChange({ target: { value: "New follow-up choice" } });
+  harness.control("follow-up-follow-up-internal-id-condition-answer").props.onChange({
+    target: { value: "no_internal" },
+  });
+  harness.render();
+
+  harness.find(
+    (node) => node.type === "button" && text(node).includes("Record question"),
+    "Expected the record question selector",
+  ).props.onClick();
+  harness.render();
+
+  harness.control("record-record-field-internal-id-label").props.onChange({
+    target: { value: "Updated record field" },
+  });
+  harness.control("record-record-field-internal-id-option-1-label").props.onChange({
+    target: { value: "Updated record choice" },
+  });
+  assert.equal(
+    text(harness.control("record-record-field-internal-id-condition-question")).includes("Eligibility source"),
+    false,
+    "record conditions must not offer page-level answers that are unavailable inside a row",
+  );
+  harness.control("record-record-field-internal-id-delete-option-2").props.onClick();
+  harness.render();
+  harness.control("record-record-field-internal-id-add-option").props.onClick();
+  harness.render();
+  harness.find(
+    (node) => node.type === "input" && node.props.value === "Option 2",
+    "Expected a new record choice",
+  ).props.onChange({ target: { value: "New record choice" } });
+  harness.control("record-record-field-internal-id-condition-answer").props.onChange({
+    target: { value: "ineligible_internal" },
+  });
+  harness.render();
+
+  await harness.button("Save").props.onClick();
+  const saveCall = calls.find(({ url, options }) =>
+    url === "/api/questionnaire-definitions/nested-legacy-questionnaire" && options.method === "PUT"
+  );
+  assert.ok(saveCall, "Expected nested changes to be saved");
+  const payload = JSON.parse(saveCall.options.body);
+  const savedPage = payload.pages[0];
+  const savedFollowUp = savedPage.questions[0].followUps[0];
+  const savedRecordField = savedPage.questions[2].metadata.fields[0];
+
+  assert.equal(savedPage.metadata.renderer, "dynamic");
+  assert.deepEqual(savedPage.metadata.nested, originalPageMetadata.nested);
+  assert.equal(savedFollowUp.id, "follow-up-internal-id");
+  assert.equal(savedFollowUp.answerKey, "follow_up_internal_key");
+  assert.equal(savedFollowUp.label, "Updated nested follow-up");
+  assert.deepEqual(savedFollowUp.options[0], {
+    value: "follow_up_yes_internal",
+    label: "Updated follow-up choice",
+    metadata: { retain: 3 },
+  });
+  assert.equal(savedFollowUp.options[1].label, "New follow-up choice");
+  assert.match(savedFollowUp.options[1].value, /^choice_[a-z0-9_]+$/);
+  assert.deepEqual(savedFollowUp.visibleIf[0], {
+    field: "answer_key_internal",
+    op: "equals",
+    value: "no_internal",
+  });
+
+  assert.equal(savedRecordField.id, "record-field-internal-id");
+  assert.equal(savedRecordField.answerKey, "record_field_internal");
+  assert.equal(savedRecordField.label, "Updated record field");
+  assert.deepEqual(savedRecordField.options[0], {
+    value: "record_one_internal",
+    label: "Updated record choice",
+    metadata: { retain: 5 },
+  });
+  assert.equal(savedRecordField.options[1].label, "New record choice");
+  assert.match(savedRecordField.options[1].value, /^choice_[a-z0-9_]+$/);
+  assert.deepEqual(savedRecordField.visibleIf[0], {
+    field: "eligibility_internal",
+    op: "equals",
+    value: "ineligible_internal",
+  });
+});
+
+test("adding an answer choice to a legacy page promotes it to the dynamic renderer", async (t) => {
+  const definition = richDefinition();
+  definition.id = "legacy-questionnaire";
+  definition.pages[0].metadata.renderer = "legacy";
+  const originalMetadata = structuredClone(definition.pages[0].metadata);
+  const { harness, calls } = await mountBuilder(t, { definition });
+
+  const addChoice = harness.button("Add choice");
+  assert.equal(addChoice.props.disabled, false);
+  addChoice.props.onClick();
+  harness.render();
+
+  const newChoice = harness.find(
+    (node) => node.type === "input" && node.props.value === "Option 3",
+    "Expected the newly added answer choice label input",
+  );
+  newChoice.props.onChange({ target: { value: "A third choice" } });
+  harness.render();
+  assert.equal(harness.maybeControl("question-id"), undefined);
+  assert.equal(harness.maybeControl("question-key"), undefined);
+
+  await harness.button("Save").props.onClick();
+  const saveCall = calls.find(({ url, options }) =>
+    url === "/api/questionnaire-definitions/legacy-questionnaire" && options.method === "PUT"
+  );
+  assert.ok(saveCall, "Expected the structurally edited legacy questionnaire to be saved");
+  const savedPage = JSON.parse(saveCall.options.body).pages[0];
+
+  assert.equal(savedPage.metadata.renderer, "dynamic");
+  assert.deepEqual(savedPage.metadata.nested, originalMetadata.nested);
+  assert.equal(savedPage.metadata.profileRole, originalMetadata.profileRole);
+  assert.equal(savedPage.questions.length, definition.pages[0].questions.length);
+  const addedChoice = savedPage.questions[0].options.at(-1);
+  assert.equal(addedChoice.label, "A third choice");
+  assert.ok(addedChoice.value);
+  assert.notEqual(addedChoice.value, addedChoice.label);
+});
+
+test("editing an existing choice label promotes the page so that field-specific wording is rendered", async (t) => {
+  const definition = richDefinition();
+  definition.id = "legacy-choice-label-questionnaire";
+  definition.pages[0].metadata.renderer = "legacy";
+  const { harness, calls } = await mountBuilder(t, { definition });
+
+  const firstChoice = harness.control("Option 1 label");
+  firstChoice.props.onChange({ target: { value: "Updated first choice" } });
+  harness.render();
+
+  await harness.button("Save").props.onClick();
+  const saveCall = calls.find(({ url, options }) =>
+    url === "/api/questionnaire-definitions/legacy-choice-label-questionnaire"
+    && options.method === "PUT"
+  );
+  assert.ok(saveCall, "Expected the edited choice wording to be saved");
+  const savedPage = JSON.parse(saveCall.options.body).pages[0];
+
+  assert.equal(savedPage.metadata.renderer, "dynamic");
+  assert.equal(savedPage.questions[0].options[0].value, "yes_internal");
+  assert.equal(savedPage.questions[0].options[0].label, "Updated first choice");
 });

@@ -7,7 +7,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const parser = require('next/dist/compiled/babel/bundle').parser();
 const clientRoot = path.resolve(process.argv[2] || '../plylegal-client-portal');
-const outputPath = path.resolve(__dirname, '../src/lib/questionnaireBuiltInPages.js');
+const outputPath = path.resolve(__dirname, '../src/lib/.tmp-questionnaireBuiltInPages.js');
 const parsed = new Map();
 function walk(node, visit, ancestors = []) {
   if (!node || typeof node !== 'object') return;
@@ -257,17 +257,17 @@ function fieldUi(field, context) {
   const explicit = nodes(context.ast, child => child.type === 'JSXElement' && ['Label', 'label'].includes(jsxName(child)) && literal(attribute(child, 'htmlFor')) === field)[0];
   return { label: explicit ? cleanLabel(textOf(explicit.node)) : formatLabel(field), element: null, ancestors: [] };
 }
-function staticOptions(node, context, maxOptions = 100) {
+function staticOptions(node, context) {
   const resolved = resolveIdentifier(node, context);
   if (resolved.node?.type === 'CallExpression' &&
       resolved.node.callee?.type === 'MemberExpression' &&
       propertyName(resolved.node.callee.property) === 'filter') {
-    return staticOptions(resolved.node.callee.object, resolved.context, maxOptions);
+    return staticOptions(resolved.node.callee.object, resolved.context);
   }
   if (resolved.node?.type === 'CallExpression' &&
       resolved.node.callee?.type === 'MemberExpression' &&
       propertyName(resolved.node.callee.property) === 'map') {
-    const source = staticOptions(resolved.node.callee.object, resolved.context, maxOptions);
+    const source = staticOptions(resolved.node.callee.object, resolved.context);
     const mapper = resolved.node.arguments[0];
     const parameter = mapper?.params?.[0]?.name;
     let body = mapper?.body;
@@ -298,7 +298,7 @@ function staticOptions(node, context, maxOptions = 100) {
       ['optionsWithSavedValue', 'withCurrentOption'].includes(
         resolved.node.callee?.property?.name || resolved.node.callee?.name
       )) {
-    return staticOptions(resolved.node.arguments[0], resolved.context, maxOptions);
+    return staticOptions(resolved.node.arguments[0], resolved.context);
   }
   if (resolved.node?.type !== 'ArrayExpression') return null;
   const options = resolved.node.elements.map(item => {
@@ -308,7 +308,7 @@ function staticOptions(node, context, maxOptions = 100) {
     const props = Object.fromEntries(item.properties.filter(prop => prop.type === 'ObjectProperty').map(prop => [propertyName(prop.key), literal(prop.value)]));
     return props.value !== undefined ? { value: String(props.value), label: String(props.label ?? props.value) } : null;
   });
-  return options.every(Boolean) && options.length <= maxOptions ? options : null;
+  return options.every(Boolean) && options.length <= 100 ? options : null;
 }
 function uniqueOptions(options = []) {
   return [...new Map(options
@@ -356,14 +356,14 @@ function choiceContainers(element, containerNames, field) {
   else return [];
   return containers;
 }
-function choiceOptions(element, context, itemNames, field, maxOptions = 100) {
+function choiceOptions(element, context, itemNames, field) {
   const roots = choiceContainers(element, itemNames.containers, field);
   if (!roots.length) return [];
   const options = [];
 
   for (const root of roots) {
     const mapped = nodes(root, node => node.type === 'CallExpression' && node.callee?.property?.name === 'map')
-      .map(({ node }) => staticOptions(node.callee.object, context, maxOptions))
+      .map(({ node }) => staticOptions(node.callee.object, context))
       .find(values => values?.length);
     if (mapped) options.push(...mapped);
 
@@ -403,7 +403,6 @@ function applyUiChoiceControl(descriptor, ui, context) {
   // them as storage-compatible text unless a reviewed dateParts enricher maps
   // the exact three keys and option semantics.
   if (/(?:^|_)(?:day|month|year)$/.test(descriptor.answerKey)) return;
-  const maxOptions = descriptor.answerKey === 'visa_subclass' ? 250 : 100;
 
   const fieldType = jsxName(ui.element) === 'Field' ? literal(attribute(ui.element, 'type')) : null;
   if (fieldType === 'checkbox') {
@@ -414,7 +413,7 @@ function applyUiChoiceControl(descriptor, ui, context) {
     return;
   }
   if (fieldType === 'radio' || fieldType === 'select') {
-    const options = staticOptions(attribute(ui.element, 'options'), context, maxOptions) || [];
+    const options = staticOptions(attribute(ui.element, 'options'), context) || [];
     if (options.length) {
       descriptor.type = fieldType === 'radio' && isYesNoOptions(options) ? 'yesNo' : fieldType;
       descriptor.options = options;
@@ -425,7 +424,7 @@ function applyUiChoiceControl(descriptor, ui, context) {
   const radioOptions = choiceOptions(ui.element, context, {
     containers: ['RadioGroup'],
     items: ['RadioGroupItem'],
-  }, descriptor.answerKey, maxOptions);
+  }, descriptor.answerKey);
   if (radioOptions.length) {
     descriptor.type = isYesNoOptions(radioOptions) ? 'yesNo' : 'radio';
     descriptor.options = radioOptions;
@@ -435,7 +434,7 @@ function applyUiChoiceControl(descriptor, ui, context) {
   const selectOptions = choiceOptions(ui.element, context, {
     containers: ['Select', 'select'],
     items: ['SelectItem', 'option'],
-  }, descriptor.answerKey, maxOptions);
+  }, descriptor.answerKey);
   if (selectOptions.length) {
     descriptor.type = 'select';
     descriptor.options = selectOptions;

@@ -28,7 +28,7 @@ export const QUESTIONNAIRE_DEFINITION_LIMITS = Object.freeze({
   maxPages: 100,
   maxQuestionsPerPage: 200,
   maxQuestionDepth: 5,
-  maxOptionsPerQuestion: 100,
+  maxOptionsPerQuestion: 250,
   maxConditionsPerQuestion: 50,
   maxIntroBlocksPerPage: 50,
   maxIntroListItems: 100,

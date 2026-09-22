@@ -2,12 +2,22 @@ import { questionnaireBuiltInPages } from './questionnaireBuiltInPages.js';
 import { temporaryWork482Definition } from './questionnaireStarterTemplates.js';
 import { applyQuestionnaireBuiltInDetails } from './questionnaireBuiltInDetails.js';
 import { applyQuestionnaireBuiltInIdentity } from './questionnaireBuiltInIdentity.js';
+import { applyQuestionnaireBuiltInChoices } from './questionnaireBuiltInChoices.js';
+import { applyQuestionnaireBuiltInConditionalRules } from './questionnaireBuiltInConditionalRules.js';
+
+export const QUESTIONNAIRE_LEGACY_CATALOG_VERSION = 2;
 
 function builtInDefinition(visaType, visaContext, title) {
-  const pages = applyQuestionnaireBuiltInIdentity(applyQuestionnaireBuiltInDetails(structuredClone(questionnaireBuiltInPages.filter(page =>
-    page.route.startsWith(`/intake/${visaType}/`) &&
-    !(visaContext === '482' && /\/spouse-partner\/(education|language)$/.test(page.route))
-  ))));
+  const pages = applyQuestionnaireBuiltInConditionalRules(
+    applyQuestionnaireBuiltInChoices(
+      applyQuestionnaireBuiltInIdentity(
+        applyQuestionnaireBuiltInDetails(structuredClone(questionnaireBuiltInPages.filter(page =>
+          page.route.startsWith(`/intake/${visaType}/`) &&
+          !(visaContext === '482' && /\/spouse-partner\/(education|language)$/.test(page.route))
+        )))
+      )
+    )
+  );
   if (visaType === 'temporary-work') {
     const character = structuredClone(temporaryWork482Definition.pages[0]);
     character.id = 'temporary-work-all-applicants-character';
@@ -31,7 +41,14 @@ function builtInDefinition(visaType, visaContext, title) {
     visaType,
     ...(visaContext ? { visaContext, visaContexts: [visaContext] } : { visaContexts: [] }),
     version: '1.0.0', status: 'active', schemaVersion: 1, revision: 0,
-    pages: pages.map((page, index) => ({ ...page, order: (index + 1) * 10 })),
+    pages: pages.map((page, index) => ({
+      ...page,
+      order: (index + 1) * 10,
+      metadata: {
+        ...page.metadata,
+        legacyCatalogVersion: QUESTIONNAIRE_LEGACY_CATALOG_VERSION,
+      },
+    })),
   };
 }
 

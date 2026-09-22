@@ -33,6 +33,7 @@ test("marital dates and other citizenships obey the client's visible branches", 
   assert.equal(maritalDate.metadata.labelByValue.labels.Divorced, "Date of Divorce");
   assert.equal(isQuestionVisible(citizenships, { citizenship_other_than_birth: "no" }), false);
   assert.equal(isQuestionVisible(citizenships, { citizenship_other_than_birth: "yes" }), true);
+  assert.equal(citizenships.required, true);
   const ceased = citizenships.metadata.fields.find((question) => question.answerKey === "date_ceased");
   assert.equal(isQuestionVisible(ceased, { still_citizen: "yes" }), false);
   assert.equal(isQuestionVisible(ceased, { still_citizen: "no" }), true);
@@ -47,6 +48,7 @@ test("partner/protection shared Details include full fields and the actual depen
     assert.ok(spouse.questions.find((question) => question.answerKey === "birth"));
     assert.ok(spouse.questions.find((question) => question.answerKey === "citizenships"));
     assert.equal(spouse.questions.at(-1).answerKey, "preferred_names");
+    if (visaType === "partner") assert.equal(spouse.metadata.profileSection, "details");
     const relationship = child.questions.at(-1);
     assert.equal(relationship.answerKey, "relationship_to_spouse");
     assert.equal(relationship.metadata.requiresSpouse, true);

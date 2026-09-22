@@ -3,7 +3,10 @@ import { getAdminSession } from "@/lib/adminSession";
 import { isSameOriginRequest } from "@/lib/adminLoginProtection";
 import { db, initResult } from "@/lib/firebase-admin";
 import { getRegisteredQuestionnaireRoutes } from "@/lib/routes";
-import { getLegacyQuestionnairePublishIssues } from "@/lib/questionnaireLegacyProtection";
+import {
+  getLegacyQuestionnairePublishIssues,
+  hydrateLegacyQuestionnaireDefinition,
+} from "@/lib/questionnaireLegacyProtection";
 import {
   QUESTIONNAIRE_DEFINITION_LIMITS,
   QUESTIONNAIRE_DEFINITION_REVISIONS_COLLECTION,
@@ -257,7 +260,9 @@ export async function GET(_request, { params }) {
     const legacyPages = await getLegacyPages(definitionRef, snapshot.data() || {});
     return NextResponse.json({
       success: true,
-      definition: serializeQuestionnaireDefinitionDoc(snapshot, legacyPages),
+      definition: hydrateLegacyQuestionnaireDefinition(
+        serializeQuestionnaireDefinitionDoc(snapshot, legacyPages)
+      ),
     });
   } catch (error) {
     return handleError(error, "load");
@@ -298,9 +303,13 @@ async function updateDefinition(request, params, { replace }) {
         revision: currentRevision,
       };
       const bodyForSave = { ...body, status: "active" };
-      const normalized = replace
-        ? normalizeQuestionnaireDefinition({ ...bodyForSave, id: definitionId }, { id: definitionId })
+      const candidate = replace
+        ? { ...bodyForSave, id: definitionId }
         : mergeQuestionnaireDefinition(current, bodyForSave, { id: definitionId });
+      const normalized = normalizeQuestionnaireDefinition(
+        hydrateLegacyQuestionnaireDefinition(candidate),
+        { id: definitionId }
+      );
       requireRegisteredActiveRoutes(normalized);
       assertQuestionnaireDefinitionStructureEditable(current, normalized, { id: definitionId });
 

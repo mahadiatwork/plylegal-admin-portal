@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useMemo, useState } from "react";
-import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, Menu, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Menu, X } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import {
   buildQuestionnaireAnswerGroups,
@@ -188,7 +188,6 @@ export default function ClientQuestionnaireReview({ questionnaire = {}, definiti
           <button aria-label="Close menu" onClick={() => setSidebarOpen(false)} className="mb-3 lg:hidden"><X className="h-5 w-5" /></button>
           <Image src="/Ply_Logo_White.png" alt="PlyLegal" width={210} height={70} priority className="h-14 w-auto" />
           <p className="mt-1 text-sm text-white/70">Client Portal</p>
-          <a href={`/matter/${encodeURIComponent(application.id || "")}`} className="mt-6 flex items-center gap-2 text-sm font-medium text-white/80"><ArrowLeft className="h-4 w-4" />Back to Application</a>
         </div>
         <div className="mx-8 border-t border-white/20 py-6">
           <div className="mb-2 flex items-center justify-between text-sm text-[#E6F2EC]"><span>Completion</span><span className="font-semibold">{progress.percentage}%</span></div>

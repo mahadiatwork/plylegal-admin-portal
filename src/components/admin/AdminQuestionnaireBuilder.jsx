@@ -22,9 +22,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { useMatterData } from "@/components/matter/MatterDataContext";
 import { getRegisteredQuestionnaireRoutes } from "@/lib/routes";
 import { temporaryWork482Definition } from "@/lib/questionnaireStarterTemplates";
 import { questionnaireBuiltInTemplates } from "@/lib/questionnaireBuiltIns";
+import { hydrateLegacyQuestionnaireDefinition } from "@/lib/questionnaireLegacyProtection";
 
 const QUESTION_TYPES = [
   ["text", "Short text"],
@@ -178,6 +180,77 @@ function flattenQuestions(questions, flattened = []) {
   return flattened;
 }
 
+function updateQuestionTree(questions = [], questionId, updater) {
+  return questions.map((question) => {
+    let nextQuestion = question.id === questionId ? updater(question) : question;
+
+    if (nextQuestion.followUps?.length) {
+      nextQuestion = {
+        ...nextQuestion,
+        followUps: updateQuestionTree(nextQuestion.followUps, questionId, updater),
+      };
+    }
+    if (nextQuestion.metadata?.fields?.length) {
+      nextQuestion = {
+        ...nextQuestion,
+        metadata: {
+          ...nextQuestion.metadata,
+          fields: updateQuestionTree(nextQuestion.metadata.fields, questionId, updater),
+        },
+      };
+    }
+
+    return nextQuestion;
+  });
+}
+
+const DEFAULT_YES_NO_OPTIONS = [
+  { value: "yes", label: "Yes" },
+  { value: "no", label: "No" },
+];
+
+function getQuestionOptions(question) {
+  if (Array.isArray(question?.options) && question.options.length) return question.options;
+  return question?.type === "yesNo" ? DEFAULT_YES_NO_OPTIONS : [];
+}
+
+function makeChoiceValue() {
+  const token = globalThis.crypto?.randomUUID?.()
+    || `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+  return `choice_${token.replace(/[^a-z0-9_]/gi, "").toLowerCase()}`;
+}
+
+function conditionIncludesValue(condition, value) {
+  if (["exists", "notExists"].includes(condition?.op)) return false;
+  return Array.isArray(condition?.value)
+    ? condition.value.includes(value)
+    : condition?.value === value;
+}
+
+function findChoiceDependents(questions, answerKey, value, matches = []) {
+  (questions || []).forEach((question) => {
+    if ((question.visibleIf || []).some(
+      (condition) => condition.field === answerKey && conditionIncludesValue(condition, value)
+    )) {
+      matches.push(question.label || "another question");
+    }
+    findChoiceDependents(question.followUps, answerKey, value, matches);
+    findChoiceDependents(question.metadata?.fields, answerKey, value, matches);
+  });
+  return [...new Set(matches)];
+}
+
+function promotePageForStructure(page) {
+  if (page?.metadata?.renderer !== "legacy") return page;
+  return {
+    ...page,
+    metadata: {
+      ...page.metadata,
+      renderer: "dynamic",
+    },
+  };
+}
+
 function parseBooleanConditionValue(value) {
   if (typeof value === "boolean") return value;
   if (typeof value !== "string") return null;
@@ -193,10 +266,13 @@ function normalizeConditionForSource(condition, sourceQuestion) {
     delete normalized.value;
     return normalized;
   }
-  if (sourceQuestion?.type !== "checkbox") return normalized;
 
   if (["in", "notIn"].includes(normalized.op)) {
     const rawValues = Array.isArray(normalized.value) ? normalized.value : [normalized.value];
+    if (sourceQuestion?.type !== "checkbox") {
+      normalized.value = rawValues.filter((value) => value !== undefined && value !== "");
+      return normalized;
+    }
     const booleanValues = rawValues
       .map(parseBooleanConditionValue)
       .filter((value) => value !== null);
@@ -205,7 +281,9 @@ function normalizeConditionForSource(condition, sourceQuestion) {
   }
 
   const rawValue = Array.isArray(normalized.value) ? normalized.value[0] : normalized.value;
-  normalized.value = parseBooleanConditionValue(rawValue) ?? true;
+  normalized.value = sourceQuestion?.type === "checkbox"
+    ? parseBooleanConditionValue(rawValue) ?? true
+    : rawValue ?? "";
   return normalized;
 }
 
@@ -280,6 +358,22 @@ function getOwnerQuestionnaires(definitions) {
   );
 }
 
+function getEmbeddedQuestionnaireCatalog(definitions) {
+  const savedByAudience = new Map(
+    definitions.map((definition) => [questionnaireAudienceKey(definition), definition])
+  );
+
+  return questionnaireBuiltInTemplates.map((template) => {
+    const audienceKey = questionnaireAudienceKey(template);
+    const savedDefinition = savedByAudience.get(audienceKey);
+    return {
+      audienceKey,
+      definition: savedDefinition || template,
+      source: savedDefinition ? "saved" : "builtIn",
+    };
+  });
+}
+
 function getErrorMessage(payload, fallback) {
   const details = payload?.details;
   if (Array.isArray(details) && details.length) return `${payload?.error || fallback}: ${details.join("; ")}`;
@@ -333,7 +427,7 @@ async function fetchDefinition(id) {
   const payload = await apiRequest(`/api/questionnaire-definitions/${encodeURIComponent(id)}`);
   const definition = getDefinitionFromResponse(payload);
   if (!definition) throw new Error("The questionnaire API returned no definition.");
-  return normalizeDefinition(definition);
+  return normalizeDefinition(hydrateLegacyQuestionnaireDefinition(definition));
 }
 
 function countQuestions(questions = []) {
@@ -450,6 +544,354 @@ function RecordFieldWording({ fields, onChange, legacy, depth = 0 }) {
   </div>;
 }
 
+function FriendlyConditionEditor({ question, idBase, sourceQuestions, onUpdate }) {
+  const firstCondition = question.visibleIf?.[0] || null;
+  const availableSources = sourceQuestions.filter(
+    (candidate) => candidate.id !== question.id && candidate.answerKey
+  );
+  const sourceQuestion = availableSources.find(
+    (candidate) => candidate.answerKey === firstCondition?.field
+  );
+  const sourceOptions = getQuestionOptions(sourceQuestion);
+  const checkboxValue = getCheckboxConditionEditorValue(firstCondition);
+  const conditionValue = Array.isArray(firstCondition?.value)
+    ? firstCondition.value.join(", ")
+    : firstCondition?.value === undefined
+      ? ""
+      : String(firstCondition.value);
+
+  const updateCondition = (field, value) => {
+    onUpdate(question.id, (current) => {
+      const conditions = current.visibleIf?.length
+        ? [...current.visibleIf]
+        : [{ field: "answer_key", op: "equals", value: "yes" }];
+      const nextCondition = { ...conditions[0], [field]: value };
+      const nextSource = availableSources.find(
+        (candidate) => candidate.answerKey === nextCondition.field
+      );
+      conditions[0] = normalizeConditionForSource(nextCondition, nextSource);
+      return { ...current, visibleIf: conditions };
+    }, true);
+  };
+
+  const updateSource = (answerKey) => {
+    const nextSource = availableSources.find(
+      (candidate) => candidate.answerKey === answerKey
+    );
+    const options = getQuestionOptions(nextSource);
+    onUpdate(question.id, (current) => {
+      const conditions = current.visibleIf?.length
+        ? [...current.visibleIf]
+        : [{ field: answerKey, op: "equals", value: "" }];
+      conditions[0] = normalizeConditionForSource({
+        ...conditions[0],
+        field: answerKey,
+        op: "equals",
+        value: nextSource?.type === "checkbox" ? true : options[0]?.value ?? "",
+      }, nextSource);
+      return { ...current, visibleIf: conditions };
+    }, true);
+  };
+
+  const toggleCondition = (enabled) => {
+    if (!enabled) {
+      onUpdate(question.id, (current) => ({ ...current, visibleIf: [] }), true);
+      return;
+    }
+    const fallbackQuestion = availableSources[0];
+    const fallbackOptions = getQuestionOptions(fallbackQuestion);
+    onUpdate(question.id, (current) => ({
+      ...current,
+      visibleIf: [{
+        field: fallbackQuestion?.answerKey || "answer_key",
+        op: "equals",
+        value: fallbackQuestion?.type === "checkbox"
+          ? true
+          : fallbackOptions[0]?.value ?? "",
+      }, ...(current.visibleIf || []).slice(1)],
+    }), true);
+  };
+
+  return (
+    <div className="space-y-3 rounded-lg border border-[#e1e9e5] bg-white p-3">
+      <label className="flex items-center gap-3 text-sm font-semibold text-[#24453b]">
+        <input
+          id={`${idBase}-conditional`}
+          type="checkbox"
+          className="h-4 w-4 accent-[#4F726B]"
+          checked={Boolean(firstCondition)}
+          disabled={!firstCondition && availableSources.length === 0}
+          onChange={(event) => toggleCondition(event.target.checked)}
+        />
+        Show this question conditionally
+      </label>
+      {firstCondition ? (
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="space-y-2">
+            <FieldLabel htmlFor={`${idBase}-condition-question`}>After this question</FieldLabel>
+            <select
+              id={`${idBase}-condition-question`}
+              className={selectClassName}
+              value={firstCondition.field || ""}
+              onChange={(event) => updateSource(event.target.value)}
+            >
+              <option value="" disabled>Select a question</option>
+              {!sourceQuestion && firstCondition.field ? (
+                <option value={firstCondition.field}>Current linked question</option>
+              ) : null}
+              {availableSources.map((candidate) => (
+                <option key={candidate.id} value={candidate.answerKey}>{candidate.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <FieldLabel htmlFor={`${idBase}-condition-operator`}>Rule</FieldLabel>
+            <select
+              id={`${idBase}-condition-operator`}
+              className={selectClassName}
+              value={firstCondition.op || "equals"}
+              onChange={(event) => updateCondition("op", event.target.value)}
+            >
+              {CONDITION_OPERATORS.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <FieldLabel htmlFor={`${idBase}-condition-answer`}>Answer</FieldLabel>
+            {["exists", "notExists"].includes(firstCondition.op) ? (
+              <p id={`${idBase}-condition-answer`} className="flex h-10 items-center text-sm text-[#60786f]">
+                No answer needs to be selected.
+              </p>
+            ) : sourceOptions.length ? (
+              <select
+                id={`${idBase}-condition-answer`}
+                className={selectClassName}
+                multiple={["in", "notIn"].includes(firstCondition.op)}
+                value={["in", "notIn"].includes(firstCondition.op)
+                  ? Array.isArray(firstCondition.value)
+                    ? firstCondition.value
+                    : [firstCondition.value].filter(Boolean)
+                  : firstCondition.value ?? ""}
+                onChange={(event) => updateCondition(
+                  "value",
+                  ["in", "notIn"].includes(firstCondition.op)
+                    ? Array.from(event.target.selectedOptions || []).map((option) => option.value)
+                    : event.target.value
+                )}
+              >
+                <option value="" disabled>Select an answer</option>
+                {sourceOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            ) : sourceQuestion?.type === "checkbox" ? (
+              <select
+                id={`${idBase}-condition-answer`}
+                className={selectClassName}
+                value={checkboxValue}
+                onChange={(event) => updateCondition(
+                  "value",
+                  ["in", "notIn"].includes(firstCondition.op)
+                    ? event.target.value === "both"
+                      ? [true, false]
+                      : [event.target.value === "true"]
+                    : event.target.value === "true"
+                )}
+              >
+                <option value="true">Checked</option>
+                <option value="false">Not checked</option>
+                {["in", "notIn"].includes(firstCondition.op) ? (
+                  <option value="both">Either answer</option>
+                ) : null}
+              </select>
+            ) : (
+              <Input
+                id={`${idBase}-condition-answer`}
+                className={inputClassName}
+                value={conditionValue}
+                onChange={(event) => updateCondition(
+                  "value",
+                  ["in", "notIn"].includes(firstCondition.op)
+                    ? event.target.value.split(",").map((value) => value.trim())
+                    : event.target.value
+                )}
+              />
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function EmbeddedNestedQuestionEditor({
+  question,
+  kind,
+  depth = 0,
+  legacy,
+  sourceQuestions,
+  onUpdate,
+  onDeleteOption,
+}) {
+  const idBase = `${kind}-${question.id}`;
+  const options = getQuestionOptions(question);
+  const recordFieldSources = flattenQuestions(question.metadata?.fields || []);
+  const showOptions = ["select", "radio", "yesNo"].includes(question.type)
+    || Array.isArray(question.options);
+
+  const updateOptionLabel = (optionIndex, label) => {
+    onUpdate(question.id, (current) => ({
+      ...current,
+      options: getQuestionOptions(current).map((option, index) =>
+        index === optionIndex ? { ...option, label } : option
+      ),
+    }), true);
+  };
+
+  const addOption = () => {
+    onUpdate(question.id, (current) => ({
+      ...current,
+      options: [
+        ...getQuestionOptions(current),
+        { value: makeChoiceValue(), label: `Option ${getQuestionOptions(current).length + 1}` },
+      ],
+    }), true);
+  };
+
+  return (
+    <div
+      className="space-y-4 rounded-lg border border-[#d9e6e0] bg-[#f8fbf9] p-4"
+      style={{ marginLeft: `${Math.min(depth, 3) * 10}px` }}
+    >
+      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#70877e]">
+        {kind === "follow-up" ? "Follow-up question" : "Record field"}
+      </p>
+      <div className="space-y-2">
+        <FieldLabel htmlFor={`${idBase}-label`}>Question text</FieldLabel>
+        <Textarea
+          id={`${idBase}-label`}
+          rows={2}
+          className="border-[#d7e4de] bg-white"
+          value={question.label || ""}
+          onChange={(event) => onUpdate(
+            question.id,
+            (current) => ({ ...current, label: event.target.value }),
+            false
+          )}
+        />
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="space-y-2">
+          <FieldLabel htmlFor={`${idBase}-description`}>Help text</FieldLabel>
+          <Input
+            id={`${idBase}-description`}
+            className={inputClassName}
+            disabled={legacy && !Object.hasOwn(question.metadata || {}, "originalDescription") && !question.description}
+            value={question.description || ""}
+            onChange={(event) => onUpdate(
+              question.id,
+              (current) => ({ ...current, description: event.target.value }),
+              false
+            )}
+          />
+        </div>
+        <div className="space-y-2">
+          <FieldLabel htmlFor={`${idBase}-placeholder`}>Placeholder</FieldLabel>
+          <Input
+            id={`${idBase}-placeholder`}
+            className={inputClassName}
+            disabled={legacy && !Object.hasOwn(question.metadata || {}, "originalPlaceholder") && !question.placeholder}
+            value={question.placeholder || ""}
+            onChange={(event) => onUpdate(
+              question.id,
+              (current) => ({ ...current, placeholder: event.target.value }),
+              false
+            )}
+          />
+        </div>
+      </div>
+      {showOptions ? (
+        <div className="space-y-3 rounded-lg border border-[#e1e9e5] bg-white p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h5 className="text-sm font-semibold text-[#24453b]">Answer choices</h5>
+              <p className="text-xs text-[#71857d]">Edit the labels clients see.</p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              id={`${idBase}-add-option`}
+              aria-label={`Add choice for ${question.label}`}
+              disabled={question.type === "yesNo"}
+              onClick={addOption}
+            >
+              <Plus />
+              Add answer choice
+            </Button>
+          </div>
+          <div className="space-y-2">
+            {options.map((option, optionIndex) => (
+              <div key={`${option.value}-${optionIndex}`} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_36px]">
+                <Input
+                  id={`${idBase}-option-${optionIndex + 1}-label`}
+                  className={inputClassName}
+                  aria-label={`Choice ${optionIndex + 1} for ${question.label}`}
+                  value={option.label}
+                  onChange={(event) => updateOptionLabel(optionIndex, event.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  id={`${idBase}-delete-option-${optionIndex + 1}`}
+                  aria-label={`Delete choice ${optionIndex + 1} for ${question.label}`}
+                  className="text-red-600 hover:bg-red-50"
+                  disabled={question.type === "yesNo" || options.length <= 1}
+                  onClick={() => onDeleteOption(question, optionIndex)}
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      <FriendlyConditionEditor
+        question={question}
+        idBase={idBase}
+        sourceQuestions={sourceQuestions}
+        onUpdate={onUpdate}
+      />
+      {question.followUps?.map((followUp) => (
+        <EmbeddedNestedQuestionEditor
+          key={followUp.id}
+          question={followUp}
+          kind="follow-up"
+          depth={depth + 1}
+          legacy={legacy}
+          sourceQuestions={sourceQuestions}
+          onUpdate={onUpdate}
+          onDeleteOption={onDeleteOption}
+        />
+      ))}
+      {question.metadata?.fields?.map((field) => (
+        <EmbeddedNestedQuestionEditor
+          key={field.id}
+          question={field}
+          kind="record"
+          depth={depth + 1}
+          legacy={legacy}
+          sourceQuestions={recordFieldSources}
+          onUpdate={onUpdate}
+          onDeleteOption={onDeleteOption}
+        />
+      ))}
+    </div>
+  );
+}
+
 function EmptyPane({ onCreate }) {
   return (
     <section className="flex min-h-[560px] flex-col items-center justify-center rounded-2xl border border-dashed border-[#cbdad3] bg-white/70 px-6 text-center">
@@ -469,6 +911,7 @@ function EmptyPane({ onCreate }) {
 }
 
 export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } = {}) {
+  const matterData = useMatterData();
   const [definitions, setDefinitions] = useState([]);
   const [selectedId, setSelectedId] = useState("");
   const [definition, setDefinition] = useState(null);
@@ -509,20 +952,37 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
   const legacyPage = activePage?.metadata?.renderer === "legacy";
   const machineKeysLocked = legacyPage;
   const registeredRoutes = useMemo(() => getRegisteredRoutes(definition), [definition]);
+  const pageQuestions = useMemo(
+    () => flattenQuestions(activePage?.questions),
+    [activePage]
+  );
   const conditionSourceQuestions = useMemo(
-    () => flattenQuestions(activePage?.questions).filter(
+    () => pageQuestions.filter(
       (question) => question.id !== activeQuestion?.id && question.answerKey
     ),
-    [activePage, activeQuestion?.id]
+    [activeQuestion?.id, pageQuestions]
+  );
+  const preferredAudienceKey = embeddedInMatter
+    ? questionnaireAudienceKey(matterData?.questionnaireDefinition)
+    : "";
+  const availableDefinitionEntries = useMemo(
+    () => embeddedInMatter
+      ? getEmbeddedQuestionnaireCatalog(definitions)
+      : definitions.map((item) => ({
+          audienceKey: questionnaireAudienceKey(item),
+          definition: item,
+          source: "saved",
+        })),
+    [definitions, embeddedInMatter]
   );
   const filteredDefinitions = useMemo(() => {
     const search = definitionSearch.trim().toLowerCase();
-    return definitions.filter((item) =>
+    return availableDefinitionEntries.filter(({ definition: item }) =>
       [item.title, item.id, audienceLabel(item)].some((value) =>
         String(value || "").toLowerCase().includes(search)
       )
     );
-  }, [definitions, definitionSearch]);
+  }, [availableDefinitionEntries, definitionSearch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -540,6 +1000,32 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
         setDefinitions(ownerQuestionnaires);
         setSavedQuestionnairesError("");
         if (requestId !== selectionRequestId.current) return;
+        if (embeddedInMatter) {
+          const catalog = getEmbeddedQuestionnaireCatalog(ownerQuestionnaires);
+          const preferredEntry = catalog.find(
+            (entry) => entry.audienceKey === preferredAudienceKey
+          ) || catalog[0];
+          if (preferredEntry?.source === "builtIn") {
+            createDefinitionFrom(preferredEntry.definition, {
+              starter: true,
+              checkDiscard: false,
+            });
+            return;
+          }
+          if (preferredEntry?.definition) {
+            const loaded = await fetchDefinition(preferredEntry.definition.id);
+            if (cancelled || requestId !== selectionRequestId.current) return;
+
+            setSelectedId(loaded.id);
+            setDefinition(loaded);
+            setSavedDefinition(clone(loaded));
+            setActivePageId(loaded.pages[0]?.id || "");
+            setActiveQuestionId(loaded.pages[0]?.questions?.[0]?.id || "");
+            setJsonText(JSON.stringify(loaded, null, 2));
+            setJsonHasPendingEdits(false);
+            return;
+          }
+        }
         if (!ownerQuestionnaires.length) {
           createDefinitionFrom(questionnaireBuiltInTemplates[0], { starter: true, checkDiscard: false });
           return;
@@ -560,7 +1046,14 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
       } catch (loadError) {
         if (!cancelled && currentListRequestId === listRequestId.current) {
           setSavedQuestionnairesError(`Saved questionnaires could not be loaded. ${loadError.message}`);
-          if (requestId === selectionRequestId.current) createDefinitionFrom(questionnaireBuiltInTemplates[0], { starter: true, checkDiscard: false });
+          if (requestId === selectionRequestId.current) {
+            const fallbackTemplate = embeddedInMatter
+              ? questionnaireBuiltInTemplates.find(
+                  (template) => questionnaireAudienceKey(template) === preferredAudienceKey
+                ) || questionnaireBuiltInTemplates[0]
+              : questionnaireBuiltInTemplates[0];
+            createDefinitionFrom(fallbackTemplate, { starter: true, checkDiscard: false });
+          }
         }
       } finally {
         if (!cancelled && currentListRequestId === listRequestId.current) setIsLoading(false);
@@ -603,6 +1096,40 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
       const ownerQuestionnaires = getOwnerQuestionnaires(list);
       setDefinitions(ownerQuestionnaires);
       if (requestId !== selectionRequestId.current) return;
+
+      if (embeddedInMatter) {
+        const catalog = getEmbeddedQuestionnaireCatalog(ownerQuestionnaires);
+        const selectedAudienceKey = questionnaireAudienceKey(definition);
+        const preferredEntry = catalog.find(
+          (entry) => entry.source === "saved" && String(entry.definition.id) === String(preferredId)
+        ) || catalog.find(
+          (entry) => entry.audienceKey === selectedAudienceKey
+        ) || catalog.find(
+          (entry) => entry.audienceKey === preferredAudienceKey
+        ) || catalog[0];
+
+        if (preferredEntry?.source === "builtIn") {
+          createDefinitionFrom(preferredEntry.definition, {
+            starter: true,
+            checkDiscard: false,
+          });
+          return;
+        }
+        if (preferredEntry?.definition) {
+          const loaded = await fetchDefinition(preferredEntry.definition.id);
+          if (requestId !== selectionRequestId.current) return;
+          setSelectedId(loaded.id);
+          setDefinition(loaded);
+          setSavedDefinition(clone(loaded));
+          setJsonText(JSON.stringify(loaded, null, 2));
+          setJsonHasPendingEdits(false);
+          setJsonError("");
+          setActivePageId(loaded.pages[0]?.id || "");
+          setActiveQuestionId(loaded.pages[0]?.questions?.[0]?.id || "");
+          setIsCreating(false);
+          return;
+        }
+      }
 
       if (!ownerQuestionnaires.length) {
         createDefinitionFrom(questionnaireBuiltInTemplates[0], { starter: true, checkDiscard: false });
@@ -775,6 +1302,19 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
     }));
   }
 
+  function updateActiveQuestionStructure(updater) {
+    if (!activeQuestion) return;
+    updateActivePage((currentPage) => {
+      const page = promotePageForStructure(currentPage);
+      return {
+        ...page,
+        questions: page.questions.map((question, index) =>
+          index === activeQuestionIndex ? updater(question) : question
+        ),
+      };
+    });
+  }
+
   function updateQuestionField(field, value) {
     updateActiveQuestion((question) => ({ ...question, [field]: value }));
     if (field === "id") setActiveQuestionId(value);
@@ -804,6 +1344,38 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
       ...(question.metadata?.fields ? { metadata: { ...question.metadata, fields: updateFields(question.metadata.fields) } } : {}),
     }));
     updateActiveQuestion((question) => ({ ...question, metadata: { ...question.metadata, fields: updateFields(question.metadata.fields) } }));
+  }
+
+  function updateNestedQuestion(questionId, updater, structural = false) {
+    const updateQuestion = structural
+      ? updateActiveQuestionStructure
+      : updateActiveQuestion;
+    updateQuestion((question) => updateQuestionTree([question], questionId, updater)[0]);
+  }
+
+  function deleteNestedOption(question, optionIndex) {
+    const options = getQuestionOptions(question);
+    if (options.length <= 1) {
+      setError("A choice question needs at least one answer choice.");
+      return;
+    }
+    const option = options[optionIndex];
+    const dependents = findChoiceDependents(
+      activePage?.questions,
+      question.answerKey,
+      option?.value
+    );
+    if (dependents.length) {
+      setError(
+        `“${option?.label || "This choice"}” controls ${dependents.join(", ")}. Change ${dependents.length === 1 ? "that question's" : "those questions'"} display rule before deleting this choice.`
+      );
+      return;
+    }
+    updateNestedQuestion(question.id, (current) => ({
+      ...current,
+      options: getQuestionOptions(current).filter((_, index) => index !== optionIndex),
+    }), true);
+    setError("");
   }
 
   function changeQuestionType(type) {
@@ -871,53 +1443,100 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
   }
 
   function updateOption(optionIndex, field, value) {
-    updateActiveQuestion((question) => ({
+    const updater = (question) => ({
       ...question,
-      options: (question.options || []).map((option, index) =>
+      options: getQuestionOptions(question).map((option, index) =>
         index === optionIndex ? { ...option, [field]: value } : option
       ),
-    }));
+    });
+    if (embeddedInMatter || !Array.isArray(activeQuestion?.options) || field === "value") {
+      updateActiveQuestionStructure(updater);
+    } else {
+      updateActiveQuestion(updater);
+    }
   }
 
   function addOption() {
-    const options = activeQuestion?.options || [];
-    const existingValues = new Set(options.map((option) => option.value));
-    const value = uniqueId(existingValues, `option-${options.length + 1}`).replace(/-/g, "_");
-    updateActiveQuestion((question) => ({
+    const options = getQuestionOptions(activeQuestion);
+    updateActiveQuestionStructure((question) => ({
       ...question,
-      options: [...(question.options || []), { value, label: `Option ${options.length + 1}` }],
+      options: [
+        ...getQuestionOptions(question),
+        { value: makeChoiceValue(), label: `Option ${options.length + 1}` },
+      ],
     }));
+    setError("");
   }
 
   function deleteOption(optionIndex) {
-    updateActiveQuestion((question) => ({
+    const options = getQuestionOptions(activeQuestion);
+    if (options.length <= 1) {
+      setError("A choice question needs at least one answer choice.");
+      return;
+    }
+    const option = options[optionIndex];
+    const dependents = findChoiceDependents(
+      activePage?.questions,
+      activeQuestion?.answerKey,
+      option?.value
+    );
+    if (dependents.length) {
+      setError(
+        `“${option?.label || "This choice"}” controls ${dependents.join(", ")}. Change ${dependents.length === 1 ? "that question's" : "those questions'"} display rule before deleting this choice.`
+      );
+      return;
+    }
+    updateActiveQuestionStructure((question) => ({
       ...question,
-      options: (question.options || []).filter((_, index) => index !== optionIndex),
+      options: getQuestionOptions(question).filter((_, index) => index !== optionIndex),
     }));
+    setError("");
   }
 
   function toggleCondition(enabled) {
     if (!enabled) {
-      updateActiveQuestion((question) => ({ ...question, visibleIf: [] }));
+      updateActiveQuestionStructure((question) => ({ ...question, visibleIf: [] }));
       return;
     }
 
     const fallbackQuestion = conditionSourceQuestions[0];
-    updateActiveQuestion((question) => ({
+    const fallbackOptions = getQuestionOptions(fallbackQuestion);
+    updateActiveQuestionStructure((question) => ({
       ...question,
       visibleIf: [
         {
           field: fallbackQuestion?.answerKey || "answer_key",
           op: "equals",
-          value: fallbackQuestion?.type === "checkbox" ? true : "yes",
+          value: fallbackQuestion?.type === "checkbox"
+            ? true
+            : fallbackOptions[0]?.value ?? "",
         },
         ...(question.visibleIf || []).slice(1),
       ],
     }));
   }
 
+  function updateConditionSource(answerKey) {
+    const sourceQuestion = conditionSourceQuestions.find(
+      (candidate) => candidate.answerKey === answerKey
+    );
+    const options = getQuestionOptions(sourceQuestion);
+    updateActiveQuestionStructure((question) => {
+      const conditions = question.visibleIf?.length
+        ? [...question.visibleIf]
+        : [{ field: answerKey, op: "equals", value: "" }];
+      conditions[0] = normalizeConditionForSource({
+        ...conditions[0],
+        field: answerKey,
+        op: "equals",
+        value: sourceQuestion?.type === "checkbox" ? true : options[0]?.value ?? "",
+      }, sourceQuestion);
+      return { ...question, visibleIf: conditions };
+    });
+  }
+
   function updateCondition(field, value) {
-    updateActiveQuestion((question) => {
+    updateActiveQuestionStructure((question) => {
       const conditions = question.visibleIf?.length
         ? [...question.visibleIf]
         : [{ field: "answer_key", op: "equals", value: "yes" }];
@@ -1116,8 +1735,11 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
   const conditionSourceQuestion = conditionSourceQuestions.find(
     (question) => question.answerKey === firstCondition?.field
   );
+  const conditionSourceOptions = getQuestionOptions(conditionSourceQuestion);
   const checkboxConditionEditorValue = getCheckboxConditionEditorValue(firstCondition);
-  const showOptions = ["select", "radio", "yesNo"].includes(activeQuestion?.type);
+  const activeQuestionOptions = getQuestionOptions(activeQuestion);
+  const showOptions = ["select", "radio", "yesNo"].includes(activeQuestion?.type)
+    && !activeQuestion?.optionsSource;
 
   return (
     <div className="space-y-6">
@@ -1131,7 +1753,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[#60786f]">
             {embeddedInMatter
-              ? "Choose a page and question, update the wording shown to the client, then save."
+              ? "Choose a page and question, then edit its wording, answer choices, or display rules."
               : "Edit the questions, answer options and help text shown in the Client Portal. Choose a questionnaire, select a page, make your changes, then save."}
           </p>
         </div>
@@ -1198,8 +1820,14 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
         }`}>
           <div className="flex shrink-0 items-center justify-between border-b border-[#e1e9e5] px-4 py-4">
             <div>
-              <h2 className="font-semibold text-[#17372e]">Saved questionnaires</h2>
-              <p className="text-xs text-[#71857d]">{definitions.length} saved</p>
+              <h2 className="font-semibold text-[#17372e]">
+                {embeddedInMatter ? "Visa questionnaires" : "Saved questionnaires"}
+              </h2>
+              <p className="text-xs text-[#71857d]">
+                {embeddedInMatter
+                  ? `${availableDefinitionEntries.length} available`
+                  : `${definitions.length} saved`}
+              </p>
             </div>
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin text-[#4F726B]" /> : null}
           </div>
@@ -1210,15 +1838,25 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
             </div>
           </div>
           <div className="min-h-0 max-h-[420px] space-y-2 overflow-y-auto p-3 xl:max-h-none">
-            {filteredDefinitions.length ? filteredDefinitions.map((item) => {
+            {filteredDefinitions.length ? filteredDefinitions.map((entry) => {
+              const item = entry.definition;
               const counts = definitionCounts(item);
-              const selected = !isCreating && String(item.id) === String(selectedId);
+              const selected = entry.source === "builtIn"
+                ? isCreating && questionnaireAudienceKey(definition) === entry.audienceKey
+                : !isCreating && String(item.id) === String(selectedId);
               return (
                 <button
-                  key={item.id}
+                  key={`${entry.audienceKey}:${item.id}`}
                   type="button"
                   disabled={isBusy}
-                  onClick={() => selectDefinition(item.id)}
+                  onClick={() => {
+                    if (selected) return;
+                    if (entry.source === "builtIn") {
+                      createDefinitionFrom(item, { starter: true });
+                    } else {
+                      selectDefinition(item.id);
+                    }
+                  }}
                   className={`w-full cursor-pointer rounded-xl border p-3 text-left transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B] focus-visible:ring-offset-2 disabled:cursor-not-allowed ${
                     selected
                       ? "border-[#8ac6ad] bg-[#e8f4ee] shadow-sm hover:border-[#4F726B] hover:bg-[#dcefe5]"
@@ -1587,7 +2225,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                           <div>
                             <h3 className="font-semibold text-[#17372e]">Questions</h3>
                             <p className="text-xs text-[#71857d]">
-                              {embeddedInMatter ? "Choose a question to edit its wording." : "Choose a question to edit its text and behavior."}
+                              {embeddedInMatter ? "Choose a question to edit its wording, choices, and display rules." : "Choose a question to edit its text and behavior."}
                             </p>
                           </div>
                           {!embeddedInMatter ? (
@@ -1694,20 +2332,41 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                 </div>
                               </div>
 
-                              {!embeddedInMatter ? (
-                                <>
+                              <>
                                   {activeQuestion.metadata?.fields?.length ? <div className="space-y-4 rounded-xl border border-[#d9e6e0] bg-[#f8fbf9] p-4">
                                     <div><h4 className="text-sm font-semibold text-[#24453b]">Record field wording</h4><p className="text-xs text-[#71857d]">Edit the fields clients see inside each record. Their saved values and answer keys stay preserved.</p></div>
-                                    <RecordFieldWording fields={activeQuestion.metadata.fields} onChange={updateRecordFieldText} legacy={legacyPage} />
+                                    {embeddedInMatter
+                                      ? activeQuestion.metadata.fields.map((field) => (
+                                          <EmbeddedNestedQuestionEditor
+                                            key={field.id}
+                                            question={field}
+                                            kind="record"
+                                            legacy={legacyPage}
+                                            sourceQuestions={flattenQuestions(activeQuestion.metadata.fields)}
+                                            onUpdate={updateNestedQuestion}
+                                            onDeleteOption={deleteNestedOption}
+                                          />
+                                        ))
+                                      : <RecordFieldWording fields={activeQuestion.metadata.fields} onChange={updateRecordFieldText} legacy={legacyPage} />}
                                   </div> : null}
 
                                   {activeQuestion.followUps?.length ? (
                                 <div className="space-y-4 rounded-xl border border-[#d9e6e0] bg-[#f8fbf9] p-4">
                                   <div>
                                     <h4 className="text-sm font-semibold text-[#24453b]">Follow-up wording</h4>
-                                    <p className="text-xs text-[#71857d]">Edit the text shown after conditional answers. Rules and machine keys stay in Advanced JSON.</p>
+                                    <p className="text-xs text-[#71857d]">Edit the wording clients see when a follow-up question appears.</p>
                                   </div>
-                                  {flattenFollowUps(activeQuestion.followUps).map(({ question, depth }) => (
+                                  {embeddedInMatter ? activeQuestion.followUps.map((question) => (
+                                    <EmbeddedNestedQuestionEditor
+                                      key={question.id}
+                                      question={question}
+                                      kind="follow-up"
+                                      legacy={legacyPage}
+                                      sourceQuestions={pageQuestions}
+                                      onUpdate={updateNestedQuestion}
+                                      onDeleteOption={deleteNestedOption}
+                                    />
+                                  )) : flattenFollowUps(activeQuestion.followUps).map(({ question, depth }) => (
                                     <div key={question.id} className="space-y-3 border-l-2 border-[#b9d6ca] pl-4" style={{ marginLeft: `${Math.min(depth - 1, 3) * 12}px` }}>
                                       <p className="font-mono text-[11px] text-[#71857d]">{question.answerKey}</p>
                                       <div className="space-y-2">
@@ -1726,6 +2385,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                           <Input
                                             id={`follow-up-${question.id}-description`}
                                             className={inputClassName}
+                                            disabled={legacyPage && !Object.hasOwn(question.metadata || {}, "originalDescription")}
                                             value={question.description || ""}
                                             onChange={(event) => updateFollowUpText(question.id, "description", event.target.value)}
                                           />
@@ -1735,6 +2395,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                           <Input
                                             id={`follow-up-${question.id}-placeholder`}
                                             className={inputClassName}
+                                            disabled={legacyPage && !Object.hasOwn(question.metadata || {}, "originalPlaceholder")}
                                             value={question.placeholder || ""}
                                             onChange={(event) => updateFollowUpText(question.id, "placeholder", event.target.value)}
                                           />
@@ -1752,14 +2413,40 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                       <h4 className="text-sm font-semibold text-[#24453b]">Answer choices</h4>
                                       <p className="text-xs text-[#71857d]">Edit the option label clients see. Keep stored values stable so existing answers continue to match.</p>
                                     </div>
-                                    <Button type="button" variant="ghost" size="sm" disabled={machineKeysLocked || activeQuestion.type === "yesNo"} onClick={addOption}><Plus />Add</Button>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      disabled={activeQuestion.type === "yesNo" || (!embeddedInMatter && machineKeysLocked)}
+                                      onClick={addOption}
+                                    >
+                                      <Plus />
+                                      {embeddedInMatter ? "Add choice" : "Add"}
+                                    </Button>
                                   </div>
                                   <div className="space-y-2">
-                                    {(activeQuestion.options || []).map((option, optionIndex) => (
-                                      <div key={`${option.value}-${optionIndex}`} className="grid gap-2 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_36px]">
-                                        <Input className={`${inputClassName} font-mono`} aria-label={`Option ${optionIndex + 1} value`} value={option.value} disabled={machineKeysLocked || activeQuestion.type === "yesNo"} onChange={(event) => updateOption(optionIndex, "value", event.target.value)} />
+                                    {activeQuestionOptions.map((option, optionIndex) => (
+                                      <div
+                                        key={`${option.value}-${optionIndex}`}
+                                        className={embeddedInMatter
+                                          ? "grid gap-2 sm:grid-cols-[minmax(0,1fr)_36px]"
+                                          : "grid gap-2 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_36px]"}
+                                      >
+                                        {!embeddedInMatter ? (
+                                          <Input className={`${inputClassName} font-mono`} aria-label={`Option ${optionIndex + 1} value`} value={option.value} disabled={machineKeysLocked || activeQuestion.type === "yesNo"} onChange={(event) => updateOption(optionIndex, "value", event.target.value)} />
+                                        ) : null}
                                         <Input className={inputClassName} aria-label={`Option ${optionIndex + 1} label`} value={option.label} onChange={(event) => updateOption(optionIndex, "label", event.target.value)} />
-                                        <Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" disabled={machineKeysLocked || activeQuestion.type === "yesNo"} onClick={() => deleteOption(optionIndex)} aria-label={`Delete option ${optionIndex + 1}`}><Trash2 /></Button>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          className="text-red-600 hover:bg-red-50"
+                                          disabled={activeQuestion.type === "yesNo" || activeQuestionOptions.length <= 1 || (!embeddedInMatter && machineKeysLocked)}
+                                          onClick={() => deleteOption(optionIndex)}
+                                          aria-label={embeddedInMatter ? `Delete choice ${optionIndex + 1}` : `Delete option ${optionIndex + 1}`}
+                                        >
+                                          <Trash2 />
+                                        </Button>
                                       </div>
                                     ))}
                                   </div>
@@ -1767,87 +2454,126 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                   ) : null}
 
                                   <div className="space-y-3 rounded-xl border border-[#e1e9e5] p-4">
-                                <label className="flex items-center gap-3 text-sm font-semibold text-[#24453b]">
-                                  <input type="checkbox" className="h-4 w-4 accent-[#4F726B]" checked={Boolean(firstCondition)} disabled={machineKeysLocked} onChange={(event) => toggleCondition(event.target.checked)} />
-                                  Show this question conditionally
-                                </label>
-                                {firstCondition ? (
-                                  <div className="grid gap-3 md:grid-cols-3">
-                                    <div className="space-y-2">
-                                      <FieldLabel htmlFor="condition-field">Answer key</FieldLabel>
-                                      <Input id="condition-field" list="question-answer-keys" className={`${inputClassName} font-mono`} value={firstCondition.field || ""} disabled={machineKeysLocked} onChange={(event) => updateCondition("field", event.target.value)} />
-                                      <datalist id="question-answer-keys">
-                                        {conditionSourceQuestions.map((question) => <option key={question.id} value={question.answerKey} />)}
-                                      </datalist>
-                                    </div>
-                                    <div className="space-y-2">
-                                      <FieldLabel htmlFor="condition-operator">Rule</FieldLabel>
-                                      <select id="condition-operator" className={selectClassName} value={firstCondition.op || "equals"} disabled={machineKeysLocked} onChange={(event) => updateCondition("op", event.target.value)}>
-                                        {CONDITION_OPERATORS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                                      </select>
-                                    </div>
-                                    <div className="space-y-2">
-                                      <FieldLabel
-                                        htmlFor="condition-value"
-                                        hint={conditionSourceQuestion?.type === "checkbox"
-                                          ? "boolean"
-                                          : ["in", "notIn"].includes(firstCondition.op) ? "comma separated" : ""}
-                                      >Value</FieldLabel>
-                                      {conditionSourceQuestion?.type === "checkbox" ? (
-                                        <select
-                                          id="condition-value"
-                                          className={selectClassName}
-                                          value={checkboxConditionEditorValue}
-                                          disabled={machineKeysLocked || ["exists", "notExists"].includes(firstCondition.op)}
-                                          onChange={(event) => updateCondition(
-                                            "value",
-                                            ["in", "notIn"].includes(firstCondition.op)
-                                              ? event.target.value === "both"
-                                                ? [true, false]
-                                                : [event.target.value === "true"]
-                                              : event.target.value === "true"
-                                          )}
-                                        >
-                                          <option value="" disabled>Select a boolean</option>
-                                          <option value="true">True</option>
-                                          <option value="false">False</option>
-                                          {["in", "notIn"].includes(firstCondition.op) ? <option value="both">True or false</option> : null}
-                                        </select>
-                                      ) : (
-                                        <Input
-                                          id="condition-value"
-                                          className={inputClassName}
-                                          value={conditionValue}
-                                          disabled={machineKeysLocked || ["exists", "notExists"].includes(firstCondition.op)}
-                                          onChange={(event) => updateCondition(
-                                            "value",
-                                            ["in", "notIn"].includes(firstCondition.op)
-                                              ? event.target.value.split(",").map((value) => value.trim())
-                                              : event.target.value
-                                          )}
-                                          onBlur={() => {
-                                            if (["in", "notIn"].includes(firstCondition.op)) {
-                                              updateCondition(
+                                    <label className="flex items-center gap-3 text-sm font-semibold text-[#24453b]">
+                                      <input
+                                        type="checkbox"
+                                        className="h-4 w-4 accent-[#4F726B]"
+                                        checked={Boolean(firstCondition)}
+                                        disabled={(!embeddedInMatter && machineKeysLocked) || (!firstCondition && conditionSourceQuestions.length === 0)}
+                                        onChange={(event) => toggleCondition(event.target.checked)}
+                                      />
+                                      Show this question conditionally
+                                    </label>
+                                    {firstCondition ? embeddedInMatter ? (
+                                      <div className="grid gap-3 md:grid-cols-3">
+                                        <div className="space-y-2">
+                                          <FieldLabel htmlFor="condition-question">After this question</FieldLabel>
+                                          <select
+                                            id="condition-question"
+                                            className={selectClassName}
+                                            value={firstCondition.field || ""}
+                                            onChange={(event) => updateConditionSource(event.target.value)}
+                                          >
+                                            <option value="" disabled>Select a question</option>
+                                            {conditionSourceQuestions.map((question) => (
+                                              <option key={question.id} value={question.answerKey}>{question.label}</option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                        <div className="space-y-2">
+                                          <FieldLabel htmlFor="condition-operator">Rule</FieldLabel>
+                                          <select id="condition-operator" className={selectClassName} value={firstCondition.op || "equals"} onChange={(event) => updateCondition("op", event.target.value)}>
+                                            {CONDITION_OPERATORS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                                          </select>
+                                        </div>
+                                        <div className="space-y-2">
+                                          <FieldLabel htmlFor="condition-answer">Answer</FieldLabel>
+                                          {["exists", "notExists"].includes(firstCondition.op) ? (
+                                            <p id="condition-answer" className="flex h-10 items-center text-sm text-[#60786f]">No answer needs to be selected.</p>
+                                          ) : conditionSourceOptions.length ? (
+                                            <select
+                                              id="condition-answer"
+                                              className={selectClassName}
+                                              multiple={["in", "notIn"].includes(firstCondition.op)}
+                                              value={["in", "notIn"].includes(firstCondition.op)
+                                                ? Array.isArray(firstCondition.value) ? firstCondition.value : [firstCondition.value].filter(Boolean)
+                                                : firstCondition.value ?? ""}
+                                              onChange={(event) => updateCondition(
                                                 "value",
-                                                (Array.isArray(firstCondition.value) ? firstCondition.value : [])
-                                                  .filter((value) => String(value).trim())
-                                              );
-                                            }
-                                          }}
-                                        />
-                                      )}
-                                    </div>
-                                  </div>
-                                ) : null}
-                                {activeQuestion.visibleIf?.length > 1 ? (
-                                  <p className="text-xs text-amber-700">This question has additional conditions. They are preserved; edit the complete rule set in Advanced JSON.</p>
-                                ) : null}
-                                {activeQuestion.followUps?.length ? (
-                                  <p className="text-xs text-[#60786f]">This question contains {activeQuestion.followUps.length} nested follow-up question{activeQuestion.followUps.length === 1 ? "" : "s"}. They are preserved and editable in Advanced JSON.</p>
-                                ) : null}
+                                                ["in", "notIn"].includes(firstCondition.op)
+                                                  ? Array.from(event.target.selectedOptions || []).map((option) => option.value)
+                                                  : event.target.value
+                                              )}
+                                            >
+                                              <option value="" disabled>Select an answer</option>
+                                              {conditionSourceOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                                            </select>
+                                          ) : conditionSourceQuestion?.type === "checkbox" ? (
+                                            <select
+                                              id="condition-answer"
+                                              className={selectClassName}
+                                              value={checkboxConditionEditorValue}
+                                              onChange={(event) => updateCondition(
+                                                "value",
+                                                ["in", "notIn"].includes(firstCondition.op)
+                                                  ? event.target.value === "both" ? [true, false] : [event.target.value === "true"]
+                                                  : event.target.value === "true"
+                                              )}
+                                            >
+                                              <option value="true">Checked</option>
+                                              <option value="false">Not checked</option>
+                                              {["in", "notIn"].includes(firstCondition.op) ? <option value="both">Either answer</option> : null}
+                                            </select>
+                                          ) : (
+                                            <Input
+                                              id="condition-answer"
+                                              className={inputClassName}
+                                              value={conditionValue}
+                                              onChange={(event) => updateCondition(
+                                                "value",
+                                                ["in", "notIn"].includes(firstCondition.op)
+                                                  ? event.target.value.split(",").map((value) => value.trim())
+                                                  : event.target.value
+                                              )}
+                                            />
+                                          )}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="grid gap-3 md:grid-cols-3">
+                                        <div className="space-y-2">
+                                          <FieldLabel htmlFor="condition-field">Answer key</FieldLabel>
+                                          <Input id="condition-field" list="question-answer-keys" className={`${inputClassName} font-mono`} value={firstCondition.field || ""} disabled={machineKeysLocked} onChange={(event) => updateCondition("field", event.target.value)} />
+                                          <datalist id="question-answer-keys">
+                                            {conditionSourceQuestions.map((question) => <option key={question.id} value={question.answerKey} />)}
+                                          </datalist>
+                                        </div>
+                                        <div className="space-y-2">
+                                          <FieldLabel htmlFor="condition-operator">Rule</FieldLabel>
+                                          <select id="condition-operator" className={selectClassName} value={firstCondition.op || "equals"} disabled={machineKeysLocked} onChange={(event) => updateCondition("op", event.target.value)}>
+                                            {CONDITION_OPERATORS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                                          </select>
+                                        </div>
+                                        <div className="space-y-2">
+                                          <FieldLabel htmlFor="condition-value" hint={conditionSourceQuestion?.type === "checkbox" ? "boolean" : ["in", "notIn"].includes(firstCondition.op) ? "comma separated" : ""}>Value</FieldLabel>
+                                          {conditionSourceQuestion?.type === "checkbox" ? (
+                                            <select id="condition-value" className={selectClassName} value={checkboxConditionEditorValue} disabled={machineKeysLocked || ["exists", "notExists"].includes(firstCondition.op)} onChange={(event) => updateCondition("value", ["in", "notIn"].includes(firstCondition.op) ? event.target.value === "both" ? [true, false] : [event.target.value === "true"] : event.target.value === "true")}>
+                                              <option value="" disabled>Select a boolean</option>
+                                              <option value="true">True</option>
+                                              <option value="false">False</option>
+                                              {["in", "notIn"].includes(firstCondition.op) ? <option value="both">True or false</option> : null}
+                                            </select>
+                                          ) : (
+                                            <Input id="condition-value" className={inputClassName} value={conditionValue} disabled={machineKeysLocked || ["exists", "notExists"].includes(firstCondition.op)} onChange={(event) => updateCondition("value", ["in", "notIn"].includes(firstCondition.op) ? event.target.value.split(",").map((value) => value.trim()) : event.target.value)} />
+                                          )}
+                                        </div>
+                                      </div>
+                                    ) : null}
+                                    {activeQuestion.visibleIf?.length > 1 ? (
+                                      <p className="text-xs text-amber-700">This question has additional display rules. They remain unchanged while you edit the first rule.</p>
+                                    ) : null}
                                   </div>
                                 </>
-                              ) : null}
                             </div>
                           )}
                         </div>
