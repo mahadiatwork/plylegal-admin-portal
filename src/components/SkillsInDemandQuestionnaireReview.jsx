@@ -13,6 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { formatLabel } from "@/lib/questionnaireSections";
 import { calculateTemporaryWorkProgress } from "@/lib/questionnaireProgress";
+import QuestionnairePdfLink from "@/components/QuestionnairePdfLink";
 
 const MAIN_APPLICANT_SUBPAGES = [
   { key: "details", title: "Details" },
@@ -1136,6 +1137,7 @@ function ReviewCard({ active }) {
 export default function SkillsInDemandQuestionnaireReview({
   questionnaire,
   sections,
+  application,
   completion,
   percentage,
 }) {
@@ -1172,6 +1174,7 @@ export default function SkillsInDemandQuestionnaireReview({
           </div>
 
           <div className="relative z-[1] mx-auto w-full max-w-[66rem]">
+            <div className="mb-5 flex justify-end"><QuestionnairePdfLink matterId={application?.id} /></div>
             <ReviewCard active={active} />
             
             <div className="mt-8 flex items-center justify-between pb-10">

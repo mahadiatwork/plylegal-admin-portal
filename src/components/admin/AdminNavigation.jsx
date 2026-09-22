@@ -2,14 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ClipboardList, LayoutDashboard, LibraryBig } from "lucide-react";
+import { ClipboardList, LayoutDashboard } from "lucide-react";
 import AdminLogoutButton from "./AdminLogoutButton";
 import AdminSessionMonitor from "./AdminSessionMonitor";
 
 const links = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/questionnaires", label: "Questionnaires", icon: ClipboardList },
-  { href: "/admin/resources", label: "Resource Centre", icon: LibraryBig },
 ];
 
 export default function AdminNavigation() {

@@ -25,8 +25,24 @@ export default function AdminLoginForm({ nextPath }) {
       });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || "Unable to sign in.");
+      const destination = data.nextPath || "/";
+      const matterPath = new URL(destination, window.location.origin).pathname.match(/^\/matter\/([^/]+)(?:\/|$)/);
+      if (matterPath) {
+        // A saved matter link can outlive its application. Check it after the
+        // session cookie is set so sign-in does not land on a matter error.
+        try {
+          const matterResponse = await fetch(`/api/matter/${matterPath[1]}`, { cache: "no-store" });
+          if (!matterResponse.ok) {
+            window.location.replace("/");
+            return;
+          }
+        } catch {
+          window.location.replace("/");
+          return;
+        }
+      }
       // Reload clears pre-login router state and sends the new cookie on every request.
-      window.location.replace(data.nextPath || "/");
+      window.location.replace(destination);
     } catch (submitError) {
       setError(submitError.message || "Unable to sign in. Please try again.");
       setIsSubmitting(false);

@@ -72,7 +72,12 @@ export async function resolveMatterApplication(db, matterId) {
     return hydrateCandidate(directDoc, "firebaseId");
   }
 
-  const lookupFields = ["zohoId", "zohoDealId", "dealId"];
+  // Client applications use the Zoho deal name as `reference`. Older records
+  // may retain that same displayed matter name under one of these fields.
+  const lookupFields = [
+    "zohoId", "zohoDealId", "dealId",
+    "reference", "matterReference", "name", "Name", "Deal_Name", "DealName",
+  ];
   for (const field of lookupFields) {
     const snapshot = await appsRef.where(field, "==", matterId).limit(25).get();
     if (!snapshot.empty) {

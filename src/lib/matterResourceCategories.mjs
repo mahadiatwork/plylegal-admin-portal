@@ -28,19 +28,23 @@ function isMatterResource(resource) {
 }
 
 export function normalizeMatterResourceCategories(rawCategories, resources = []) {
-  const categories = [{ name: UNCATEGORIZED, icon: "folder" }];
-  const seen = new Set([uncategorizedKey]);
+  const categories = [];
+  const seen = new Set();
   const addCategory = (value) => {
     const name = categoryName(value);
     if (!name || seen.has(name.toLowerCase())) return;
     seen.add(name.toLowerCase());
     categories.push({
-      name,
+      name: name.toLowerCase() === uncategorizedKey ? UNCATEGORIZED : name,
       icon: CATEGORY_ICONS.has(value?.icon) ? value.icon : "folder",
     });
   };
 
   if (Array.isArray(rawCategories)) rawCategories.forEach(addCategory);
+  if (!seen.has(uncategorizedKey)) {
+    categories.unshift({ name: UNCATEGORIZED, icon: "folder" });
+    seen.add(uncategorizedKey);
+  }
   resources
     .filter((resource) => isMatterResource(resource) && resource.status !== "archived")
     .forEach((resource) => addCategory(resource.category));

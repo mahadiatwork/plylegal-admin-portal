@@ -7,6 +7,7 @@ import {
   deleteMatterResourceCategory,
   renameMatterResourceCategory,
 } from "@/lib/matterResourceCategories.mjs";
+import { reorderMatterResourceFolders } from "@/lib/resourceFolderOrdering.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,6 +55,32 @@ export async function POST(request, { params }) {
 
 export async function PATCH(request, { params }) {
   return mutateCategory(request, params, renameMatterResourceCategory, "Failed to rename folder");
+}
+
+export async function PUT(request, { params }) {
+  try {
+    const session = await getAdminSession();
+    if (!session) return NextResponse.json({ success: false, error: "Admin session is required" }, { status: 401 });
+    if (!db) return NextResponse.json({ success: false, error: "Database not initialized" }, { status: 500 });
+    const { matterId } = await params;
+    if (!matterId) return NextResponse.json({ success: false, error: "Matter ID is required" }, { status: 400 });
+    const resolved = await resolveMatterApplication(db, matterId);
+    if (!resolved) return NextResponse.json({ success: false, error: "Matter not found" }, { status: 404 });
+    const body = await request.json().catch(() => ({}));
+    const result = await reorderMatterResourceFolders({
+      db,
+      appId: resolved.appId,
+      names: body?.names,
+      actor: session.role || "admin",
+    });
+    return NextResponse.json({ success: true, ...result });
+  } catch (error) {
+    console.error("Failed to reorder folders", error);
+    return NextResponse.json(
+      { success: false, error: error.status ? error.message : "Failed to reorder folders. Refresh resources before retrying." },
+      { status: error.status || 500 },
+    );
+  }
 }
 
 export async function DELETE(request, { params }) {

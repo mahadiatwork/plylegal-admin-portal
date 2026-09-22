@@ -115,6 +115,9 @@ function normalizeCategoryMetadata(value) {
     icon: categoryIconOptions.some((option) => option.value === value?.icon)
       ? value.icon
       : "folder",
+    ...(value?.order !== undefined && value?.order !== null && String(value.order).trim() !== "" && Number.isFinite(Number(value.order))
+      ? { order: Number(value.order) }
+      : {}),
   };
 }
 
@@ -130,6 +133,9 @@ function mergeCategoryDefinitions(...groups) {
   }
 
   return [...byName.values()].sort((a, b) => {
+    const savedOrderA = Number.isFinite(a.order) ? a.order : Number.MAX_SAFE_INTEGER;
+    const savedOrderB = Number.isFinite(b.order) ? b.order : Number.MAX_SAFE_INTEGER;
+    if (savedOrderA !== savedOrderB) return savedOrderA - savedOrderB;
     const orderA = DEFAULT_CATEGORY_NAMES.findIndex((name) => name.toLowerCase() === a.name.toLowerCase());
     const orderB = DEFAULT_CATEGORY_NAMES.findIndex((name) => name.toLowerCase() === b.name.toLowerCase());
     return (orderA < 0 ? Infinity : orderA) - (orderB < 0 ? Infinity : orderB)
@@ -192,6 +198,10 @@ export default function AdminResourceTemplatesManager() {
   const [isReordering, setIsReordering] = useState(false);
   const reorderPending = useRef(false);
   const reorderFocusTarget = useRef(null);
+  const [isReorderingFolders, setIsReorderingFolders] = useState(false);
+  const [folderOrderOverride, setFolderOrderOverride] = useState(null);
+  const folderReorderPending = useRef(false);
+  const folderReorderFocusTarget = useRef(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCategorySaving, setIsCategorySaving] = useState(false);
@@ -210,6 +220,13 @@ export default function AdminResourceTemplatesManager() {
     // Restore it after the save so consecutive keyboard moves keep working.
     if (handle.isConnected && document.activeElement === document.body) handle.focus();
   }, [isReordering]);
+
+  useEffect(() => {
+    if (isReorderingFolders || !folderReorderFocusTarget.current) return;
+    const handle = folderReorderFocusTarget.current;
+    folderReorderFocusTarget.current = null;
+    if (handle.isConnected && document.activeElement === document.body) handle.focus();
+  }, [isReorderingFolders]);
 
   const templateBySlug = useMemo(
     () =>
@@ -255,12 +272,16 @@ export default function AdminResourceTemplatesManager() {
       icon: "folder",
     }));
 
-    return mergeCategoryDefinitions(
+    const merged = mergeCategoryDefinitions(
       [DEFAULT_CATEGORIES[0]],
       itemCategories,
       templateCategories
     );
-  }, [activeVisa, templates, visaScopedItems]);
+    if (!folderOrderOverride) return merged;
+    const positions = new Map(folderOrderOverride.map((name, index) => [categoryKey(name), index]));
+    return merged.sort((a, b) => (positions.get(categoryKey(a.name)) ?? Infinity) -
+      (positions.get(categoryKey(b.name)) ?? Infinity));
+  }, [activeVisa, templates, visaScopedItems, folderOrderOverride]);
 
   const visibleCategories = useMemo(() => {
     const query = categorySearchQuery.trim().toLowerCase();
@@ -514,7 +535,13 @@ export default function AdminResourceTemplatesManager() {
     const category = cleanText(newCategoryName);
     if (!category) return;
 
+    if (categories.some((item) => categoryKey(item.name) === categoryKey(category))) {
+      setError("A folder with this name already exists.");
+      return;
+    }
+
     const categoryMeta = { name: category, icon: newCategoryIcon };
+    const displayedOrder = new Map(categories.map((item, index) => [categoryKey(item.name), (index + 1) * 10]));
     const targetSlugs =
       activeVisa === ALL_VISAS
         ? templates.map((template) => template.visaSlug)
@@ -534,11 +561,15 @@ export default function AdminResourceTemplatesManager() {
       const updatedTemplates = await Promise.all(
         targetSlugs.map(async (visaSlug) => {
           const template = templateBySlug[visaSlug];
-          const nextCategories = mergeCategoryDefinitions(
+          const existingCategories = mergeCategoryDefinitions(
             [DEFAULT_CATEGORIES[0]],
+            (itemsBySlug[visaSlug] || []).filter((item) => item.kind !== "folder").map((item) => ({ name: getItemCategory(item), icon: "folder" })),
             template?.categories || [],
-            [categoryMeta]
           );
+          const nextCategories = [...existingCategories, categoryMeta].map((entry) => ({
+            ...entry,
+            order: displayedOrder.get(categoryKey(entry.name)) ?? (categories.length + 1) * 10,
+          }));
           const response = await fetch(`/api/resource-templates/${visaSlug}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
@@ -883,6 +914,47 @@ export default function AdminResourceTemplatesManager() {
   };
 
   const categoryMutationActive = isCategorySaving || Boolean(deletingCategory || renamingCategory);
+  const canReorderFolders = categories.length > 1 && !categorySearchQuery.trim() &&
+    !isLoading && !isSubmitting && !isReordering && !isReorderingFolders &&
+    !activeMutationId && !categoryMutationActive && !showResourceForm;
+
+  const saveFolderOrder = async (sourceName, targetName, focusTarget) => {
+    if (!canReorderFolders || folderReorderPending.current || sourceName === targetName) return;
+    const sourceIndex = categories.findIndex((category) => categoryKey(category.name) === categoryKey(sourceName));
+    const targetIndex = categories.findIndex((category) => categoryKey(category.name) === categoryKey(targetName));
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const reordered = [...categories];
+    const [moved] = reordered.splice(sourceIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+    const names = reordered.map((category) => category.name);
+
+    try {
+      folderReorderPending.current = true;
+      folderReorderFocusTarget.current = focusTarget || null;
+      setIsReorderingFolders(true);
+      setFolderOrderOverride(names);
+      setError(null);
+      setMessage(null);
+      const response = await fetch(`/api/resource-templates/${activeVisa}/categories`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ names }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || "Failed to reorder folders.");
+      const changes = new Map(data.changes.map((change) => [change.visaSlug, change.categories]));
+      setTemplates((current) => current.map((template) => changes.has(template.visaSlug)
+        ? { ...template, categories: changes.get(template.visaSlug), updatedAt: data.updatedAt, updatedBy: data.updatedBy }
+        : template));
+      setMessage("Folder order saved.");
+    } catch (reorderError) {
+      setError(reorderError.message);
+    } finally {
+      setFolderOrderOverride(null);
+      folderReorderPending.current = false;
+      setIsReorderingFolders(false);
+    }
+  };
   const visaResourceCounts = tableItems.reduce((counts, item) => {
     counts[item.visaSlug] = (counts[item.visaSlug] || 0) + 1;
     return counts;
@@ -1121,6 +1193,9 @@ export default function AdminResourceTemplatesManager() {
           deletingCategory={deletingCategory}
           onRenameCategory={handleRenameCategory}
           onDeleteCategory={handleDeleteCategory}
+          canReorderFolders={canReorderFolders}
+          isReorderingFolders={isReorderingFolders}
+          onReorderFolder={saveFolderOrder}
         />
 
         <div className="min-w-0 space-y-5">

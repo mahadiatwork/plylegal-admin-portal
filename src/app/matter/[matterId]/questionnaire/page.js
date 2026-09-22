@@ -36,6 +36,7 @@ import SkillsInDemandQuestionnaireReview, {
 } from "@/components/SkillsInDemandQuestionnaireReview";
 import { buildStructuredSections, formatLabel } from "@/lib/questionnaireSections";
 import ClientQuestionnaireReview from "@/components/ClientQuestionnaireReview";
+import QuestionnairePdfLink from "@/components/QuestionnairePdfLink";
 
 // Count total questions in a section (recursively count leaf values)
 function countQuestions(data) {
@@ -1069,11 +1070,12 @@ export default function QuestionnairePage() {
                   {activeSection && (
                     <>
                       {/* Dark Green Section Header */}
-                      <div className="bg-[#4F726B] text-white px-6 py-4 flex items-center justify-between shadow-sm">
+                      <div className="bg-[#4F726B] text-white px-6 py-4 flex flex-wrap items-center justify-between gap-3 shadow-sm">
                         <h2 className="text-sm font-semibold tracking-wide uppercase">
                           {activeProfile?.title?.toUpperCase()} - {activeSection?.title?.toUpperCase()}
                         </h2>
-                        <div className="flex items-center gap-4 no-print">
+                        <div className="flex flex-wrap items-center gap-2 no-print">
+                            <QuestionnairePdfLink matterId={matterResult?.application?.id || matterId} className="bg-white/15 px-2 py-1 text-[11px] hover:bg-white/25" />
                             <label className="flex items-center gap-2 text-[11px] font-medium text-white/80 cursor-pointer select-none">
                                 <input
                                     type="checkbox"

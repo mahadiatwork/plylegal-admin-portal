@@ -392,6 +392,11 @@
 
 /* Print styles for PDF generation */
 @media print {
+  .questionnaire-print-page {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+  }
+
   /* Hide navigation, buttons, and non-essential elements */
   button,
   .no-print,

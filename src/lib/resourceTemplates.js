@@ -194,6 +194,10 @@ export function normalizeTemplateCategories(rawValue) {
         typeof value === "string"
           ? "folder"
           : normalizeTemplateCategoryIcon(value?.icon),
+      ...(value && typeof value === "object" && value.order !== null && value.order !== undefined &&
+        String(value.order).trim() !== "" && Number.isFinite(Number(value.order))
+        ? { order: Number(value.order) }
+        : {}),
     });
   }
 

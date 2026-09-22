@@ -336,6 +336,9 @@ function MatterResourcesManager({ matterId }) {
     useState(false);
   const matterReorderPending = useRef(false);
   const matterReorderFocusTarget = useRef(null);
+  const [isReorderingFolders, setIsReorderingFolders] = useState(false);
+  const folderReorderPending = useRef(false);
+  const folderReorderFocusTarget = useRef(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [individualError, setIndividualError] = useState(null);
   const [error, setError] = useState(null);
@@ -347,6 +350,13 @@ function MatterResourcesManager({ matterId }) {
     matterReorderFocusTarget.current = null;
     if (handle.isConnected && document.activeElement === document.body) handle.focus();
   }, [isReorderingMatterResources]);
+
+  useEffect(() => {
+    if (isReorderingFolders || !folderReorderFocusTarget.current) return;
+    const handle = folderReorderFocusTarget.current;
+    folderReorderFocusTarget.current = null;
+    if (handle.isConnected && document.activeElement === document.body) handle.focus();
+  }, [isReorderingFolders]);
 
   useEffect(() => {
     let isMounted = true;
@@ -395,38 +405,31 @@ function MatterResourcesManager({ matterId }) {
   }, [matterId]);
 
   const matterCategories = useMemo(() => {
-    const byName = new Map([
-      [
-        categoryKey(DEFAULT_MATTER_CATEGORY),
-        { name: DEFAULT_MATTER_CATEGORY, icon: "folder" },
-      ],
-    ]);
+    const byName = new Map();
+    for (const category of savedCategories) {
+      const normalized = typeof category === "string"
+        ? category.trim()
+        : String(category.name || "").trim();
+      if (normalized) byName.set(categoryKey(normalized), {
+        name: normalized,
+        icon: category.icon || "folder",
+      });
+    }
+    if (!byName.has(categoryKey(DEFAULT_MATTER_CATEGORY))) {
+      const existing = [...byName.entries()];
+      byName.clear();
+      byName.set(categoryKey(DEFAULT_MATTER_CATEGORY), { name: DEFAULT_MATTER_CATEGORY, icon: "folder" });
+      for (const [key, value] of existing) byName.set(key, value);
+    }
     for (const resource of individualResources) {
       const normalized = String(resource.category || "").trim();
-      if (normalized)
+      if (normalized && !byName.has(categoryKey(normalized)))
         byName.set(categoryKey(normalized), {
           name: normalized,
           icon: "folder",
         });
     }
-    for (const category of savedCategories) {
-      const normalized =
-        typeof category === "string"
-          ? category.trim()
-          : String(category.name || "").trim();
-      if (normalized)
-        byName.set(categoryKey(normalized), {
-          name: normalized,
-          icon: category.icon || "folder",
-        });
-    }
-    return [...byName.values()].sort((a, b) => {
-      if (categoryKey(a.name) === categoryKey(DEFAULT_MATTER_CATEGORY))
-        return -1;
-      if (categoryKey(b.name) === categoryKey(DEFAULT_MATTER_CATEGORY))
-        return 1;
-      return a.name.localeCompare(b.name);
-    });
+    return [...byName.values()];
   }, [individualResources, savedCategories]);
 
   const visibleCategories = useMemo(
@@ -485,6 +488,9 @@ function MatterResourcesManager({ matterId }) {
 
   const categoryMutationActive =
     isCategorySaving || Boolean(renamingCategory || deletingCategory);
+  const canReorderFolders = matterCategories.length > 1 && !categorySearchQuery.trim() &&
+    !isIndividualLoading && !individualError && !isSubmitting && !archiveId &&
+    !isReorderingMatterResources && !isReorderingFolders && !categoryMutationActive && !showResourceForm;
   const interactionPending =
     categoryMutationActive ||
     isSubmitting ||
@@ -576,6 +582,41 @@ function MatterResourcesManager({ matterId }) {
       throw new Error(data.error || "Failed to update the folder.");
     applyCategoryMutation(data);
     return data;
+  };
+
+  const saveFolderOrder = async (sourceName, targetName, focusTarget) => {
+    if (!canReorderFolders || folderReorderPending.current || sourceName === targetName) return;
+    const sourceIndex = matterCategories.findIndex((category) => categoryKey(category.name) === categoryKey(sourceName));
+    const targetIndex = matterCategories.findIndex((category) => categoryKey(category.name) === categoryKey(targetName));
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const reordered = [...matterCategories];
+    const [moved] = reordered.splice(sourceIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+    const previousCategories = savedCategories;
+
+    try {
+      folderReorderPending.current = true;
+      folderReorderFocusTarget.current = focusTarget || null;
+      setIsReorderingFolders(true);
+      setSavedCategories(reordered);
+      setError(null);
+      setSuccessMessage("");
+      const response = await fetch(`/api/matter/${matterId}/resources/categories`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ names: reordered.map((category) => category.name) }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || "Failed to reorder folders.");
+      setSavedCategories(data.categories);
+      setSuccessMessage("Folder order saved.");
+    } catch (reorderError) {
+      setSavedCategories(previousCategories);
+      setError(reorderError.message);
+    } finally {
+      folderReorderPending.current = false;
+      setIsReorderingFolders(false);
+    }
   };
 
   const handleNewCategory = async () => {
@@ -1058,6 +1099,9 @@ function MatterResourcesManager({ matterId }) {
               deletingCategory={deletingCategory}
               onRenameCategory={handleRenameCategory}
               onDeleteCategory={handleDeleteCategory}
+              canReorderFolders={canReorderFolders}
+              isReorderingFolders={isReorderingFolders}
+              onReorderFolder={saveFolderOrder}
             />
 
             <div className="min-w-0 space-y-5">

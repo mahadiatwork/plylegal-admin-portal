@@ -10,6 +10,7 @@ import {
   deleteResourceTemplateCategory,
   renameResourceTemplateCategory,
 } from "@/lib/resourceTemplateCategories.mjs";
+import { reorderResourceTemplateFolders } from "@/lib/resourceFolderOrdering.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,6 +62,24 @@ export async function PATCH(request, { params }) {
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
     return categoryMutationError(error, "Failed to rename category");
+  }
+}
+
+export async function PUT(request, { params }) {
+  try {
+    const context = await resolveRequest(params);
+    if (context.response) return context.response;
+    const body = await request.json().catch(() => ({}));
+    const result = await reorderResourceTemplateFolders({
+      db,
+      visaSlugs: context.visaSlugs,
+      names: body?.names,
+      actor: context.actor,
+      defaultCategories: DEFAULT_RESOURCE_TEMPLATE_CATEGORIES,
+    });
+    return NextResponse.json({ success: true, ...result });
+  } catch (error) {
+    return categoryMutationError(error, "Failed to reorder folders");
   }
 }
 

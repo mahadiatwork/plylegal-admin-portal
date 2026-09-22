@@ -11,6 +11,7 @@ import {
   isQuestionVisible,
 } from "@/lib/questionnaireAnswerModel";
 import { formatLabel } from "@/lib/questionnaireSections";
+import QuestionnairePdfLink from "@/components/QuestionnairePdfLink";
 
 const inputClass = "flex min-h-9 w-full rounded-md border border-[#bdd2c8] bg-[#E9F0FE] px-3 py-2 text-sm text-black";
 const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -205,7 +206,7 @@ export default function ClientQuestionnaireReview({ questionnaire = {}, definiti
       </aside>
       <div className="min-w-0 flex-1 px-5 pb-16 pt-5 sm:px-8 lg:px-12 lg:pt-10">
         <div className="mx-auto max-w-4xl">
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-2 text-sm text-gray-600"><span>Client answers · Read only</span>{application.stage || application.status ? <span>Current stage: {application.stage || application.status}</span> : null}</div>
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600"><span>Client answers · Read only</span><QuestionnairePdfLink matterId={application.id} />{application.stage || application.status ? <span>Current stage: {application.stage || application.status}</span> : null}</div>
           <ReviewPage active={active} applicantOptions={applicantOptions} />
           <div className="mt-6 flex items-center justify-between gap-4 print:hidden">
             <button type="button" disabled={activeIndex === 0} onClick={() => select(items[activeIndex - 1].item.key)} className="flex items-center gap-2 rounded-lg border border-[#dde8e1] bg-white px-4 py-2.5 text-sm disabled:opacity-40"><ChevronLeft className="h-4 w-4" />Previous</button>

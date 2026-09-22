@@ -265,6 +265,115 @@ function selectFolder(harness, name) {
   harness.render();
 }
 
+const folderNames = (harness) => harness.sidebar().props.categories.map((category) => category.name);
+
+test("matter folder handles save a full order and show it after reload", async (t) => {
+  let savedCategories = [{ name: "Guides", icon: "guide" }, { name: "Empty folder", icon: "scale" }];
+  const { harness, calls } = await mountMatter(t, (url, options) => {
+    assert.equal(url, "/api/matter/matter-123/resources/categories");
+    assert.equal(options.method, "PUT");
+    const { names } = JSON.parse(options.body);
+    assert.deepEqual(names, ["Empty folder", "Uncategorized", "Guides"]);
+    savedCategories = names.map((name) => ({
+      name, icon: name === "Empty folder" ? "scale" : name === "Guides" ? "guide" : "folder",
+    }));
+    return response({ success: true, categories: savedCategories });
+  });
+  const drag = dragEvent();
+  harness.control("Move folder Empty folder").props.onDragStart(drag);
+  harness.render();
+  const target = harness.find((node) => typeof node.props.onDrop === "function" &&
+    [...walk(node)].some((child) => child.props["aria-label"] === "Move folder Uncategorized"));
+  await settleInteraction(harness, target.props.onDrop(drag));
+  assert.deepEqual(folderNames(harness), ["Empty folder", "Uncategorized", "Guides"]);
+  assert.equal(mutationCalls(calls).length, 1);
+
+  const wrapper = pageModule.default();
+  const reload = createHarness(wrapper.type, wrapper.props);
+  // The saved API result is the source of truth for a fresh manager.
+  globalThis.fetch = async (_url, options = {}) => options.method
+    ? assert.fail("Unexpected mutation")
+    : response({ success: true, categories: savedCategories, resources });
+  reload.render();
+  await flushEffects(reload);
+  reload.button("Only This MatterMatter-specific resources3").props.onClick();
+  reload.render();
+  assert.deepEqual(folderNames(reload), ["Empty folder", "Uncategorized", "Guides"]);
+});
+
+test("template folder keyboard order is saved for all visas and blocks filtered moves", async (t) => {
+  let savedDefinitions = structuredClone(templateDefinitions);
+  const { harness, calls } = await mountTemplates(t, {
+    definitions: savedDefinitions,
+    mutate: (url, options) => {
+      assert.equal(url, "/api/resource-templates/all/categories");
+      assert.equal(options.method, "PUT");
+      const { names } = JSON.parse(options.body);
+      assert.deepEqual(names, ["Guides", "Uncategorized", "Empty folder"]);
+      savedDefinitions = savedDefinitions.map((definition) => ({
+        ...definition,
+        categories: names.map((name, index) => ({ name, icon: "folder", order: (index + 1) * 10 })),
+      }));
+      return response({ success: true, changes: savedDefinitions.map((definition) => ({
+        visaSlug: definition.visaSlug, categories: definition.categories,
+      })) });
+    },
+  });
+  change(harness, "Search folders", "Guide");
+  assert.ok(harness.control("Move folder Guides").props.disabled);
+  change(harness, "Search folders", "");
+  const handle = harness.control("Move folder Guides");
+  await settleInteraction(harness, handle.props.onKeyDown({
+    key: "ArrowUp", currentTarget: handle, preventDefault() {},
+  }));
+  assert.deepEqual(folderNames(harness), ["Guides", "Uncategorized", "Empty folder"]);
+  assert.equal(mutationCalls(calls).length, 1);
+
+  globalThis.fetch = async (url, options = {}) => {
+    if (options.method) assert.fail("Unexpected mutation");
+    if (url === "/api/resource-templates") return response({ success: true, templates: savedDefinitions });
+    const slug = url.split("/").at(-1);
+    return response({
+      success: true,
+      template: savedDefinitions.find((definition) => definition.visaSlug === slug),
+      items: templateResources[slug],
+    });
+  };
+  const reload = createHarness(TemplatesManager);
+  reload.render();
+  await flushEffects(reload);
+  assert.deepEqual(folderNames(reload), ["Guides", "Uncategorized", "Empty folder"]);
+});
+
+test("a new template folder is appended after an existing saved order", async (t) => {
+  const definitions = templateDefinitions.map((definition) => ({
+    ...definition,
+    categories: [
+      { name: "Guides", icon: "guide", order: 10 },
+      { name: "Uncategorized", icon: "folder", order: 20 },
+      { name: "Empty folder", icon: "scale", order: 30 },
+    ],
+  }));
+  const { harness, calls } = await mountTemplates(t, {
+    definitions,
+    mutate: (url, options) => {
+      assert.equal(options.method, "PATCH");
+      const { categories } = JSON.parse(options.body);
+      assert.deepEqual(categories.map((category) => category.name),
+        ["Guides", "Uncategorized", "Empty folder", "New folder"]);
+      assert.deepEqual(categories.map((category) => category.order), [10, 20, 30, 40]);
+      const slug = url.split("/").at(-1);
+      return response({ success: true, template: { ...definitions.find((item) => item.visaSlug === slug), categories } });
+    },
+  });
+  harness.button("New").props.onClick();
+  harness.render();
+  change(harness, "Folder name", "New folder");
+  await settleInteraction(harness, harness.button("Add").props.onClick());
+  assert.deepEqual(folderNames(harness), ["Guides", "Uncategorized", "Empty folder", "New folder"]);
+  assert.equal(mutationCalls(calls).length, 2);
+});
+
 test("matter navigation keys resource state by matter and both scopes render the same folder sidebar", async (t) => {
   const first = pageModule.default();
   assert.equal(first.key, "matter-123");

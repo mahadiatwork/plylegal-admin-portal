@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import {
   BookOpen,
   FileText,
   Folder,
+  GripVertical,
   Link2,
   Loader2,
   PencilLine,
@@ -68,13 +70,27 @@ export default function ResourceFoldersSidebar({
   deletingCategory = null,
   onRenameCategory,
   onDeleteCategory,
+  canReorderFolders = false,
+  isReorderingFolders = false,
+  onReorderFolder,
 }) {
+  const [draggedFolder, setDraggedFolder] = useState(null);
+  const [dragOverFolder, setDragOverFolder] = useState(null);
   const folderMutationDisabled = isLoading
     || isCategorySaving
     || categoryMutationActive
     || isSubmitting
     || Boolean(activeMutationId)
-    || isReordering;
+    || isReordering
+    || isReorderingFolders;
+  const reorderEnabled = canReorderFolders && !folderMutationDisabled && categories.length > 1;
+
+  const reorderWithKeyboard = (event, category, index) => {
+    if (!reorderEnabled || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+    event.preventDefault();
+    const target = categories[index + (event.key === "ArrowUp" ? -1 : 1)];
+    if (target) return onReorderFolder(category.name, target.name, event.currentTarget);
+  };
 
   return (
     <aside className="rounded-lg border border-[#dbe7e1] bg-white p-5 shadow-sm">
@@ -85,7 +101,7 @@ export default function ResourceFoldersSidebar({
           variant="outline"
           size="sm"
           className="h-9 bg-white text-[#4F726B]"
-          disabled={isLoading || categoryMutationActive}
+          disabled={isLoading || categoryMutationActive || isReorderingFolders}
           aria-expanded={showNewCategory}
           onClick={onToggleNewCategory}
         >
@@ -105,8 +121,17 @@ export default function ResourceFoldersSidebar({
         />
       </div>
 
+      {categories.length > 1 ? (
+        <p id="folder-reorder-guidance" className="mt-3 text-xs text-[#71857d]" role="status">
+          {isReorderingFolders ? "Saving folder order..." : reorderEnabled
+            ? "Drag a folder handle, or focus it and use the Up and Down arrow keys. Changes save automatically."
+            : categorySearchQuery.trim()
+              ? "Clear the folder search to reorder folders."
+              : "Folder reordering is available when editing is finished."}
+        </p>
+      ) : null}
       <div className="mt-4 space-y-2">
-        {categories.map((category) => {
+        {categories.map((category, index) => {
           const active = categoryKey(activeCategory) === categoryKey(category.name);
           const count = categoryCounts[categoryKey(category.name)] || 0;
           return (
@@ -116,11 +141,44 @@ export default function ResourceFoldersSidebar({
                 active
                   ? "bg-[#e8f4ee] text-[#4F726B]"
                   : "bg-white text-[#38564b] hover:bg-[#f7faf8]"
-              }`}
+              } ${dragOverFolder === category.name ? "ring-2 ring-[#8ac6ad]" : ""}`}
+              onDragOver={(event) => {
+                if (!reorderEnabled || !draggedFolder || draggedFolder === category.name) return;
+                event.preventDefault();
+                setDragOverFolder(category.name);
+              }}
+              onDragLeave={() => setDragOverFolder(null)}
+              onDrop={(event) => {
+                if (!reorderEnabled || !draggedFolder) return;
+                event.preventDefault();
+                setDragOverFolder(null);
+                const source = draggedFolder;
+                setDraggedFolder(null);
+                if (source !== category.name) return onReorderFolder(source, category.name);
+              }}
             >
               <button
                 type="button"
-                disabled={categoryMutationActive || isReordering}
+                className="ml-1 flex h-9 w-6 shrink-0 cursor-grab items-center justify-center rounded text-[#71857d] focus:outline-none focus:ring-2 focus:ring-[#8ac6ad] disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label={`Move folder ${category.name}`}
+                aria-describedby="folder-reorder-guidance"
+                title="Drag to reorder, or use the Up and Down arrow keys"
+                disabled={!reorderEnabled}
+                draggable={reorderEnabled}
+                onDragStart={(event) => {
+                  if (!reorderEnabled) return;
+                  setDraggedFolder(category.name);
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", category.name);
+                }}
+                onDragEnd={() => { setDraggedFolder(null); setDragOverFolder(null); }}
+                onKeyDown={(event) => reorderWithKeyboard(event, category, index)}
+              >
+                <GripVertical className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                disabled={categoryMutationActive || isReordering || isReorderingFolders}
                 aria-pressed={active}
                 onClick={() => onSelectCategory(category)}
                 className="flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-3 text-left"
