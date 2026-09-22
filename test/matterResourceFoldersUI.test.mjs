@@ -537,13 +537,53 @@ test("the default all-visas view can drag an existing resource when the folder c
       return orderResponse(body.itemIds);
     },
   });
-  assert.equal(harness.control("Visa type").props.value, "all");
+  assert.equal(harness.control("Visa scope").props.value, "all");
   assert.ok(reorderButtons(harness).every((node) => node.props.draggable && !node.props.disabled));
   const { pending } = dragResource(harness, "Alpha second", "Alpha first");
   await settleInteraction(harness, pending);
   assert.deepEqual(displayedResourceNames(harness), ["Alpha second", "Alpha first", "Alpha third"]);
   assert.equal(mutationCalls(calls).length, 1);
   assert.ok(text(harness.tree).includes("Resource order saved."));
+});
+
+test("adding a resource uses the selected visa scope without a second visa selector", async (t) => {
+  const { harness, calls } = await mountTemplates(t, {
+    mutate(url, options) {
+      assert.equal(url, "/api/resource-templates/visa-beta/items");
+      assert.equal(options.method, "POST");
+      assert.equal(options.body.get("kind"), "note");
+      assert.equal(options.body.get("name"), "Beta note");
+      return response({ success: true, item: { id: "beta-note" } });
+    },
+  });
+
+  change(harness, "Visa scope", "visa-beta");
+  harness.button("Add resource").props.onClick();
+  harness.render();
+
+  const visaSelectors = [...walk(harness.tree)].filter((node) =>
+    node.type === "select" && [...walk(node)].some((child) =>
+      child.type === "option" && child.props.value === "visa-beta"));
+  assert.equal(visaSelectors.length, 1);
+  assert.equal(visaSelectors[0].props.value, "visa-beta");
+
+  const kind = harness.find((node) => node.type === "select" && node.props.value === "file");
+  kind.props.onChange({ target: { value: "note" } });
+  harness.render();
+  change(harness, "resource-name", "Beta note");
+  change(harness, "resource-note", "A note for this visa.");
+  await settleInteraction(harness, harness.find((node) => node.type === "form").props.onSubmit({ preventDefault() {} }));
+  assert.equal(mutationCalls(calls).length, 1);
+});
+
+test("all visa types requires a specific scope before adding a resource", async (t) => {
+  const { harness, calls } = await mountTemplates(t);
+  assert.equal(harness.control("Visa scope").props.value, "all");
+  harness.button("Add resource").props.onClick();
+  harness.render();
+  assert.ok(![...walk(harness.tree)].some((node) => node.type === "form"));
+  assert.match(text(harness.tree), /select a specific visa scope/i);
+  assert.equal(mutationCalls(calls).length, 0);
 });
 
 test("all-visas custom order groups resources and sends the complete folder list for only the dragged visa", async (t) => {

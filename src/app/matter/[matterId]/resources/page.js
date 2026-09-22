@@ -982,15 +982,16 @@ function MatterResourcesManager({ matterId }) {
               <button
                 key={tab.id}
                 type="button"
+                aria-pressed={isActive}
                 onClick={() => {
                   setActiveTab(tab.id);
                   setError(null);
                   setSuccessMessage("");
                 }}
-                className={`flex items-center justify-between rounded-lg border px-4 py-3 text-left transition-colors ${
+                className={`flex cursor-pointer items-center justify-between rounded-lg border px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B] focus-visible:ring-offset-2 ${
                   isActive
-                    ? "border-[#4F726B] bg-[#4F726B] text-white"
-                    : "border-gray-200 bg-white text-gray-700 hover:border-[#8ac6ad]"
+                    ? "border-[#4F726B] bg-[#4F726B] text-white hover:bg-[#3d625a]"
+                    : "border-gray-200 bg-white text-gray-700 hover:border-[#4F726B] hover:bg-[#f0f8f4] hover:shadow-sm"
                 }`}
               >
                 <div className="flex items-center gap-3">
@@ -1332,7 +1333,7 @@ function MatterResourcesManager({ matterId }) {
                         isIndividualLoading ||
                         Boolean(individualError)
                       }
-                      className="h-10 w-full bg-[#4F726B] text-white hover:bg-[#4F726B] md:col-span-2"
+                      className="h-10 w-full bg-[#4F726B] text-white hover:bg-[#3d625a] md:col-span-2"
                     >
                       {isSubmitting ? (
                         <>
@@ -1379,7 +1380,7 @@ function MatterResourcesManager({ matterId }) {
                         interactionPending ||
                         showResourceForm
                       }
-                      className="bg-[#4F726B] text-white hover:bg-[#4F726B]"
+                      className="bg-[#4F726B] text-white hover:bg-[#3d625a]"
                     >
                       <Plus className="h-4 w-4" />
                       Add resource
@@ -1489,7 +1490,7 @@ function MatterResourcesManager({ matterId }) {
                         interactionPending ||
                         showResourceForm
                       }
-                      className="mt-4 bg-[#4F726B] text-white hover:bg-[#4F726B]"
+                      className="mt-4 bg-[#4F726B] text-white hover:bg-[#3d625a]"
                     >
                       <Plus className="h-4 w-4" />
                       Add resource

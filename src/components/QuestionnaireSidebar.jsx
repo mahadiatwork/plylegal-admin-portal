@@ -52,13 +52,14 @@ export default function QuestionnaireSidebar({
             return (
               <button
                 key={cat.id}
+                type="button"
                 onClick={() => onCategoryChange(cat.id)}
                 className={`
-                  w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200
+                  w-full flex cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B] focus-visible:ring-offset-2
                   ${
                     isActive
-                      ? "bg-white shadow-sm border border-gray-200 text-[#4F726B]"
-                      : "text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                      ? "border-gray-200 bg-white text-[#4F726B] shadow-sm hover:border-[#8ac6ad] hover:bg-[#f0f8f3] hover:shadow-md"
+                      : "border-transparent text-gray-500 hover:border-[#8ac6ad] hover:bg-white hover:text-[#38564b] hover:shadow-sm"
                   }
                 `}
               >

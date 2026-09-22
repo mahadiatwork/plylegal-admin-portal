@@ -1205,10 +1205,10 @@ export default function AdminQuestionnaireBuilder() {
                   type="button"
                   disabled={isBusy}
                   onClick={() => selectDefinition(item.id)}
-                  className={`w-full rounded-xl border p-3 text-left transition ${
+                  className={`w-full cursor-pointer rounded-xl border p-3 text-left transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B] focus-visible:ring-offset-2 disabled:cursor-not-allowed ${
                     selected
-                      ? "border-[#8ac6ad] bg-[#e8f4ee] shadow-sm"
-                      : "border-[#e1e9e5] bg-white hover:border-[#b7ccc2] hover:bg-[#f8fbf9]"
+                      ? "border-[#8ac6ad] bg-[#e8f4ee] shadow-sm hover:border-[#4F726B] hover:bg-[#dcefe5]"
+                      : "border-[#e1e9e5] bg-white hover:border-[#8ac6ad] hover:bg-[#f0f8f3]"
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -1415,10 +1415,10 @@ export default function AdminQuestionnaireBuilder() {
                           setActivePageId(page.id);
                           setActiveQuestionId(page.questions?.[0]?.id || "");
                         }}
-                        className={`min-w-[190px] rounded-lg border px-3 py-3 text-left transition lg:w-full lg:min-w-0 ${
+                        className={`min-w-[190px] cursor-pointer rounded-lg border px-3 py-3 text-left transition hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B] focus-visible:ring-offset-2 lg:w-full lg:min-w-0 ${
                           page.id === activePageId
-                            ? "border-[#8ac6ad] bg-white shadow-sm"
-                            : "border-transparent hover:border-[#d7e4de] hover:bg-white"
+                            ? "border-[#8ac6ad] bg-white shadow-sm hover:border-[#4F726B] hover:bg-[#f0f8f3]"
+                            : "border-transparent hover:border-[#8ac6ad] hover:bg-white"
                         }`}
                       >
                         <div className="flex items-center justify-between gap-2">
@@ -1552,10 +1552,10 @@ export default function AdminQuestionnaireBuilder() {
                                 key={`${question.id}-${index}`}
                                 type="button"
                                 onClick={() => setActiveQuestionId(question.id)}
-                                className={`w-full rounded-lg border p-3 text-left transition ${
+                                className={`w-full cursor-pointer rounded-lg border p-3 text-left transition hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B] focus-visible:ring-offset-2 ${
                                   question.id === activeQuestionId
-                                    ? "border-[#8ac6ad] bg-white shadow-sm"
-                                    : "border-transparent hover:border-[#d7e4de] hover:bg-white"
+                                    ? "border-[#8ac6ad] bg-white shadow-sm hover:border-[#4F726B] hover:bg-[#f0f8f3]"
+                                    : "border-transparent hover:border-[#8ac6ad] hover:bg-white"
                                 }`}
                               >
                                 <p className="line-clamp-2 text-xs font-semibold leading-5 text-[#24453b]">{question.label}</p>

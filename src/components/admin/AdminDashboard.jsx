@@ -39,11 +39,11 @@ export default function AdminDashboard() {
       <p className="mt-3 text-gray-600">Manage what clients see, or open an individual matter.</p>
       <div className="mt-8 grid gap-5 lg:grid-cols-2">
         {tools.map(({ href, title, icon: Icon, description, action }) => <Link key={href} href={href}
-          className="group flex flex-col rounded-2xl border border-white bg-white p-7 shadow-sm transition hover:border-[#8ac6ad] hover:shadow-md">
+          className="group flex cursor-pointer flex-col rounded-2xl border border-[#cfe0d8] bg-white p-7 shadow-sm transition-colors hover:border-[#72b69a] hover:bg-[#f3faf6] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B] focus-visible:ring-offset-2">
           <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#e8f3ee] text-[#4F726B]"><Icon className="h-6 w-6" /></span>
           <h2 className="mt-5 text-xl font-semibold text-[#17372e]">{title}</h2>
           <p className="mb-6 mt-3 flex-1 text-sm leading-6 text-gray-600">{description}</p>
-          <span className="flex items-center gap-2 text-sm font-semibold text-[#4F726B]">{action}<ArrowRight className="h-4 w-4" /></span>
+          <span className="flex items-center gap-2 text-sm font-semibold text-[#4F726B]">{action}<ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1 group-focus-visible:translate-x-1" /></span>
         </Link>)}
       </div>
       <section className="mt-8 rounded-2xl bg-white p-7 shadow-sm">

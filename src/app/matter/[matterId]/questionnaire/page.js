@@ -151,7 +151,7 @@ function GridRenderer({ data, parentPath = "", commentsByPath = {}, onAddComment
 
         return (
           <div key={key} className="group relative">
-            <label className="text-[13px] font-medium text-gray-700 mb-1.5 block">
+            <label className="text-[13px] font-medium text-gray-700 mb-1.5 block pr-9">
               {formattedKey}
             </label>
             <div className={`
@@ -168,8 +168,10 @@ function GridRenderer({ data, parentPath = "", commentsByPath = {}, onAddComment
             ))}
             {onAddComment && (
               <button
+                type="button"
                 onClick={() => onAddComment(fieldPath, formattedKey)}
-                className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity p-1 text-gray-400 hover:text-[#4F726B]"
+                aria-label={`Add reviewer note for ${formattedKey}`}
+                className="absolute right-0 top-0 rounded-md border border-[#dbe7e1] bg-[#f7faf8] p-1 text-[#4F726B] transition-colors hover:border-[#8ac6ad] hover:bg-[#e8f4ee] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]"
               >
                 <MessageSquarePlus className="h-4 w-4" />
               </button>
@@ -254,7 +256,7 @@ function RenderQuestions({ data, parentPath = "", commentsByPath = {}, onAddComm
               openComments.length > 0 ? "border-l-2 border-l-red-400 pl-3" : ""
             }`}
           >
-            <span className="text-xs font-medium text-gray-500 uppercase block mb-1">
+            <span className="text-xs font-medium text-gray-500 uppercase block mb-1 pr-9">
               {formattedKey}
             </span>
             <div className="text-sm text-gray-900">
@@ -293,8 +295,10 @@ function RenderQuestions({ data, parentPath = "", commentsByPath = {}, onAddComm
             {/* Hover "Add note" button for leaf fields */}
             {isLeaf && onAddComment && (
               <button
+                type="button"
                 onClick={() => onAddComment(fieldPath, formattedKey)}
-                className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity p-1 text-gray-400 hover:text-[#4F726B]"
+                aria-label={`Add reviewer note for ${formattedKey}`}
+                className="absolute right-0 top-0 rounded-md border border-[#dbe7e1] bg-[#f7faf8] p-1 text-[#4F726B] transition-colors hover:border-[#8ac6ad] hover:bg-[#e8f4ee] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]"
                 title="Add reviewer note"
               >
                 <MessageSquarePlus className="h-4 w-4" />
@@ -566,10 +570,10 @@ function SectionCard({
       <Collapsible open={expanded} onOpenChange={onToggle}>
         <CollapsibleTrigger asChild>
           <div
-            className={`flex items-center justify-between px-5 py-3.5 cursor-pointer transition-all duration-200 ${
+            className={`flex cursor-pointer items-center justify-between px-5 py-3.5 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#4F726B] ${
               expanded
-                ? "bg-[#4F726B]/8 border-b border-[#4F726B]/15"
-                : "bg-gray-50/80 border-b border-gray-100 hover:bg-gray-100/80"
+                ? "bg-[#4F726B]/8 border-b border-[#4F726B]/15 hover:bg-[#4F726B]/15"
+                : "bg-gray-50/80 border-b border-gray-100 hover:bg-[#e8f4ee]"
             }`}
           >
             <div className="flex items-center gap-3">
@@ -637,13 +641,14 @@ function ProfileTabs({ profiles, activeKey, onChange }) {
         return (
           <button
             key={p.key}
+            type="button"
             onClick={() => onChange(p.key)}
             className={`
-              flex-1 min-w-[200px] px-6 py-4 text-sm font-semibold transition-all duration-200 border-b-2
+              flex-1 min-w-[200px] cursor-pointer px-6 py-4 text-sm font-semibold transition-all duration-200 border-b-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#4F726B]
               ${
                 isActive
-                  ? "border-[#4F726B] text-[#4F726B] bg-[#4F726B]/5"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                  ? "border-[#4F726B] text-[#4F726B] bg-[#4F726B]/5 hover:bg-[#4F726B]/15"
+                  : "border-transparent text-gray-500 hover:border-[#8ac6ad] hover:text-[#38564b] hover:bg-[#e8f4ee]"
               }
             `}
           >
@@ -668,13 +673,14 @@ function SectionSidebar({ subSections, activeKey, onChange }) {
         return (
           <button
             key={s.key}
+            type="button"
             onClick={() => onChange(s.key)}
             className={`
-              w-full flex items-center gap-3 px-6 py-4 text-sm font-medium transition-all duration-200 border-l-4
+              w-full flex cursor-pointer items-center gap-3 px-6 py-4 text-sm font-medium transition-all duration-200 border-l-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#4F726B]
               ${
                 isActive
-                  ? "bg-[#4F726B]/5 border-[#4F726B] text-[#4F726B]"
-                  : "bg-transparent border-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                  ? "bg-[#4F726B]/5 border-[#4F726B] text-[#4F726B] hover:bg-[#4F726B]/15"
+                  : "bg-transparent border-transparent text-gray-500 hover:border-[#8ac6ad] hover:bg-[#e8f4ee] hover:text-[#38564b]"
               }
             `}
           >

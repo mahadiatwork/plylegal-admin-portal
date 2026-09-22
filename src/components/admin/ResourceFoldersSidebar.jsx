@@ -140,7 +140,7 @@ export default function ResourceFoldersSidebar({
               className={`flex w-full items-center rounded-md text-sm font-medium transition-colors ${
                 active
                   ? "bg-[#e8f4ee] text-[#4F726B]"
-                  : "bg-white text-[#38564b] hover:bg-[#f7faf8]"
+                  : "bg-white text-[#38564b] hover:bg-[#edf7f2] hover:text-[#17372e]"
               } ${dragOverFolder === category.name ? "ring-2 ring-[#8ac6ad]" : ""}`}
               onDragOver={(event) => {
                 if (!reorderEnabled || !draggedFolder || draggedFolder === category.name) return;
@@ -181,7 +181,7 @@ export default function ResourceFoldersSidebar({
                 disabled={categoryMutationActive || isReordering || isReorderingFolders}
                 aria-pressed={active}
                 onClick={() => onSelectCategory(category)}
-                className="flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-3 text-left"
+                className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 rounded-md px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B] focus-visible:ring-offset-1 disabled:cursor-not-allowed"
               >
                 <span className="flex min-w-0 items-center gap-2">
                   <CategoryIcon icon={category.icon} className="h-4 w-4 shrink-0" />

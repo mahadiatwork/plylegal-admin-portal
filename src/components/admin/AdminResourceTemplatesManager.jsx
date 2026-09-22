@@ -46,7 +46,6 @@ const itemStatusOptions = [
 
 const emptyForm = {
   kind: "file",
-  visaSlug: "",
   name: "",
   category: "Uncategorized",
   order: "0",
@@ -168,7 +167,7 @@ function FormSelect({ value, onChange, children, className = "", ...props }) {
     <select
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      className={`flex h-10 w-full rounded-md border border-[#cfded7] bg-white px-3 py-2 text-sm text-[#17372e] focus:outline-none focus:ring-2 focus:ring-[#8ac6ad] ${className}`}
+      className={`flex h-10 w-full cursor-pointer rounded-md border border-[#cfded7] bg-white px-3 py-2 text-sm text-[#17372e] focus:outline-none focus:ring-2 focus:ring-[#8ac6ad] disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
       {...props}
     >
       {children}
@@ -236,8 +235,6 @@ export default function AdminResourceTemplatesManager() {
       }, {}),
     [templates]
   );
-
-  const defaultVisaSlug = templates[0]?.visaSlug || "";
 
   const allItems = useMemo(() => {
     return Object.entries(itemsBySlug).flatMap(([visaSlug, items]) =>
@@ -351,18 +348,15 @@ export default function AdminResourceTemplatesManager() {
   }, [activeCategoryItems, activeVisa, searchQuery, sortMode]);
 
   const nextOrder = useMemo(() => {
-    const targetVisa = activeVisa === ALL_VISAS ? form.visaSlug : activeVisa;
-    const visaItems = itemsBySlug[targetVisa] || [];
+    const visaItems = itemsBySlug[activeVisa] || [];
     if (!visaItems.length) return 0;
     return Math.max(...visaItems.map((item) => Number(item.order) || 0)) + 10;
-  }, [activeVisa, form.visaSlug, itemsBySlug]);
+  }, [activeVisa, itemsBySlug]);
 
   const setDefaultForm = useCallback(
     (overrides = {}) => {
-      const targetVisa = activeVisa === ALL_VISAS ? defaultVisaSlug : activeVisa;
       setForm({
         ...emptyForm,
-        visaSlug: targetVisa,
         category: activeCategory,
         order: String(nextOrder),
         ...overrides,
@@ -372,12 +366,13 @@ export default function AdminResourceTemplatesManager() {
       setEditingItem(null);
       setShowResourceForm(false);
     },
-    [activeCategory, activeVisa, defaultVisaSlug, nextOrder]
+    [activeCategory, nextOrder]
   );
 
   const handleVisaScopeChange = (visaSlug) => {
     setDraggedItemId(null);
     setDragOverItemId(null);
+    setError(null);
     setActiveVisa(visaSlug);
     setActiveCategory("Uncategorized");
     setSearchQuery("");
@@ -385,14 +380,17 @@ export default function AdminResourceTemplatesManager() {
     setShowResourceForm(false);
     setForm((current) => ({
       ...current,
-      visaSlug: visaSlug === ALL_VISAS ? current.visaSlug || defaultVisaSlug : visaSlug,
       category: "Uncategorized",
     }));
   };
 
   const handleAddResource = () => {
+    if (activeVisa === ALL_VISAS) {
+      setError("Select a specific Visa scope above before adding a resource.");
+      setMessage(null);
+      return;
+    }
     setDefaultForm({
-      visaSlug: activeVisa === ALL_VISAS ? defaultVisaSlug : activeVisa,
       category: activeCategory,
     });
     setError(null);
@@ -405,7 +403,6 @@ export default function AdminResourceTemplatesManager() {
     setEditingItem(item);
     setForm({
       kind: item.kind,
-      visaSlug: item.visaSlug,
       name: item.name || item.fileName || "",
       category: getItemCategory(item),
       order: String(Number.isFinite(Number(item.order)) ? Number(item.order) : 0),
@@ -480,10 +477,6 @@ export default function AdminResourceTemplatesManager() {
               return index;
             }, {})
           );
-          setForm((current) => ({
-            ...current,
-            visaSlug: current.visaSlug || detailResults[0]?.template.visaSlug || "",
-          }));
         }
       } catch (loadError) {
         if (isMounted) {
@@ -743,11 +736,11 @@ export default function AdminResourceTemplatesManager() {
     setMessage(null);
     setSuccessLinks([]);
 
-    const targetVisa = editingItem?.visaSlug || form.visaSlug || defaultVisaSlug;
+    const targetVisa = editingItem?.visaSlug || activeVisa;
     const targetCategory = cleanText(form.category) || activeCategory || "Uncategorized";
 
     if (!targetVisa || targetVisa === ALL_VISAS) {
-      setError("Choose a visa type before saving.");
+      setError("Select a specific Visa scope before saving.");
       return;
     }
 
@@ -871,7 +864,7 @@ export default function AdminResourceTemplatesManager() {
         setMessage(form.kind === "note" ? "Note saved." : "Link saved.");
       }
 
-      setDefaultForm({ visaSlug: targetVisa, category: targetCategory });
+      setDefaultForm({ category: targetCategory });
     } catch (submitError) {
       setError(submitError.message);
     } finally {
@@ -1105,7 +1098,7 @@ export default function AdminResourceTemplatesManager() {
             </label>
             <FormSelect
               id="resource-visa-scope"
-              aria-label="Visa type"
+              aria-label="Visa scope"
               value={activeVisa}
               onChange={handleVisaScopeChange}
               disabled={isLoading || categoryMutationActive || isReordering}
@@ -1207,7 +1200,7 @@ export default function AdminResourceTemplatesManager() {
                     {editingItem ? "Edit resource" : "Add resource"}
                   </h2>
                   <p className="mt-1 text-sm text-[#60786f]">
-                    {activeVisaTitle} / {form.category || activeCategory}
+                    {editingItem ? templateBySlug[editingItem.visaSlug]?.title || editingItem.visaSlug : activeVisaTitle} / {form.category || activeCategory}
                   </p>
                 </div>
                 <Button type="button" variant="ghost" size="sm" onClick={() => setDefaultForm()}>
@@ -1217,49 +1210,38 @@ export default function AdminResourceTemplatesManager() {
 
               <form onSubmit={handleSubmit} className="mt-5 space-y-4">
                 {!editingItem && form.kind === "file" ? (
-                  <div
+                  <label
                     onDragOver={(event) => {
                       event.preventDefault();
                       setIsDragging(true);
                     }}
                     onDragLeave={() => setIsDragging(false)}
                     onDrop={handleDrop}
-                    className={`rounded-lg border border-dashed px-5 py-6 text-center transition-colors ${
+                    className={`block cursor-pointer rounded-lg border border-dashed px-5 py-6 text-center transition-colors focus-within:ring-2 focus-within:ring-[#4F726B] ${
                       isDragging
                         ? "border-[#4F726B] bg-[#4F726B]/5"
-                        : "border-[#d7e4de] bg-[#fbfdfc]"
+                        : "border-[#d7e4de] bg-[#fbfdfc] hover:border-[#4F726B] hover:bg-[#f0f8f4]"
                     }`}
                   >
                     <UploadCloud className="mx-auto h-8 w-8 text-[#4F726B]" />
-                    <p className="mt-2 text-sm font-semibold text-[#17372e]">Drop files here or choose files</p>
-                    <label className="mt-3 inline-flex h-9 cursor-pointer items-center justify-center rounded-md bg-[#4F726B] px-4 text-sm font-medium text-white">
+                    <span className="mt-2 block text-sm font-semibold text-[#17372e]">Drop files here or choose files</span>
+                    <span className="mt-3 inline-flex h-9 items-center justify-center rounded-md bg-[#4F726B] px-4 text-sm font-medium text-white">
                       Choose files
-                      <input
-                        key={fileInputKey}
-                        type="file"
-                        multiple
-                        className="sr-only"
-                        onChange={(event) => handleFiles(event.target.files)}
-                      />
-                    </label>
-                    <p className="mt-3 text-xs text-[#71857d]">Maximum file size: 50 MB per file.</p>
-                    {files.length ? <p className="mt-1 text-xs font-medium text-[#4F726B]">{files.length} selected</p> : null}
-                  </div>
+                    </span>
+                    <input
+                      key={fileInputKey}
+                      type="file"
+                      multiple
+                      aria-label="Choose resource files"
+                      className="sr-only"
+                      onChange={(event) => handleFiles(event.target.files)}
+                    />
+                    <span className="mt-3 block text-xs text-[#71857d]">Maximum file size: 50 MB per file.</span>
+                    {files.length ? <span className="mt-1 block text-xs font-medium text-[#4F726B]">{files.length} selected</span> : null}
+                  </label>
                 ) : null}
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-[#224238]">Visa type</label>
-                    <FormSelect
-                      value={form.visaSlug}
-                      onChange={(value) => updateFormField("visaSlug", value)}
-                      disabled={Boolean(editingItem)}
-                    >
-                      {templates.map((template) => (
-                        <option key={template.visaSlug} value={template.visaSlug}>{template.title}</option>
-                      ))}
-                    </FormSelect>
-                  </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-[#224238]">Type</label>
                     <FormSelect
@@ -1331,7 +1313,7 @@ export default function AdminResourceTemplatesManager() {
                   <Button
                     type="submit"
                     disabled={isSubmitting || isLoading || categoryMutationActive || isReordering}
-                    className="bg-[#4F726B] text-white hover:bg-[#4F726B]"
+                    className="bg-[#4F726B] text-white hover:bg-[#3c5b54]"
                   >
                     {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
                     {editingItem ? "Save changes" : form.kind === "file" ? "Upload" : "Add resource"}
@@ -1356,7 +1338,7 @@ export default function AdminResourceTemplatesManager() {
                   type="button"
                   onClick={handleAddResource}
                   disabled={isLoading || categoryMutationActive || isReordering || showResourceForm}
-                  className="bg-[#4F726B] text-white hover:bg-[#4F726B]"
+                  className="bg-[#4F726B] text-white hover:bg-[#3c5b54]"
                 >
                   <Plus className="h-4 w-4" />
                   Add resource
@@ -1543,7 +1525,7 @@ export default function AdminResourceTemplatesManager() {
               <Button
                 type="button"
                 onClick={handleAddResource}
-                className="mt-4 bg-[#4F726B] text-white hover:bg-[#4F726B]"
+                className="mt-4 bg-[#4F726B] text-white hover:bg-[#3c5b54]"
               >
                 <Plus className="h-4 w-4" />
                 Add resource

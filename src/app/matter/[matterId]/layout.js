@@ -159,7 +159,7 @@ export default function MatterLayout({ children }) {
         <div className="border-b border-gray-100 px-4 sm:px-8 py-4 flex flex-wrap gap-4 items-center justify-between">
           <div className="flex items-center gap-8">
             <img src="/Ply_Logo_black.png" alt="ValidifyPro Logo" className="h-7 sm:h-9" />
-            <Link href="/" className="hidden sm:inline-flex items-center text-sm text-gray-500 hover:text-gray-900 transition-colors">
+            <Link href="/" className="hidden rounded-md px-2 py-1 text-sm text-gray-500 transition-colors hover:bg-[#e8f3ee] hover:text-[#284d41] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B] sm:inline-flex sm:items-center">
               <ArrowLeft className="h-4 w-4 mr-1" />
               Dashboard
             </Link>
@@ -169,7 +169,7 @@ export default function MatterLayout({ children }) {
 
         <div className="mx-auto max-w-[100rem] px-4 sm:px-6 lg:px-8">
           <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isScrolled ? 'max-h-0 opacity-0' : 'max-h-[300px] opacity-100 pt-6 pb-2'}`}>
-            <Link href="/" className="inline-flex sm:hidden items-center text-sm text-gray-500 hover:text-gray-900 mb-4 transition-colors">
+            <Link href="/" className="mb-4 inline-flex items-center rounded-md px-2 py-1 text-sm text-gray-500 transition-colors hover:bg-[#e8f3ee] hover:text-[#284d41] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B] sm:hidden">
               <ArrowLeft className="h-4 w-4 mr-1" />
               Dashboard
             </Link>
@@ -230,10 +230,11 @@ export default function MatterLayout({ children }) {
                 <Link
                   key={tab.href}
                   href={tab.href}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 whitespace-nowrap transition-colors ${
+                  aria-current={isActive ? "page" : undefined}
+                  className={`flex items-center gap-2 whitespace-nowrap rounded-t-lg border-b-2 px-3 py-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#4F726B] ${
                     isActive
-                      ? "border-[#4F726B] text-[#4F726B]"
-                      : "border-transparent text-gray-500 hover:text-gray-900"
+                      ? "border-[#4F726B] bg-[#e8f3ee] text-[#284d41] hover:bg-[#d9eee2]"
+                      : "border-transparent text-gray-500 hover:bg-[#e8f3ee] hover:text-[#284d41]"
                   }`}
                 >
                   {tab.label}
