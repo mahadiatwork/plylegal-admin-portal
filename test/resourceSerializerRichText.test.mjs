@@ -94,3 +94,14 @@ test("serializers suppress explicit rich HTML on malformed non-note records", ()
     assert.doesNotMatch(JSON.stringify(serialized), /onerror|<script|<svg|javascript:/);
   }
 });
+
+test("template serializer preserves file and link descriptions", () => {
+  for (const kind of ["file", "link"]) {
+    const serialized = serializeTemplateItemDoc({
+      id: `${kind}-resource`,
+      data: () => ({ kind, name: "Police check", description: "Use Code 33" }),
+    });
+
+    assert.equal(serialized.description, "Use Code 33");
+  }
+});

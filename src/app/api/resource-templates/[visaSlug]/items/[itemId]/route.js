@@ -175,11 +175,19 @@ export async function PATCH(request, { params }) {
       updates.externalUrl = externalUrl;
     }
 
+    const descriptionWasProvided = Object.prototype.hasOwnProperty.call(body, "description");
+    if (
+      descriptionWasProvided &&
+      (currentItem.kind === "file" || currentItem.kind === "link")
+    ) {
+      updates.description = cleanText(body.description);
+    }
+
     const noteHtmlWasProvided = Object.prototype.hasOwnProperty.call(body, "noteHtml");
     const legacyNoteTextWasProvided =
       Object.prototype.hasOwnProperty.call(body, "noteText") ||
       Object.prototype.hasOwnProperty.call(body, "content") ||
-      Object.prototype.hasOwnProperty.call(body, "description");
+      (currentItem.kind === "note" && descriptionWasProvided);
 
     if (noteHtmlWasProvided || legacyNoteTextWasProvided) {
       if (currentItem.kind !== "note") {

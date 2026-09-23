@@ -20,6 +20,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   plainTextToRichTextHtml,
   RichTextEditor,
@@ -55,6 +56,7 @@ const emptyForm = {
   order: "0",
   status: "active",
   externalUrl: "",
+  description: "",
   noteText: "",
   noteHtml: "",
 };
@@ -158,6 +160,7 @@ function getResourceSearchText(item) {
     item.name,
     item.fileName,
     item.externalUrl,
+    item.description,
     item.noteText,
     item.category,
     item.templateTitle,
@@ -414,6 +417,7 @@ export default function AdminResourceTemplatesManager() {
       order: String(Number.isFinite(Number(item.order)) ? Number(item.order) : 0),
       status: item.status || "active",
       externalUrl: item.externalUrl || "",
+      description: item.description || "",
       noteText,
       noteHtml: item.noteHtml || plainTextToRichTextHtml(noteText),
     });
@@ -785,6 +789,9 @@ export default function AdminResourceTemplatesManager() {
         if (editingItem.kind === "link") {
           payload.externalUrl = form.externalUrl;
         }
+        if (editingItem.kind === "file" || editingItem.kind === "link") {
+          payload.description = form.description;
+        }
         if (editingItem.kind === "note") {
           payload.noteText = form.noteText;
           payload.noteHtml = form.noteHtml;
@@ -820,6 +827,7 @@ export default function AdminResourceTemplatesManager() {
           payload.append("parentId", "__root__");
           payload.append("order", String(Number(form.order || 0) + index));
           payload.append("status", form.status);
+          payload.append("description", form.description);
           payload.append("file", selectedFile);
 
           const response = await fetch(`/api/resource-templates/${targetVisa}/items`, {
@@ -856,6 +864,9 @@ export default function AdminResourceTemplatesManager() {
         payload.append("order", form.order);
         payload.append("status", form.status);
         payload.append("externalUrl", form.externalUrl);
+        if (form.kind === "link") {
+          payload.append("description", form.description);
+        }
         payload.append("noteText", form.noteText);
         payload.append("noteHtml", form.noteHtml);
 
@@ -1302,6 +1313,20 @@ export default function AdminResourceTemplatesManager() {
                       value={form.externalUrl}
                       onChange={(event) => updateFormField("externalUrl", event.target.value)}
                       placeholder="https://example.com/resource"
+                    />
+                  </div>
+                ) : null}
+
+                {form.kind === "file" || form.kind === "link" ? (
+                  <div className="space-y-2">
+                    <label htmlFor="resource-description" className="text-sm font-medium text-[#224238]">Description</label>
+                    <Textarea
+                      id="resource-description"
+                      value={form.description}
+                      onChange={(event) => updateFormField("description", event.target.value)}
+                      placeholder="Optional note shown with this resource (for example, Use Code 33)."
+                      rows={3}
+                      className="border-[#d7e4de] bg-white"
                     />
                   </div>
                 ) : null}

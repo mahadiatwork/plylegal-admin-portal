@@ -626,6 +626,72 @@ test("adding a resource uses the selected visa scope without a second visa selec
   assert.equal(mutationCalls(calls).length, 1);
 });
 
+for (const kind of ["file", "link"]) {
+  test(`adding a template ${kind} includes its optional description`, async (t) => {
+    const { harness, calls } = await mountTemplates(t, {
+      mutate(url, options) {
+        assert.equal(url, "/api/resource-templates/visa-alpha/items");
+        assert.equal(options.method, "POST");
+        assert.equal(options.body.get("kind"), kind);
+        assert.equal(options.body.get("description"), "Use Code 33");
+        return response({ success: true, item: { id: `${kind}-with-description` } });
+      },
+    });
+
+    change(harness, "Visa scope", "visa-alpha");
+    harness.button("Add resource").props.onClick();
+    harness.render();
+
+    if (kind === "link") {
+      const kindSelect = harness.find((node) => node.type === "select" && node.props.value === "file");
+      kindSelect.props.onChange({ target: { value: "link" } });
+      harness.render();
+      change(harness, "resource-name", "Police check");
+      change(harness, "resource-link", "https://example.test/police-check");
+    } else {
+      harness.control("Choose resource files").props.onChange({
+        target: { files: [new File(["PDF"], "police-check.pdf", { type: "application/pdf" })] },
+      });
+      harness.render();
+    }
+
+    change(harness, "resource-description", "Use Code 33");
+    await settleInteraction(harness, harness.find((node) => node.type === "form").props.onSubmit({ preventDefault() {} }));
+    assert.equal(mutationCalls(calls).length, 1);
+  });
+}
+
+test("editing a template link restores and saves its description", async (t) => {
+  const definitions = [templateDefinitions[0]];
+  const existingLink = {
+    id: "police-check",
+    kind: "link",
+    name: "Police check",
+    description: "Use Code 33",
+    externalUrl: "https://example.test/police-check",
+    category: "Uncategorized",
+    order: 10,
+    status: "active",
+  };
+  const { harness, calls } = await mountTemplates(t, {
+    definitions,
+    loadItems: () => [existingLink],
+    mutate(url, options) {
+      assert.equal(url, "/api/resource-templates/visa-alpha/items/police-check");
+      assert.equal(options.method, "PATCH");
+      assert.equal(JSON.parse(options.body).description, "Use Code 34");
+      return response({ success: true, item: { ...existingLink, description: "Use Code 34" } });
+    },
+  });
+
+  harness.find((node) => node.type === "button" && node.props.title === "Edit").props.onClick();
+  harness.render();
+  assert.equal(harness.control("resource-description").props.value, "Use Code 33");
+  change(harness, "resource-description", "Use Code 34");
+  await settleInteraction(harness, harness.find((node) => node.type === "form").props.onSubmit({ preventDefault() {} }));
+  assert.equal(mutationCalls(calls).length, 1);
+});
+
 test("all visa types requires a specific scope before adding a resource", async (t) => {
   const { harness, calls } = await mountTemplates(t);
   assert.equal(harness.control("Visa scope").props.value, "all");

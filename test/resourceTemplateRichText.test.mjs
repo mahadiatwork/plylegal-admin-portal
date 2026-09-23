@@ -185,3 +185,69 @@ test("template note update sanitizes rich HTML and legacy clients can replace it
   assert.equal(items.get("note").noteHtml, null);
   assert.equal(items.get("note").contentFormat, null);
 });
+
+test("template file and link descriptions are stored on create and can be edited", async () => {
+  for (const kind of ["file", "link"]) {
+    reset();
+    const form = new FormData();
+    form.set("kind", kind);
+    form.set("name", `${kind} resource`);
+    form.set("description", "  Use Code 33  ");
+    if (kind === "file") {
+      form.set("file", new File(["resource"], "resource.pdf", { type: "application/pdf" }));
+    } else {
+      form.set("externalUrl", "https://example.test/police-check");
+    }
+
+    const createResponse = await collectionRoute.POST(new Request("https://portal.test/api/resource-templates/482/items", {
+      method: "POST",
+      body: form,
+    }), collectionContext);
+
+    assert.equal(createResponse.status, 201, `${kind} create should succeed`);
+    assert.equal(items.get("created").description, "Use Code 33");
+
+    const itemId = `${kind}-item`;
+    items.set(itemId, {
+      ...items.get("created"),
+      kind,
+      name: `${kind} resource`,
+    });
+    const updateResponse = await itemRoute.PATCH(new Request(`https://portal.test/api/resource-templates/482/items/${itemId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ description: "  Bring identification  " }),
+    }), { params: Promise.resolve({ visaSlug: "482", itemId }) });
+
+    assert.equal(updateResponse.status, 200, `${kind} update should succeed`);
+    assert.equal(items.get(itemId).description, "Bring identification");
+  }
+});
+
+test("legacy note description remains plain-text note content", async () => {
+  reset();
+  const form = new FormData();
+  form.set("kind", "note");
+  form.set("name", "Legacy note");
+  form.set("description", "<strong>Literal legacy note</strong>");
+
+  const createResponse = await collectionRoute.POST(new Request("https://portal.test/api/resource-templates/482/items", {
+    method: "POST",
+    body: form,
+  }), collectionContext);
+  assert.equal(createResponse.status, 201);
+  assert.equal(items.get("created").noteText, "<strong>Literal legacy note</strong>");
+  assert.equal("description" in items.get("created"), false);
+
+  items.set("note", { kind: "note", name: "Legacy note", noteText: "Old", content: "Old" });
+  const updateResponse = await itemRoute.PATCH(new Request("https://portal.test/api/resource-templates/482/items/note", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ description: "<em>Literal replacement</em>" }),
+  }), itemContext);
+
+  assert.equal(updateResponse.status, 200);
+  assert.equal(items.get("note").noteText, "<em>Literal replacement</em>");
+  assert.equal(items.get("note").content, "<em>Literal replacement</em>");
+  assert.equal("description" in items.get("note"), false);
+});

@@ -78,6 +78,7 @@ export async function POST(request, { params }) {
     const order = normalizeTemplateOrder(formData.get("order"), 0);
     const category = normalizeTemplateCategory(formData.get("category"));
     const nameInput = cleanText(formData.get("name") || formData.get("title"));
+    const description = cleanText(formData.get("description"));
 
     if (!kind) {
       return errorResponse("Item kind must be folder, file, link, or note", 400);
@@ -131,6 +132,7 @@ export async function POST(request, { params }) {
 
       itemData.name = nameInput || new URL(externalUrl).hostname;
       itemData.externalUrl = externalUrl;
+      itemData.description = description;
     }
 
     if (kind === "note") {
@@ -170,6 +172,7 @@ export async function POST(request, { params }) {
 
       Object.assign(itemData, uploadResult.data, {
         name: title,
+        description,
         workDriveTemplateRootFolderId: definition.workDriveFolderId,
       });
     }
