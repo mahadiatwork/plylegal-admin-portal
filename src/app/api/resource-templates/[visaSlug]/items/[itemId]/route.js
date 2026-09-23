@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAdminSession } from "@/lib/adminSession";
 import { db, initResult } from "@/lib/firebase-admin";
 import { cleanText } from "@/lib/sharedResources";
+import { buildNoteFields } from "@/lib/richText";
 import { deleteResourceTemplateItemSafely } from "@/lib/resourceTemplateDeletion.mjs";
 import {
   deleteResourceTemplateWorkDriveResource,
@@ -174,23 +175,40 @@ export async function PATCH(request, { params }) {
       updates.externalUrl = externalUrl;
     }
 
-    const noteTextWasProvided =
+    const noteHtmlWasProvided = Object.prototype.hasOwnProperty.call(body, "noteHtml");
+    const legacyNoteTextWasProvided =
       Object.prototype.hasOwnProperty.call(body, "noteText") ||
       Object.prototype.hasOwnProperty.call(body, "content") ||
       Object.prototype.hasOwnProperty.call(body, "description");
 
-    if (noteTextWasProvided) {
+    if (noteHtmlWasProvided || legacyNoteTextWasProvided) {
       if (currentItem.kind !== "note") {
-        return errorResponse("Only note items can update noteText", 400);
+        return errorResponse("Only note items can update note content", 400);
       }
 
-      const noteText = cleanText(body.noteText || body.content || body.description);
-      if (!noteText) {
-        return errorResponse("Note text is required", 400);
+      const noteContent = buildNoteFields(
+        noteHtmlWasProvided
+          ? body.noteHtml
+          : Object.prototype.hasOwnProperty.call(body, "noteText")
+            ? body.noteText
+            : Object.prototype.hasOwnProperty.call(body, "content")
+              ? body.content
+              : body.description,
+        { format: noteHtmlWasProvided ? "html" : "plain" }
+      );
+      if (!noteContent.valid) {
+        return errorResponse(noteContent.error, 400);
       }
 
-      updates.noteText = noteText;
-      updates.content = noteText;
+      Object.assign(updates, noteContent.fields);
+      if (
+        !noteHtmlWasProvided &&
+        (Object.prototype.hasOwnProperty.call(currentItem, "noteHtml") ||
+          currentItem.contentFormat === "html")
+      ) {
+        updates.noteHtml = null;
+        updates.contentFormat = null;
+      }
     }
 
     if (!Object.keys(updates).length) {

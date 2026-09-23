@@ -236,6 +236,45 @@ test("matter resource list keeps legacy rows and sorts explicit order before cre
   assert.equal(fixture.collectionReads, 1);
 });
 
+test("matter resource GET defensively sanitizes stored rich notes", async () => {
+  resetFixture([{
+    id: "note",
+    type: "note",
+    title: "Stored note",
+    noteHtml: '<p>Hello <em>client</em><iframe src="https://unsafe.test"></iframe></p>',
+    noteText: "stale",
+    content: "stale",
+    contentFormat: "html",
+    status: "active",
+  }]);
+
+  const response = await GET(new Request("https://portal.test/api/matter/app/resources"), context);
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.equal(data.resources[0].noteHtml, "<p>Hello <em>client</em></p>");
+  assert.equal(data.resources[0].noteText, "Hello client");
+  assert.equal(data.resources[0].content, "Hello client");
+});
+
+test("matter resource GET suppresses rich HTML attached to a non-note record", async () => {
+  resetFixture([{
+    id: "file",
+    type: "file",
+    title: "Malformed file",
+    noteText: "must not render",
+    noteHtml: '<img src=x onerror="alert(1)"><script>alert(2)</script>',
+    contentFormat: "html",
+    status: "active",
+  }]);
+
+  const response = await GET(new Request("https://portal.test/api/matter/app/resources"), context);
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.equal("noteHtml" in data.resources[0], false);
+  assert.equal("contentFormat" in data.resources[0], false);
+  assert.doesNotMatch(JSON.stringify(data.resources[0]), /onerror|<script|alert\(/);
+});
+
 test("link creation persists category and numeric order without download fields", async () => {
   resetFixture();
   const form = new FormData();
@@ -256,6 +295,60 @@ test("link creation persists category and numeric order without download fields"
   assert.equal(fixture.adds[0].externalUrl, "https://example.test/guidance");
   assert.equal("downloadUrl" in fixture.adds[0], false);
   assert.equal("downloadAllowed" in fixture.adds[0], false);
+});
+
+test("matter note creation stores sanitized rich HTML and derived plaintext", async () => {
+  resetFixture();
+  const form = new FormData();
+  form.set("type", "note");
+  form.set("title", "Next steps");
+  form.set(
+    "noteHtml",
+    '<h2>Next steps</h2><ul><li><strong>Upload</strong> the form</li></ul><a href="javascript:alert(1)">unsafe</a>'
+  );
+
+  const response = await POST(new Request("https://portal.test/api/matter/app/resources", {
+    method: "POST",
+    body: form,
+  }), context);
+
+  assert.equal(response.status, 201);
+  assert.equal(fixture.adds.length, 1);
+  assert.equal(
+    fixture.adds[0].noteHtml,
+    "<h2>Next steps</h2><ul><li><strong>Upload</strong> the form</li></ul>unsafe"
+  );
+  assert.equal(fixture.adds[0].noteText, "Next steps\nUpload the form\nunsafe");
+  assert.equal(fixture.adds[0].content, fixture.adds[0].noteText);
+  assert.equal(fixture.adds[0].description, fixture.adds[0].noteText);
+  assert.equal(fixture.adds[0].contentFormat, "html");
+});
+
+test("matter note creation keeps legacy note text literal and rejects formatted-empty HTML", async () => {
+  resetFixture();
+  const legacy = new FormData();
+  legacy.set("type", "note");
+  legacy.set("noteText", "<strong>Literal legacy text</strong>");
+
+  const legacyResponse = await POST(new Request("https://portal.test/api/matter/app/resources", {
+    method: "POST",
+    body: legacy,
+  }), context);
+  assert.equal(legacyResponse.status, 201);
+  assert.equal(fixture.adds[0].noteText, "<strong>Literal legacy text</strong>");
+  assert.equal("noteHtml" in fixture.adds[0], false);
+  assert.equal("contentFormat" in fixture.adds[0], false);
+
+  const empty = new FormData();
+  empty.set("type", "note");
+  empty.set("noteHtml", "<p><br></p><script>alert(1)</script>");
+  const emptyResponse = await POST(new Request("https://portal.test/api/matter/app/resources", {
+    method: "POST",
+    body: empty,
+  }), context);
+  assert.equal(emptyResponse.status, 400);
+  assert.equal((await emptyResponse.json()).error, "Note text is required");
+  assert.equal(fixture.adds.length, 1);
 });
 
 test("matter resource GET retains persistent empty folders and infers legacy folders without document review or archived folders", async () => {

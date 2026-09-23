@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAdminSession } from "@/lib/adminSession";
 import { db, initResult } from "@/lib/firebase-admin";
 import { cleanText } from "@/lib/sharedResources";
+import { buildNoteFields } from "@/lib/richText";
 import {
   ensureResourceTemplate,
   normalizeResourceUrl,
@@ -133,24 +134,25 @@ export async function POST(request, { params }) {
     }
 
     if (kind === "note") {
-      const noteText = cleanText(
-        formData.get("noteText") ||
-          formData.get("content") ||
-          formData.get("description")
+      const noteHtmlWasProvided = formData.has("noteHtml");
+      const noteContent = buildNoteFields(
+        noteHtmlWasProvided
+          ? formData.get("noteHtml")
+          : formData.get("noteText") ||
+            formData.get("content") ||
+            formData.get("description"),
+        { format: noteHtmlWasProvided ? "html" : "plain" }
       );
 
       if (!nameInput) {
         return errorResponse("Note name is required", 400);
       }
 
-      if (!noteText) {
-        return errorResponse("Note text is required", 400);
+      if (!noteContent.valid) {
+        return errorResponse(noteContent.error, 400);
       }
 
-      Object.assign(itemData, {
-        noteText,
-        content: noteText,
-      });
+      Object.assign(itemData, noteContent.fields);
     }
 
     if (kind === "file") {

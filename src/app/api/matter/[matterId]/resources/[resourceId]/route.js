@@ -3,6 +3,7 @@ import { getAdminSession } from "@/lib/adminSession";
 import { db, initResult } from "@/lib/firebase-admin";
 import { normalizeMatterResourceOrder } from "@/lib/matterResources.mjs";
 import { resolveMatterApplication } from "@/lib/matterResolver";
+import { serializeStoredNoteFields } from "@/lib/richText";
 import zohoClient from "@/lib/zohoClient";
 
 export const runtime = "nodejs";
@@ -140,12 +141,19 @@ export async function PATCH(request, { params }) {
       updates.updatedBy = actor;
       await resourceRef.update(updates);
 
+      const updatedResource = {
+        ...resourceData,
+        ...updates,
+      };
+
       return NextResponse.json({
         success: true,
         resource: {
           id: resourceId,
-          ...resourceData,
-          ...updates,
+          ...updatedResource,
+          ...serializeStoredNoteFields(updatedResource, {
+            isNote: String(updatedResource.type || "").toLowerCase() === "note",
+          }),
           updatedAt: now.toISOString(),
         },
       });

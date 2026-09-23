@@ -24,6 +24,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { RichTextContent, RichTextEditor } from "@/components/ui/rich-text";
 import { Textarea } from "@/components/ui/textarea";
 import AdminResourceTemplatesManager from "@/components/admin/AdminResourceTemplatesManager";
 import ResourceFoldersSidebar from "@/components/admin/ResourceFoldersSidebar";
@@ -214,11 +215,19 @@ function ResourceRow({
               </span>
             ) : null}
           </div>
-          {resource.description && (
+          {resource.type === "note" ? (
+            <RichTextContent
+              html={resource.noteHtml}
+              fallbackText={
+                resource.noteText || resource.content || resource.description
+              }
+              className="mt-1 line-clamp-2 text-gray-500"
+            />
+          ) : resource.description ? (
             <p className="mt-1 line-clamp-2 text-sm text-gray-500">
               {resource.description}
             </p>
-          )}
+          ) : null}
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-400">
             {resource.fileName && <span>{resource.fileName}</span>}
             {resource.fileSize ? (
@@ -323,6 +332,8 @@ function MatterResourcesManager({ matterId }) {
   const [sortMode, setSortMode] = useState("order");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [noteHtml, setNoteHtml] = useState("");
+  const [noteText, setNoteText] = useState("");
   const [url, setUrl] = useState("");
   const [file, setFile] = useState(null);
   const [fileInputKey, setFileInputKey] = useState(0);
@@ -521,6 +532,8 @@ function MatterResourcesManager({ matterId }) {
   const resetForm = () => {
     setTitle("");
     setDescription("");
+    setNoteHtml("");
+    setNoteText("");
     setUrl("");
     setFile(null);
     setFileInputKey((key) => key + 1);
@@ -731,7 +744,7 @@ function MatterResourcesManager({ matterId }) {
       return;
     }
 
-    if (mode === "note" && !description.trim()) {
+    if (mode === "note" && !noteText.trim()) {
       setError("Add note text before saving.");
       return;
     }
@@ -739,8 +752,14 @@ function MatterResourcesManager({ matterId }) {
     const formData = new FormData();
     formData.append("type", mode);
     formData.append("title", title.trim());
-    formData.append("description", description.trim());
-    formData.append("noteText", description.trim());
+    formData.append(
+      "description",
+      mode === "note" ? noteText.trim() : description.trim(),
+    );
+    if (mode === "note") {
+      formData.append("noteText", noteText.trim());
+      formData.append("noteHtml", noteHtml);
+    }
     formData.append("category", selectedCategory);
     const categoryResources = individualResources.filter(
       (resource) =>
@@ -1299,25 +1318,36 @@ function MatterResourcesManager({ matterId }) {
 
                       <div className="space-y-2 md:col-span-2">
                         <label
+                          id="resource-description-label"
                           htmlFor="resource-description"
                           className="text-sm font-medium text-gray-700"
                         >
                           {mode === "note" ? "Note" : "Description"}
                         </label>
-                        <Textarea
-                          id="resource-description"
-                          value={description}
-                          onChange={(event) =>
-                            setDescription(event.target.value)
-                          }
-                          placeholder={
-                            mode === "note"
-                              ? "Write the note for this matter"
-                              : "Optional note"
-                          }
-                          rows={mode === "note" ? 5 : 3}
-                          className="bg-white"
-                        />
+                        {mode === "note" ? (
+                          <RichTextEditor
+                            id="resource-description"
+                            ariaLabelledBy="resource-description-label"
+                            value={noteHtml}
+                            fallbackText={noteText}
+                            onChange={(nextHtml, nextText) => {
+                              setNoteHtml(nextHtml);
+                              setNoteText(nextText);
+                            }}
+                            placeholder="Write the note for this matter"
+                          />
+                        ) : (
+                          <Textarea
+                            id="resource-description"
+                            value={description}
+                            onChange={(event) =>
+                              setDescription(event.target.value)
+                            }
+                            placeholder="Optional note"
+                            rows={3}
+                            className="bg-white"
+                          />
+                        )}
                       </div>
 
                       {isSubmitting && (

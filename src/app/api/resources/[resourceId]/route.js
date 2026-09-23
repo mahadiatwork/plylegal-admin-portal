@@ -9,6 +9,7 @@ import {
   normalizeResourceUrl,
   serializeResourceDoc,
 } from "@/lib/sharedResources";
+import { buildNoteFields } from "@/lib/richText";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -140,20 +141,36 @@ export async function PATCH(request, { params }) {
     }
 
     if (currentResource.type === "note") {
+      const noteHtmlWasProvided = Object.prototype.hasOwnProperty.call(body, "noteHtml");
       const noteTextWasProvided = Object.prototype.hasOwnProperty.call(body, "noteText");
+      const contentWasProvided = Object.prototype.hasOwnProperty.call(body, "content");
       const descriptionWasProvided = Object.prototype.hasOwnProperty.call(body, "description");
 
-      if (noteTextWasProvided || descriptionWasProvided) {
-        const noteText = cleanText(
-          noteTextWasProvided ? body.noteText : body.description ?? currentResource.noteText
+      if (noteHtmlWasProvided || noteTextWasProvided || contentWasProvided || descriptionWasProvided) {
+        const noteContent = buildNoteFields(
+          noteHtmlWasProvided
+            ? body.noteHtml
+            : noteTextWasProvided
+              ? body.noteText
+              : contentWasProvided
+                ? body.content
+                : body.description ?? currentResource.noteText ?? currentResource.content,
+          { format: noteHtmlWasProvided ? "html" : "plain" }
         );
 
-        if (!noteText) {
-          return errorResponse("Note text is required", 400);
+        if (!noteContent.valid) {
+          return errorResponse(noteContent.error, 400);
         }
 
-        updates.noteText = noteText;
-        updates.content = noteText;
+        Object.assign(updates, noteContent.fields);
+        if (
+          !noteHtmlWasProvided &&
+          (Object.prototype.hasOwnProperty.call(currentResource, "noteHtml") ||
+            currentResource.contentFormat === "html")
+        ) {
+          updates.noteHtml = null;
+          updates.contentFormat = null;
+        }
       }
     }
 

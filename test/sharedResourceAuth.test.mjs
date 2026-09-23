@@ -20,6 +20,7 @@ const mocks = {
   "next/server": "export const NextResponse = Response;",
   "@/lib/adminSession": "export const getAdminSession = globalThis.__sharedResourceAuthDependencies.getAdminSession;",
   "@/lib/firebase-admin": "export const db = globalThis.__sharedResourceAuthDependencies.db; export const initResult = {};",
+  "@/lib/richText": "export const buildNoteFields = () => ({ valid: false, error: 'unused' });",
   "@/lib/sharedResources": `
     export const MAX_SHARED_RESOURCE_FILE_SIZE = 52428800;
     export const cleanText = (value) => typeof value === "string" ? value.trim() : "";

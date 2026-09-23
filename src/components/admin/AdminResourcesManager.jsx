@@ -27,6 +27,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  plainTextToRichTextHtml,
+  RichTextContent,
+  RichTextEditor,
+} from "@/components/ui/rich-text";
 import { Textarea } from "@/components/ui/textarea";
 import { getWorkDrivePreviewUrl } from "@/lib/workDrivePreviewUrl.mjs";
 
@@ -54,6 +59,7 @@ const defaultFormState = {
   title: "",
   description: "",
   noteText: "",
+  noteHtml: "",
   category: "General",
   status: "draft",
   scope: "shared",
@@ -123,11 +129,13 @@ function FormSelect({ value, onChange, children, className = "", ...props }) {
 }
 
 function buildFormState(resource) {
+  const noteText = resource.noteText || resource.content || "";
   return {
     type: resource.type || "file",
     title: resource.title || "",
     description: resource.description || "",
-    noteText: resource.noteText || resource.content || "",
+    noteText,
+    noteHtml: resource.noteHtml || plainTextToRichTextHtml(noteText),
     category: resource.category || "General",
     status: resource.status || "draft",
     scope: resource.scope || "shared",
@@ -229,10 +237,12 @@ function ResourceRow({
               <p className="max-w-3xl text-sm leading-6 text-[#51695f]">{resource.description}</p>
             ) : null}
 
-            {resource.noteText ? (
-              <div className="rounded-2xl border border-[#e4ece8] bg-[#f8fbf9] px-4 py-3 text-sm leading-6 text-[#486257]">
-                {resource.noteText}
-              </div>
+            {String(resource.type || "").toLowerCase() === "note" && resource.noteText ? (
+              <RichTextContent
+                html={resource.noteHtml}
+                fallbackText={resource.noteText || resource.content}
+                className="rounded-2xl border border-[#e4ece8] bg-[#f8fbf9] px-4 py-3 leading-6 text-[#486257]"
+              />
             ) : null}
 
             <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs uppercase tracking-[0.14em] text-[#7a9188]">
@@ -460,6 +470,7 @@ export default function AdminResourcesManager() {
             title: form.title,
             description: form.description,
             noteText: form.noteText,
+            noteHtml: form.noteHtml,
             category: form.category,
             status: form.status,
             scope: form.scope,
@@ -484,6 +495,7 @@ export default function AdminResourcesManager() {
         payload.append("title", form.title);
         payload.append("description", form.description);
         payload.append("noteText", form.noteText);
+        payload.append("noteHtml", form.noteHtml);
         payload.append("category", form.category);
         payload.append("status", form.status);
         payload.append("scope", form.scope);
@@ -852,16 +864,19 @@ export default function AdminResourcesManager() {
 
               {form.type === "note" ? (
                 <div className="space-y-2">
-                  <label htmlFor="resource-note" className="text-sm font-medium text-[#224238]">
+                  <label id="resource-note-label" htmlFor="resource-note" className="text-sm font-medium text-[#224238]">
                     Note text
                   </label>
-                  <Textarea
+                  <RichTextEditor
+                    key={editingResourceId || "new-note"}
                     id="resource-note"
-                    value={form.noteText}
-                    onChange={(event) => updateFormField("noteText", event.target.value)}
+                    ariaLabelledBy="resource-note-label"
+                    value={form.noteHtml}
+                    fallbackText={form.noteText}
+                    onChange={(noteHtml, noteText) =>
+                      setForm((current) => ({ ...current, noteHtml, noteText }))
+                    }
                     placeholder="Write the full shared note that should appear in the portal."
-                    rows={5}
-                    className="border-[#d7e4de] bg-white"
                   />
                 </div>
               ) : null}

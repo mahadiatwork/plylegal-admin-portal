@@ -20,7 +20,10 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  plainTextToRichTextHtml,
+  RichTextEditor,
+} from "@/components/ui/rich-text";
 import ResourceFoldersSidebar, { categoryIconOptions } from "@/components/admin/ResourceFoldersSidebar";
 
 const ALL_VISAS = "all";
@@ -52,6 +55,7 @@ const emptyForm = {
   status: "active",
   externalUrl: "",
   noteText: "",
+  noteHtml: "",
 };
 
 function cleanText(value) {
@@ -400,6 +404,7 @@ export default function AdminResourceTemplatesManager() {
   };
 
   const handleEdit = (item) => {
+    const noteText = item.noteText || item.content || "";
     setEditingItem(item);
     setForm({
       kind: item.kind,
@@ -408,7 +413,8 @@ export default function AdminResourceTemplatesManager() {
       order: String(Number.isFinite(Number(item.order)) ? Number(item.order) : 0),
       status: item.status || "active",
       externalUrl: item.externalUrl || "",
-      noteText: item.noteText || item.content || "",
+      noteText,
+      noteHtml: item.noteHtml || plainTextToRichTextHtml(noteText),
     });
     setFiles([]);
     setFileInputKey((current) => current + 1);
@@ -780,6 +786,7 @@ export default function AdminResourceTemplatesManager() {
         }
         if (editingItem.kind === "note") {
           payload.noteText = form.noteText;
+          payload.noteHtml = form.noteHtml;
         }
 
         const response = await fetch(
@@ -849,6 +856,7 @@ export default function AdminResourceTemplatesManager() {
         payload.append("status", form.status);
         payload.append("externalUrl", form.externalUrl);
         payload.append("noteText", form.noteText);
+        payload.append("noteHtml", form.noteHtml);
 
         const response = await fetch(`/api/resource-templates/${targetVisa}/items`, {
           method: "POST",
@@ -1295,13 +1303,17 @@ export default function AdminResourceTemplatesManager() {
 
                 {form.kind === "note" ? (
                   <div className="space-y-2">
-                    <label htmlFor="resource-note" className="text-sm font-medium text-[#224238]">Note</label>
-                    <Textarea
+                    <label id="resource-note-label" htmlFor="resource-note" className="text-sm font-medium text-[#224238]">Note</label>
+                    <RichTextEditor
+                      key={editingItem ? `${editingItem.visaSlug}:${editingItem.id}` : "new-note"}
                       id="resource-note"
-                      value={form.noteText}
-                      onChange={(event) => updateFormField("noteText", event.target.value)}
+                      ariaLabelledBy="resource-note-label"
+                      value={form.noteHtml}
+                      fallbackText={form.noteText}
+                      onChange={(noteHtml, noteText) =>
+                        setForm((current) => ({ ...current, noteHtml, noteText }))
+                      }
                       placeholder="Write the note shown in the portal"
-                      rows={4}
                     />
                   </div>
                 ) : null}

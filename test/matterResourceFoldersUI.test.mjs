@@ -50,6 +50,31 @@ const hooks = {
 const icons = new Proxy({ __esModule: true }, {
   get: (target, name) => name in target ? target[name] : () => null,
 });
+const escapeHtml = (value) => String(value ?? "")
+  .replaceAll("&", "&amp;")
+  .replaceAll("<", "&lt;")
+  .replaceAll(">", "&gt;")
+  .replaceAll('"', "&quot;")
+  .replaceAll("'", "&#039;");
+const plainTextToRichTextHtml = (value) => value
+  ? `<p>${escapeHtml(value).replaceAll("\n", "<br>")}</p>`
+  : "";
+const richTextModule = {
+  plainTextToRichTextHtml,
+  RichTextEditor({ id, fallbackText = "", onChange, placeholder }) {
+    return React.createElement("textarea", {
+      id,
+      value: fallbackText,
+      placeholder,
+      onChange(event) {
+        onChange(plainTextToRichTextHtml(event.target.value), event.target.value);
+      },
+    });
+  },
+  RichTextContent({ fallbackText = "" }) {
+    return React.createElement("div", null, fallbackText);
+  },
+};
 
 async function loadComponent(relativePath, overrides = {}) {
   const filename = path.resolve(relativePath);
@@ -75,6 +100,7 @@ async function loadComponent(relativePath, overrides = {}) {
     if (specifier === "@/components/ui/badge") return { Badge: "span" };
     if (specifier === "@/components/ui/input") return { Input: "input" };
     if (specifier === "@/components/ui/textarea") return { Textarea: "textarea" };
+    if (specifier === "@/components/ui/rich-text") return richTextModule;
     if (specifier === "@/lib/workDrivePreviewUrl.mjs") return { getWorkDrivePreviewUrl };
     return require(specifier);
   };
@@ -446,7 +472,10 @@ for (const type of ["file", "note", "link"]) {
       assert.equal(options.body.get("category"), "Empty folder");
       assert.equal(options.body.get("type"), type);
       if (type === "file") assert.equal(options.body.get("file").name, "guide.pdf");
-      if (type === "note") assert.equal(options.body.get("noteText"), "Client note");
+      if (type === "note") {
+        assert.equal(options.body.get("noteText"), "Client note");
+        assert.equal(options.body.get("noteHtml"), "<p>Client note</p>");
+      }
       if (type === "link") assert.equal(options.body.get("url"), "https://example.test/guide");
       return response({ success: true, resource: { id: "new", type, title: "New resource", category: "Empty folder", status: "active" } });
     });
@@ -553,6 +582,8 @@ test("adding a resource uses the selected visa scope without a second visa selec
       assert.equal(options.method, "POST");
       assert.equal(options.body.get("kind"), "note");
       assert.equal(options.body.get("name"), "Beta note");
+      assert.equal(options.body.get("noteText"), "A note for this visa.");
+      assert.equal(options.body.get("noteHtml"), "<p>A note for this visa.</p>");
       return response({ success: true, item: { id: "beta-note" } });
     },
   });

@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 
+import { serializeStoredNoteFields } from '../src/lib/richText.js';
+
 let fixture;
 const applicationRef = {
   path: 'applications/app',
@@ -88,6 +90,7 @@ const dependencies = {
   async resolveMatterApplication() {
     return { appId: 'app', application: { id: 'app', zohoId: 'deal' } };
   },
+  serializeStoredNoteFields,
   zohoClient: {
     async deleteWorkDriveResource(id) {
       fixture.pendingAtDelete = fixture.updates.some(
@@ -112,6 +115,7 @@ const mocks = {
   '@/lib/firebase-admin': 'export const db = globalThis.__documentReviewArchiveDependencies.db; export const initResult = {};',
   '@/lib/matterResources.mjs': 'export function normalizeMatterResourceOrder(value, fallback) { if (value === null || value === undefined || value === "") return fallback; const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null; }',
   '@/lib/matterResolver': 'export const resolveMatterApplication = globalThis.__documentReviewArchiveDependencies.resolveMatterApplication;',
+  '@/lib/richText': 'export const serializeStoredNoteFields = globalThis.__documentReviewArchiveDependencies.serializeStoredNoteFields;',
   '@/lib/zohoClient': 'export default globalThis.__documentReviewArchiveDependencies.zohoClient;',
 };
 const hooks = registerHooks({
@@ -379,6 +383,39 @@ test('matter resource metadata can update without deleting or archiving the reso
   assert.equal(fixture.directUpdates[0].data.updatedBy, 'admin');
   assert.deepEqual(fixture.deleted, []);
   assert.equal(fixture.commits, 0);
+});
+
+test('matter note metadata responses sanitize stored rich text defensively', async () => {
+  fixture = {
+    resources: [{
+      id: 'note',
+      type: 'note',
+      title: 'Old title',
+      status: 'active',
+      noteHtml: '<p>Hello <strong>client</strong><img src=x onerror="alert(1)"></p>',
+      noteText: 'stale text',
+      content: 'stale text',
+      contentFormat: 'html',
+    }],
+    sets: [], updates: [], directUpdates: [], commits: 0, deleted: [], zohoUpdates: [], queries: 0,
+  };
+
+  const response = await PATCH(
+    new Request('https://portal.test/api/matter/app/resources/note', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Updated note' }),
+    }),
+    { params: Promise.resolve({ matterId: 'app', resourceId: 'note' }) },
+  );
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.resource.noteHtml, '<p>Hello <strong>client</strong></p>');
+  assert.equal(body.resource.noteText, 'Hello client');
+  assert.equal(body.resource.content, 'Hello client');
+  assert.equal(body.resource.contentFormat, 'html');
+  assert.doesNotMatch(JSON.stringify(body.resource), /onerror|<img|alert\(1\)/);
 });
 
 test('matter resource metadata rejects invalid order without writing', async () => {

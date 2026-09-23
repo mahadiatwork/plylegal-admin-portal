@@ -1,5 +1,6 @@
 import zohoClient from "@/lib/zohoClient";
 import { getResourceMimeType, getWorkDriveViewerUrl, validateResourceFile } from "./resourceFiles.mjs";
+import { serializeStoredNoteFields } from "./richText.js";
 
 export const MAX_SHARED_RESOURCE_FILE_SIZE = 50 * 1024 * 1024;
 export const RESOURCE_TYPES = ["file", "link", "note"];
@@ -26,6 +27,9 @@ export function serializeResourceDoc(doc) {
   return {
     id: doc.id,
     ...data,
+    ...serializeStoredNoteFields(data, {
+      isNote: String(data.type || "").toLowerCase() === "note",
+    }),
     createdAt: serializeTimestamp(data.createdAt),
     updatedAt: serializeTimestamp(data.updatedAt),
     archivedAt: serializeTimestamp(data.archivedAt),

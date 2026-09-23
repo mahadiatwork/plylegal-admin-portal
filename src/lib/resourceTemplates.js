@@ -1,4 +1,5 @@
 import zohoClient from "@/lib/zohoClient";
+import { serializeStoredNoteFields } from "./richText.js";
 import { getResourceMimeType, getWorkDriveViewerUrl, validateResourceFile } from "./resourceFiles.mjs";
 import {
   cleanText,
@@ -232,6 +233,9 @@ export function serializeTemplateItemDoc(doc) {
   return {
     id: doc.id,
     ...data,
+    ...serializeStoredNoteFields(data, {
+      isNote: String(data.kind || "").toLowerCase() === "note",
+    }),
     createdAt: serializeTimestamp(data.createdAt),
     updatedAt: serializeTimestamp(data.updatedAt),
     hiddenAt: serializeTimestamp(data.hiddenAt),

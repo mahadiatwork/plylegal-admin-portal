@@ -5,6 +5,7 @@ import { resolveMatterApplication } from "@/lib/matterResolver";
 import { isPdfUpload } from "@/lib/pdfUploadRules.mjs";
 import { getResourceMimeType } from "@/lib/resourceFiles.mjs";
 import { normalizeMatterResourceCategories } from "@/lib/matterResourceCategories.mjs";
+import { buildNoteFields, serializeStoredNoteFields } from "@/lib/richText";
 import {
   createViewOnlyMatterResourceLink,
   normalizeMatterResourceOrder,
@@ -49,6 +50,9 @@ function serializeResource(doc) {
   return {
     id: doc.id,
     ...data,
+    ...serializeStoredNoteFields(data, {
+      isNote: String(data.type || "").toLowerCase() === "note",
+    }),
     createdAt: serializeTimestamp(data.createdAt),
     updatedAt: serializeTimestamp(data.updatedAt),
     archivedAt: serializeTimestamp(data.archivedAt),
@@ -336,7 +340,9 @@ export async function POST(request, { params }) {
     const formData = await request.formData();
     const type = cleanText(formData.get("type") || formData.get("resourceType")).toLowerCase();
     const titleInput = cleanText(formData.get("title"));
-    const description = cleanText(formData.get("description"));
+    const descriptionInput = formData.get("description");
+    const description = cleanText(descriptionInput);
+    const noteHtmlWasProvided = formData.has("noteHtml");
     const source = cleanText(formData.get("source"));
     const category = cleanText(formData.get("category"));
     const order = normalizeMatterResourceOrder(formData.get("order"));
@@ -394,16 +400,21 @@ export async function POST(request, { params }) {
     }
 
     if (type === "note") {
-      if (!description) {
-        return errorResponse("Note text is required", 400);
+      const noteContent = buildNoteFields(
+        noteHtmlWasProvided
+          ? formData.get("noteHtml")
+          : formData.get("noteText") || formData.get("content") || descriptionInput,
+        { format: noteHtmlWasProvided ? "html" : "plain" }
+      );
+      if (!noteContent.valid) {
+        return errorResponse(noteContent.error, 400);
       }
 
       const resourceData = {
         type: "note",
         title: titleInput || "Note",
-        description,
-        noteText: description,
-        content: description,
+        description: noteContent.noteText,
+        ...noteContent.fields,
         status: "active",
         createdAt: now,
         updatedAt: now,

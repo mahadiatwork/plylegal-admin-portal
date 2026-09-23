@@ -12,6 +12,7 @@ import {
   serializeResourceDoc,
   uploadSharedResourceFile,
 } from "@/lib/sharedResources";
+import { buildNoteFields } from "@/lib/richText";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -126,7 +127,10 @@ export async function POST(request) {
     const category = normalizeCategory(formData.get("category"));
     const program = cleanText(formData.get("program"));
     const audience = cleanText(formData.get("audience"));
-    const noteTextInput = cleanText(formData.get("noteText"));
+    const noteHtmlWasProvided = formData.has("noteHtml");
+    const noteHtmlInput = formData.get("noteHtml");
+    const noteTextInput = formData.get("noteText");
+    const legacyContentInput = formData.get("content");
 
     if (!type) {
       return errorResponse("Resource type must be file, link, or note", 400);
@@ -174,17 +178,21 @@ export async function POST(request) {
     }
 
     if (type === "note") {
-      const noteText = noteTextInput || description;
+      const noteContent = buildNoteFields(
+        noteHtmlWasProvided
+          ? noteHtmlInput
+          : noteTextInput || legacyContentInput || description,
+        { format: noteHtmlWasProvided ? "html" : "plain" }
+      );
 
-      if (!noteText) {
-        return errorResponse("Note text is required", 400);
+      if (!noteContent.valid) {
+        return errorResponse(noteContent.error, 400);
       }
 
       resourceData = {
         ...baseData,
         title: titleInput || "Note",
-        noteText,
-        content: noteText,
+        ...noteContent.fields,
       };
     }
 
