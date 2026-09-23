@@ -1,10 +1,17 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { EditorContent, useEditor } from "@tiptap/react";
+import { EditorContent, Extension, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
 import TextAlign from "@tiptap/extension-text-align";
+import {
+  plainTextToRichTextHtml,
+  selectionHasListItem,
+  setVisualParagraphCommand,
+  toggleVisualHeadingCommand,
+  visualHeadingKeyboardShortcuts,
+} from "@/lib/richTextEditor";
 import {
   AlignCenter,
   AlignJustify,
@@ -35,20 +42,15 @@ import {
 const ALLOWED_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
 const ALLOWED_LINK_PATTERN = /^(?:https?:\/\/|mailto:|tel:)[^\s]+$/i;
 
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
+const VisualHeadingShortcuts = Extension.create({
+  name: "visualHeadingShortcuts",
+  priority: 1_000,
+  addKeyboardShortcuts() {
+    return visualHeadingKeyboardShortcuts(this.editor);
+  },
+});
 
-export function plainTextToRichTextHtml(value) {
-  const text = String(value ?? "").replaceAll("\r\n", "\n").replaceAll("\r", "\n");
-  if (!text) return "";
-  return `<p>${escapeHtml(text).replaceAll("\n", "<br>")}</p>`;
-}
+export { plainTextToRichTextHtml };
 
 function getEditorContent(value, fallbackText) {
   return typeof value === "string" && value.trim()
@@ -144,6 +146,7 @@ export function RichTextEditor({
             },
           },
         }),
+        VisualHeadingShortcuts,
         Highlight,
         TextAlign.configure({
           alignments: ["left", "center", "right", "justify"],
@@ -214,6 +217,7 @@ export function RichTextEditor({
   const isLeftAligned =
     !editor.isActive({ textAlign: "center" }) &&
     !editor.isActive({ textAlign: "right" });
+  const headingDisabled = selectionHasListItem(editor.state);
 
   return (
     <div className="rich-text-editor overflow-hidden rounded-md border border-[#d7e4de] bg-white focus-within:ring-2 focus-within:ring-[#4F726B] focus-within:ring-offset-1">
@@ -225,7 +229,13 @@ export function RichTextEditor({
         <ToolbarButton
           label="Paragraph"
           pressed={editor.isActive("paragraph")}
-          onClick={() => editor.chain().focus().setParagraph().run()}
+          onClick={() =>
+            editor
+              .chain()
+              .focus()
+              .command(setVisualParagraphCommand)
+              .run()
+          }
         >
           <Pilcrow className="h-4 w-4" />
         </ToolbarButton>
@@ -239,7 +249,14 @@ export function RichTextEditor({
             key={level}
             label={`Heading ${level}`}
             pressed={editor.isActive("heading", { level })}
-            onClick={() => editor.chain().focus().toggleHeading({ level }).run()}
+            disabled={headingDisabled}
+            onClick={() =>
+              editor
+                .chain()
+                .focus()
+                .command(toggleVisualHeadingCommand(level))
+                .run()
+            }
           >
             <Icon className="h-4 w-4" />
           </ToolbarButton>

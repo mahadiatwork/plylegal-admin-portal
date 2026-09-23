@@ -57,7 +57,12 @@ const escapeHtml = (value) => String(value ?? "")
   .replaceAll('"', "&quot;")
   .replaceAll("'", "&#039;");
 const plainTextToRichTextHtml = (value) => value
-  ? `<p>${escapeHtml(value).replaceAll("\n", "<br>")}</p>`
+  ? String(value)
+      .replaceAll("\r\n", "\n")
+      .replaceAll("\r", "\n")
+      .split("\n")
+      .map((line) => `<p>${escapeHtml(line)}</p>`)
+      .join("")
   : "";
 const richTextModule = {
   plainTextToRichTextHtml,

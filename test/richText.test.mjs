@@ -116,6 +116,14 @@ test("the editor supports every persisted heading and alignment option", async (
   assert.match(source, /alignments:\s*\["left",\s*"center",\s*"right",\s*"justify"\]/);
   assert.match(source, /Heading \$\{level\}/);
   assert.match(source, /label="Justify"/);
+  assert.match(source, /const VisualHeadingShortcuts = Extension\.create/);
+  assert.match(source, /priority:\s*1_000/);
+  assert.match(source, /VisualHeadingShortcuts,\s*Highlight/);
+  assert.match(
+    source,
+    /focus\(\)[\s\S]*?command\(toggleVisualHeadingCommand\(level\)\)/,
+  );
+  assert.match(source, /disabled=\{headingDisabled\}/);
 });
 
 test("legacy plaintext is never inferred as HTML", () => {
