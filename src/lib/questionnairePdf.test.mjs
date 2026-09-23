@@ -116,3 +116,26 @@ test("questionnaire PDF bytes are valid and paginate long answer tables", () => 
   assert.match(Buffer.from(bytes.subarray(-16)).toString("ascii"), /%%EOF/);
   assert.equal(metadata.filename, "Jane-Doe-questionnaire-answers.pdf");
 });
+
+test("section headings stay with their first table row near a page boundary", () => {
+  const rows = (prefix, length) => Array.from({ length }, (_, index) => ({
+    question: `${prefix} question ${index + 1}`,
+    answer: "Recorded answer",
+  }));
+  const groups = [{
+    key: "profile:main",
+    title: "Jane Doe",
+    subtitle: "Main Applicant",
+    type: "applicant",
+    sections: [
+      { key: "first", title: "First section", answers: rows("First", 5) },
+      { key: "second", title: "Second section", answers: rows("Second", 28) },
+    ],
+  }];
+
+  const { document } = createQuestionnairePdf({ application, questionnaire, definition, groups });
+  const pages = document.internal.pages.slice(1).map((page) => page.join(" "));
+  const headingPage = pages.find((page) => page.includes("Second section"));
+  assert.ok(headingPage);
+  assert.match(headingPage, /Second question 1/);
+});

@@ -266,13 +266,11 @@ function drawQuestionTable(document, answers, startY, continuationContext) {
     printableText(item.question),
     printableText(item.answer),
   ]);
-  const tableFitsFreshPage = estimatedTableHeight(document, answers)
-    <= PAGE.bottom - PAGE.contentTop;
 
   autoTable(document, {
     startY,
     margin: {
-      top: tableFitsFreshPage ? PAGE.contentTop : PAGE.continuationTableTop,
+      top: PAGE.continuationTableTop,
       right: 16,
       bottom: 21,
       left: PAGE.left,
@@ -280,7 +278,7 @@ function drawQuestionTable(document, answers, startY, continuationContext) {
     tableWidth: PAGE.tableWidth,
     theme: "plain",
     showHead: "everyPage",
-    pageBreak: tableFitsFreshPage ? "avoid" : "auto",
+    pageBreak: "auto",
     rowPageBreak: "avoid",
     didParseCell: ({ cell, section }) => {
       if (section === "body" && document[UNICODE_FONT_READY] && requiresUnicodeFont(cell.raw)) {
@@ -289,7 +287,7 @@ function drawQuestionTable(document, answers, startY, continuationContext) {
       }
     },
     willDrawPage: ({ pageNumber }) => {
-      if (!tableFitsFreshPage && pageNumber > 1 && continuationContext) {
+      if (pageNumber > 1 && continuationContext) {
         drawTableContinuation(document, continuationContext);
       }
     },
@@ -375,9 +373,11 @@ export function createQuestionnairePdf({
 
   let applicationOverviewDrawn = false;
   let applicantNumber = 0;
+  const freshPageHeight = PAGE.bottom - PAGE.contentTop;
 
   for (const group of groups) {
     const overview = isOverviewGroup(group);
+    let splitFirstSection = false;
     if (overview && !applicationOverviewDrawn) {
       y = ensureSpace(document, y, 18);
       y = drawHeading(document, "Application overview", y, { size: 15.5, spacingAfter: 5.5 });
@@ -391,15 +391,18 @@ export function createQuestionnairePdf({
       const firstSection = group.sections?.[0];
       const firstShowsTitle = firstSection
         && (firstSection.title !== group.title || group.sections.length > 1);
-      const firstSectionHeight = firstSection
-        ? Math.min(
-          estimatedSectionHeight(document, firstSection, firstShowsTitle),
-          minimumSectionHeight(document, firstSection, firstShowsTitle),
-        )
+      const groupHeadingHeight = headingHeight(document, groupTitle, 15.5)
+        + (group.subtitle ? 8 : 5.5);
+      const fullFirstSectionHeight = firstSection
+        ? estimatedSectionHeight(document, firstSection, firstShowsTitle)
         : 0;
-      const required = headingHeight(document, groupTitle, 15.5)
-        + (group.subtitle ? 8 : 5.5)
-        + firstSectionHeight;
+      splitFirstSection = groupHeadingHeight + fullFirstSectionHeight > freshPageHeight;
+      const firstSectionHeight = firstSection
+        ? splitFirstSection
+          ? minimumSectionHeight(document, firstSection, firstShowsTitle)
+          : fullFirstSectionHeight
+        : 0;
+      const required = groupHeadingHeight + firstSectionHeight;
       y = ensureSpace(document, y, required);
       y = drawHeading(document, groupTitle, y, { size: 15.5, spacingAfter: group.subtitle ? 2.5 : 5.5 });
       if (group.subtitle) {
@@ -413,14 +416,16 @@ export function createQuestionnairePdf({
 
     for (const [sectionIndex, section] of (group.sections || []).entries()) {
       const showSectionTitle = overview || section.title !== group.title || group.sections.length > 1;
+      const fullSectionHeight = estimatedSectionHeight(document, section, showSectionTitle);
+      const splitSection = (sectionIndex === 0 && splitFirstSection)
+        || fullSectionHeight > freshPageHeight;
       const previousPageCount = document.getNumberOfPages();
       y = ensureSpace(
         document,
         y,
-        Math.min(
-          estimatedSectionHeight(document, section, showSectionTitle),
-          minimumSectionHeight(document, section, showSectionTitle),
-        ),
+        splitSection
+          ? minimumSectionHeight(document, section, showSectionTitle)
+          : fullSectionHeight,
       );
       if (
         sectionIndex > 0
@@ -439,12 +444,17 @@ export function createQuestionnairePdf({
       }
       if (section.answers?.length) {
         const numberedGroup = group.type === "applicant" || group.type === "nonMigrating";
-        y = drawQuestionTable(document, section.answers, y, {
-          eyebrow: numberedGroup
-            ? `APPLICANT ${String(applicantNumber).padStart(2, "0")} / CONTINUED`
-            : `${group.title.toUpperCase()} / CONTINUED`,
-          title: showSectionTitle ? `${group.title} / ${section.title}` : group.title,
-        });
+        y = drawQuestionTable(
+          document,
+          section.answers,
+          y,
+          {
+            eyebrow: numberedGroup
+              ? `APPLICANT ${String(applicantNumber).padStart(2, "0")} / CONTINUED`
+              : `${group.title.toUpperCase()} / CONTINUED`,
+            title: showSectionTitle ? `${group.title} / ${section.title}` : group.title,
+          },
+        );
       }
     }
   }
