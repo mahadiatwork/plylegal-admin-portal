@@ -259,6 +259,43 @@
 }
 
 @layer components {
+  @keyframes matter-tab-loading-wave {
+    0%,
+    100% {
+      transform: scaleY(0.42);
+    }
+    50% {
+      transform: scaleY(1);
+    }
+  }
+
+  @keyframes matter-tab-loading-surface {
+    0%,
+    100% {
+      opacity: 0.45;
+    }
+    50% {
+      opacity: 0.9;
+    }
+  }
+
+  .matter-tab-loading-wave {
+    animation: matter-tab-loading-wave 1.05s ease-in-out infinite;
+    animation-delay: var(--matter-wave-delay);
+    transform-origin: center;
+  }
+
+  .matter-tab-loading-surface {
+    animation: matter-tab-loading-surface 2.4s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .matter-tab-loading-wave,
+    .matter-tab-loading-surface {
+      animation: none;
+    }
+  }
+
   .rich-text-editor .ProseMirror {
     min-height: 10rem;
     padding: 0.75rem 1rem;

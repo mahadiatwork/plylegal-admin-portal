@@ -24,6 +24,7 @@ import {
   plainTextToRichTextHtml,
   RichTextEditor,
 } from "@/components/ui/rich-text";
+import MatterTabLoadingState from "@/components/matter/MatterTabLoadingState";
 import ResourceFoldersSidebar, { categoryIconOptions } from "@/components/admin/ResourceFoldersSidebar";
 
 const ALL_VISAS = "all";
@@ -1085,6 +1086,10 @@ export default function AdminResourceTemplatesManager() {
               : "Drag the handles to reorder resources, or focus a handle and use the Up and Down arrow keys. Changes save automatically."
             : null;
 
+  if (isLoading) {
+    return <MatterTabLoadingState label="Loading resources data…" />;
+  }
+
   return (
     <div className="space-y-5">
       <section className="rounded-lg border border-[#dbe7e1] bg-white p-5 shadow-sm">
@@ -1379,11 +1384,7 @@ export default function AdminResourceTemplatesManager() {
             {reorderGuidance ? <p id="template-resource-reorder-guidance" role="status" className="mt-2 text-xs text-[#71857d]">{reorderGuidance}</p> : null}
           </div>
 
-          {isLoading ? (
-            <div className="flex min-h-[420px] items-center justify-center text-[#4F726B]">
-              <Loader2 className="h-7 w-7 animate-spin" />
-            </div>
-          ) : tableItems.length ? (
+          {tableItems.length ? (
             <div className="text-sm">
               <div className="hidden border-b border-[#edf1ef] bg-[#fbfdfc] px-5 py-3 text-xs font-semibold text-[#71857d] md:grid md:grid-cols-[minmax(0,1fr)_120px_90px_56px_96px] md:items-center md:gap-4">
                 <span>Name</span>

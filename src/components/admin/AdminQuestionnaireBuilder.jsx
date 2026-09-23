@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useMatterData } from "@/components/matter/MatterDataContext";
+import MatterTabLoadingState from "@/components/matter/MatterTabLoadingState";
 import { getRegisteredQuestionnaireRoutes } from "@/lib/routes";
 import { temporaryWork482Definition } from "@/lib/questionnaireStarterTemplates";
 import { questionnaireBuiltInTemplates } from "@/lib/questionnaireBuiltIns";
@@ -1740,6 +1741,12 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
   const activeQuestionOptions = getQuestionOptions(activeQuestion);
   const showOptions = ["select", "radio", "yesNo"].includes(activeQuestion?.type)
     && !activeQuestion?.optionsSource;
+
+  if (embeddedInMatter && isLoading) {
+    return (
+      <MatterTabLoadingState label="Loading questionnaire builder data…" />
+    );
+  }
 
   return (
     <div className="space-y-6">

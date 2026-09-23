@@ -106,6 +106,16 @@ async function loadComponent(relativePath, overrides = {}) {
     if (specifier === "@/components/ui/input") return { Input: "input" };
     if (specifier === "@/components/ui/textarea") return { Textarea: "textarea" };
     if (specifier === "@/components/ui/rich-text") return richTextModule;
+    if (specifier === "@/components/matter/MatterTabLoadingState") {
+      return {
+        __esModule: true,
+        default: ({ label }) => React.createElement(
+          "section",
+          { role: "status" },
+          label,
+        ),
+      };
+    }
     if (specifier === "@/lib/workDrivePreviewUrl.mjs") return { getWorkDrivePreviewUrl };
     return require(specifier);
   };
@@ -420,6 +430,10 @@ test("matter navigation keys resource state by matter and both scopes render the
   assert.equal(harness.find((node) => node.type === TemplatesManager).type, TemplatesManager);
   const templatesHarness = createHarness(TemplatesManager);
   templatesHarness.render();
+  const loadingStatus = templatesHarness.find((node) =>
+    node.type === "section" && node.props.role === "status");
+  assert.match(text(loadingStatus), /Loading resources data/);
+  await flushEffects(templatesHarness);
   assert.equal(templatesHarness.sidebar().type, Sidebar);
 });
 

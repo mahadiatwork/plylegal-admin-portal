@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams } from "next/navigation";
 import {
-  Loader2,
   ChevronDown,
   FileDown,
   FileText,
@@ -37,6 +36,7 @@ import SkillsInDemandQuestionnaireReview, {
 import { buildStructuredSections, formatLabel } from "@/lib/questionnaireSections";
 import ClientQuestionnaireReview from "@/components/ClientQuestionnaireReview";
 import QuestionnairePdfLink from "@/components/QuestionnairePdfLink";
+import MatterTabLoadingState from "@/components/matter/MatterTabLoadingState";
 
 // Count total questions in a section (recursively count leaf values)
 function countQuestions(data) {
@@ -954,11 +954,7 @@ export default function QuestionnairePage() {
   }, [expandedSections, sections, expandAll]);
 
   if (isLoading) {
-    return (
-      <div className="flex justify-center p-12">
-        <Loader2 className="h-8 w-8 animate-spin text-[#4F726B]" />
-      </div>
-    );
+    return <MatterTabLoadingState label="Loading client answers data…" />;
   }
 
   if (matterResult?.questionnaireDefinition?.pages?.length) {

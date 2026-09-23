@@ -28,6 +28,7 @@ import { RichTextContent, RichTextEditor } from "@/components/ui/rich-text";
 import { Textarea } from "@/components/ui/textarea";
 import AdminResourceTemplatesManager from "@/components/admin/AdminResourceTemplatesManager";
 import ResourceFoldersSidebar from "@/components/admin/ResourceFoldersSidebar";
+import MatterTabLoadingState from "@/components/matter/MatterTabLoadingState";
 import { getWorkDrivePreviewUrl } from "@/lib/workDrivePreviewUrl.mjs";
 
 const RESOURCE_TABS = [
@@ -995,7 +996,11 @@ function MatterResourcesManager({ matterId }) {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             const count =
-              tab.id === "shared" ? "Templates" : individualResources.length;
+              tab.id === "shared"
+                ? "Templates"
+                : isIndividualLoading
+                  ? "Loading…"
+                  : individualResources.length;
 
             return (
               <button
@@ -1047,6 +1052,8 @@ function MatterResourcesManager({ matterId }) {
 
       {activeTab === "shared" ? (
         <AdminResourceTemplatesManager />
+      ) : isIndividualLoading ? (
+        <MatterTabLoadingState label="Loading resources data…" />
       ) : (
         <>
           <section className="rounded-lg border border-[#dbe7e1] bg-white px-5 py-6 shadow-sm">
@@ -1447,11 +1454,7 @@ function MatterResourcesManager({ matterId }) {
                   </p>
                 </div>
 
-                {isIndividualLoading ? (
-                  <div className="flex min-h-[420px] items-center justify-center p-12 text-[#4F726B]">
-                    <Loader2 className="h-7 w-7 animate-spin" />
-                  </div>
-                ) : filteredResources.length > 0 ? (
+                {filteredResources.length > 0 ? (
                   <div className="text-sm">
                     <div className="hidden border-b border-[#edf1ef] bg-[#fbfdfc] px-5 py-3 text-xs font-semibold text-[#71857d] md:grid md:grid-cols-[minmax(0,1fr)_120px_90px_100px_100px] md:items-center md:gap-4">
                       <span>Name</span>

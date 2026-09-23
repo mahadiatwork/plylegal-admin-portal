@@ -79,6 +79,16 @@ async function loadComponent(relativePath) {
     if (specifier === "@/components/ui/button") return { Button: "button" };
     if (specifier === "@/components/ui/input") return { Input: "input" };
     if (specifier === "@/components/ui/textarea") return { Textarea: "textarea" };
+    if (specifier === "@/components/matter/MatterTabLoadingState") {
+      return {
+        __esModule: true,
+        default: ({ label }) => React.createElement(
+          "section",
+          { role: "status" },
+          label,
+        ),
+      };
+    }
     if (specifier === "@/components/matter/MatterDataContext") {
       return { useMatterData: () => null };
     }
