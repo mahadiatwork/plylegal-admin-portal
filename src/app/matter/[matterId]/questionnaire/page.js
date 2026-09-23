@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams } from "next/navigation";
 import {
   ChevronDown,
-  FileDown,
   FileText,
   Search,
   Menu,
@@ -306,81 +305,6 @@ function RenderQuestions({ data, parentPath = "", commentsByPath = {}, onAddComm
             )}
           </div>
         );
-      })}
-    </div>
-  );
-}
-
-// Recursively render questions in Q&A format for print
-function PrintQARenderer({ data, parentKey = "", commentsByPath = {}, includeComments = false }) {
-  if (data === null || data === undefined || data === "") {
-    return null;
-  }
-
-  if (typeof data !== "object") {
-    const strVal = String(data);
-    let finalVal = strVal;
-    if (strVal === "true") finalVal = "Yes";
-    if (strVal === "false") finalVal = "No";
-
-    const openComments = (commentsByPath[parentKey] || []).filter(c => c.status === "open");
-
-    return (
-      <div className="mb-2 break-inside-avoid">
-        <div className="font-bold text-gray-900 leading-snug">Q: {formatLabel(parentKey)}?</div>
-        <div className="text-gray-800 leading-snug">A: {finalVal}</div>
-        {includeComments && openComments.map((c) => (
-          <div key={c.id} className="text-xs italic text-gray-500 mt-0.5">
-            Reviewer note ({c.authorName || "Reviewer"}, {c.createdAt ? new Date(c.createdAt).toLocaleDateString() : ""} — {c.severity || "info"}): &ldquo;{c.body}&rdquo;
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (Array.isArray(data)) {
-    if (data.length === 0) return null;
-    return (
-      <div className="mb-2 pl-3 border-l-2 border-gray-300">
-        {data.map((item, idx) => (
-          <div key={idx} className="mb-2 last:mb-0 break-inside-avoid">
-            <div className="font-semibold text-gray-700 italic text-xs leading-snug">Item {idx + 1}</div>
-            <PrintQARenderer data={item} parentKey={`${parentKey}[${idx}]`} commentsByPath={commentsByPath} includeComments={includeComments} />
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  const entries = Object.entries(data).filter(
-    ([k, v]) => v !== null && v !== undefined && v !== ""
-  );
-  if (entries.length === 0) return null;
-
-  return (
-    <div className="space-y-0">
-      {entries.map(([key, value]) => {
-        const isObject = typeof value === "object" && value !== null && !Array.isArray(value);
-        const isArray = Array.isArray(value);
-        const isSimpleArray = isArray && value.every((v) => typeof v !== "object");
-
-        if (isSimpleArray) {
-          return (
-            <div key={key} className="mb-2 break-inside-avoid">
-              <div className="font-bold text-gray-900 leading-snug">Q: {formatLabel(key)}?</div>
-              <div className="text-gray-800 leading-snug">A: {value.join(", ")}</div>
-            </div>
-          );
-        } else if (isObject || isArray) {
-          return (
-            <div key={key} className="mb-2 break-inside-avoid">
-              <div className="font-bold text-gray-900 text-[15px] border-b border-gray-200 pb-0.5 mb-1 mt-3">{formatLabel(key)}</div>
-              <PrintQARenderer data={value} parentKey={key} commentsByPath={commentsByPath} includeComments={includeComments} />
-            </div>
-          );
-        } else {
-          return <PrintQARenderer key={key} data={value} parentKey={key} commentsByPath={commentsByPath} includeComments={includeComments} />;
-        }
       })}
     </div>
   );
@@ -711,7 +635,6 @@ export default function QuestionnairePage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerPath, setDrawerPath] = useState("");
   const [drawerLabel, setDrawerLabel] = useState("");
-  const [includeCommentsInPDF, setIncludeCommentsInPDF] = useState(true);
   const sectionRefs = useRef({});
 
   useEffect(() => {
@@ -858,11 +781,6 @@ export default function QuestionnairePage() {
       setExpandAll(true);
     }
   }, [expandAll, sections]);
-
-  // Handle download PDF
-  const handleDownloadPDF = useCallback(() => {
-    window.print();
-  }, []);
 
   // Sidebar navigation handler
   const handleSidebarNavigate = useCallback(
@@ -1077,25 +995,7 @@ export default function QuestionnairePage() {
                           {activeProfile?.title?.toUpperCase()} - {activeSection?.title?.toUpperCase()}
                         </h2>
                         <div className="flex flex-wrap items-center gap-2 no-print">
-                            <QuestionnairePdfLink matterId={matterResult?.application?.id || matterId} className="bg-white/15 px-2 py-1 text-[11px] hover:bg-white/25" />
-                            <label className="flex items-center gap-2 text-[11px] font-medium text-white/80 cursor-pointer select-none">
-                                <input
-                                    type="checkbox"
-                                    checked={includeCommentsInPDF}
-                                    onChange={(e) => setIncludeCommentsInPDF(e.target.checked)}
-                                    className="rounded border-white/30 bg-transparent text-[#4F726B] focus:ring-offset-0 focus:ring-0"
-                                />
-                                Include notes in PDF
-                            </label>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={handleDownloadPDF}
-                                className="h-7 px-2 text-white/90 hover:text-white hover:bg-white/10 text-[11px] font-medium gap-1.5"
-                            >
-                                <FileDown className="h-3.5 w-3.5" />
-                                Export
-                            </Button>
+                          <QuestionnairePdfLink matterId={matterResult?.application?.id || matterId} className="bg-white/15 px-2 py-1 text-[11px] hover:bg-white/25" />
                         </div>
                       </div>
 
@@ -1128,32 +1028,6 @@ export default function QuestionnairePage() {
             </div>
           </div>
         </main>
-      </div>
-
-      {/* Print-Only Q&A Layout */}
-      <div className="hidden print:block w-full bg-white text-black max-w-4xl mx-auto">
-        <div className="flex items-center justify-between border-b-2 border-gray-800 pb-2 mb-4">
-          <img src="/368e8734-fa6e-41c2-b88a-ccd1d381b50b.png" alt="PlyLegal Logo" className="h-8" />
-          <div className="text-right">
-            <p className="text-sm font-medium text-gray-500">Applicant Questionnaire</p>
-          </div>
-        </div>
-        
-        {sections.map((section) => (
-          <div key={section.key} className="mb-8">
-            <h2 className="text-xl font-bold text-gray-900 border-b border-gray-200 pb-2 mb-4">
-              {section.title}
-            </h2>
-            <div className="text-sm">
-              <PrintQARenderer
-                data={section.data}
-                parentKey={section.key}
-                commentsByPath={commentsByPath}
-                includeComments={includeCommentsInPDF}
-              />
-            </div>
-          </div>
-        ))}
       </div>
 
       {/* Comment Drawer */}

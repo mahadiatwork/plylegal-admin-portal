@@ -7,6 +7,7 @@ import {
   isQuestionnaireAnswerSectionComplete,
   isQuestionVisible,
 } from "./questionnaireAnswerModel.js";
+import { getBuiltInQuestionnaireDefinition } from "./questionnaireBuiltIns.js";
 
 function page(role, suffix, order = 10, overrides = {}) {
   const paths = { main_applicant: "main-applicant", spouse: "spouse-partner", child: "children/child-profile", non_migrating: "non-migrating/member-profile" };
@@ -141,6 +142,49 @@ test("non-migrating sections reconstruct the client's nested member storage and 
   assert.equal(isQuestionnaireAnswerSectionComplete(section(group.items, "passport"), { "temporary-work/non-migrating/parent/passport__parent": true }), true);
   const other = groups.find((entry) => entry.key === "nonMigrating:other");
   assert.equal(isQuestionnaireAnswerSectionComplete(section(other.items, "passport"), { "temporary-work/non-migrating/parent/passport__parent": true }), false);
+});
+
+test("non-migrating page projections contain only fields for that suffix", () => {
+  const scopedDefinition = { visaType: "temporary-work", pages: [
+    page("non_migrating", "identity", 1, { questions: [{ id: "card", answerKey: "has_national_identity_card" }] }),
+    page("non_migrating", "health", 2, { questions: [{ id: "exam", answerKey: "requires_health_examination" }] }),
+  ] };
+  const groups = buildQuestionnaireAnswerGroups(scopedDefinition, {
+    profiles: [{ id: "main", relationship: "main_applicant" }],
+    non_migrating_members: [{
+      id: "parent", relationship: "parent", unrelated: "do not leak",
+      passport: { given_names: "Pat", passport_number: "P123" },
+      has_national_identity_card: "yes", has_other_identity_documents: "no",
+      requires_health_examination: "no",
+    }],
+  });
+  const items = groups.find((group) => group.key === "nonMigrating:parent").items;
+
+  assert.deepEqual(section(items, "identity").data, { has_national_identity_card: "yes", has_other_identity_documents: "no" });
+  assert.deepEqual(section(items, "health").data, { requires_health_examination: "no" });
+});
+
+test("all bundled questionnaires isolate non-migrating Identity and Health projections", () => {
+  const templates = [
+    { visaType: "temporary-work", visaContext: "482" },
+    { visaType: "temporary-work", visaContext: "186" },
+    { visaType: "partner" },
+    { visaType: "protection" },
+  ];
+  for (const audience of templates) {
+    const groups = buildQuestionnaireAnswerGroups(getBuiltInQuestionnaireDefinition(audience), {
+      profiles: [{ id: "main", relationship: "main_applicant" }],
+      non_migrating_members: [{
+        id: "parent", relationship: "parent", unrelated: "do not leak",
+        passport: { given_names: "Pat", passport_number: "P123" },
+        has_national_identity_card: "yes", has_other_identity_documents: "no",
+        requires_health_examination: "no",
+      }],
+    });
+    const items = groups.find((group) => group.key === "nonMigrating:parent").items;
+    assert.deepEqual(section(items, "identity").data, { has_national_identity_card: "yes", has_other_identity_documents: "no" }, JSON.stringify(audience));
+    assert.deepEqual(section(items, "health").data, { requires_health_examination: "no" }, JSON.stringify(audience));
+  }
 });
 
 test("legacy drafts without profiles retain named applicants and static start/profile sections", () => {

@@ -238,8 +238,22 @@ function nonMigratingValues(draft, page, member) {
     };
   } else if (suffix === "other") {
     values = { other_names: member.other_names };
+  } else if (suffix === "identity") {
+    values = {
+      has_national_identity_card: member.has_national_identity_card ?? member.identity?.has_national_identity_card,
+      has_other_identity_documents: member.has_other_identity_documents ?? member.identity?.has_other_identity_documents,
+    };
+  } else if (suffix === "health") {
+    values = {
+      requires_health_examination: member.requires_health_examination ?? member.health?.requires_health_examination,
+    };
   } else {
-    values = { ...root, ...(record(member[suffix]) ? member[suffix] : {}) };
+    values = { ...(record(member[suffix]) ? member[suffix] : {}) };
+    for (const question of page.questions || []) {
+      if (question.answerKey && hasValue(root[question.answerKey])) {
+        values[question.answerKey] = root[question.answerKey];
+      }
+    }
   }
   return savedKey === undefined ? values : { ...nested(stored, savedKey) };
 }
