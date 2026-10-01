@@ -12,7 +12,6 @@ import {
   FileText,
   FolderPlus,
   GripVertical,
-  Library,
   Link2,
   Loader2,
   PackageOpen,
@@ -30,21 +29,6 @@ import AdminResourceTemplatesManager from "@/components/admin/AdminResourceTempl
 import ResourceFoldersSidebar from "@/components/admin/ResourceFoldersSidebar";
 import MatterTabLoadingState from "@/components/matter/MatterTabLoadingState";
 import { getWorkDrivePreviewUrl } from "@/lib/workDrivePreviewUrl.mjs";
-
-const RESOURCE_TABS = [
-  {
-    id: "shared",
-    label: "All Matters",
-    subtitle: "Reusable resources",
-    icon: Library,
-  },
-  {
-    id: "individual",
-    label: "Only This Matter",
-    subtitle: "Matter-specific resources",
-    icon: FileText,
-  },
-];
 
 const addResourceActions = [
   { id: "file", label: "File", icon: UploadCloud, enabled: true },
@@ -313,7 +297,6 @@ export default function ResourcesPage() {
 }
 
 function MatterResourcesManager({ matterId }) {
-  const [activeTab, setActiveTab] = useState("shared");
   const [individualResources, setIndividualResources] = useState([]);
   const [isIndividualLoading, setIsIndividualLoading] = useState(true);
   const [mode, setMode] = useState("file");
@@ -985,95 +968,22 @@ function MatterResourcesManager({ matterId }) {
       <section className="rounded-lg border border-gray-200 bg-white px-5 py-4 shadow-sm">
         <p className="text-sm font-medium text-gray-600">
           Manage the resources available to clients through the Client Portal.
-          Add, edit and organise resources, and select whether they are
-          available generally or for a specific matter.
+          Use Resource scope to switch between reusable resources and resources
+          attached only to this matter.
         </p>
       </section>
 
-      <section className="rounded-lg border border-gray-200 bg-white p-2 shadow-sm">
-        <div className="grid gap-2 sm:grid-cols-2">
-          {RESOURCE_TABS.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            const count =
-              tab.id === "shared"
-                ? "Templates"
-                : isIndividualLoading
-                  ? "Loading…"
-                  : individualResources.length;
-
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                aria-pressed={isActive}
-                onClick={() => {
-                  setActiveTab(tab.id);
-                  setError(null);
-                  setSuccessMessage("");
-                }}
-                className={`flex cursor-pointer items-center justify-between rounded-lg border px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B] focus-visible:ring-offset-2 ${
-                  isActive
-                    ? "border-[#4F726B] bg-[#4F726B] text-white hover:bg-[#3d625a]"
-                    : "border-gray-200 bg-white text-gray-700 hover:border-[#4F726B] hover:bg-[#f0f8f4] hover:shadow-sm"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`flex h-9 w-9 items-center justify-center rounded-md ${
-                      isActive ? "bg-white/15" : "bg-[#edf5f1] text-[#4F726B]"
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold">{tab.label}</p>
-                    <p
-                      className={`text-xs ${isActive ? "text-white/75" : "text-gray-500"}`}
-                    >
-                      {tab.subtitle}
-                    </p>
-                  </div>
-                </div>
-                <span
-                  className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                    isActive
-                      ? "bg-white/15 text-white"
-                      : "bg-gray-100 text-gray-600"
-                  }`}
-                >
-                  {count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      {activeTab === "shared" ? (
-        <AdminResourceTemplatesManager />
-      ) : isIndividualLoading ? (
-        <MatterTabLoadingState label="Loading resources data…" />
-      ) : (
-        <>
-          <section className="rounded-lg border border-[#dbe7e1] bg-white px-5 py-6 shadow-sm">
-            <div className="flex flex-wrap items-center gap-3">
-              <h2 className="text-xl font-semibold tracking-tight text-[#17372e]">
-                Resource Centre
-              </h2>
-              <Badge
-                variant="outline"
-                className="border-[#dbe7e1] bg-[#f7faf8] text-[#60786f]"
-              >
-                {individualResources.length} resources
-              </Badge>
-            </div>
-            <p className="mt-1 text-sm text-[#60786f]">
-              Add, edit and organise resources by folder. These resources stay
-              attached only to this matter.
-            </p>
-          </section>
-
+      <AdminResourceTemplatesManager
+        matterResourceCount={individualResources.length}
+        onScopeChange={() => {
+          setError(null);
+          setSuccessMessage("");
+        }}
+        matterContent={
+          isIndividualLoading ? (
+            <MatterTabLoadingState label="Loading resources data…" />
+          ) : (
+            <>
           {(error || successMessage || individualError) && (
             <div
               className={`flex items-start gap-2 rounded-lg border px-4 py-3 text-sm ${
@@ -1533,8 +1443,10 @@ function MatterResourcesManager({ matterId }) {
               </section>
             </div>
           </section>
-        </>
-      )}
+            </>
+          )
+        }
+      />
     </div>
   );
 }

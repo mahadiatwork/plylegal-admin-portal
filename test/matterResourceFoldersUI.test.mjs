@@ -157,11 +157,11 @@ function text(node) {
 
 function createHarness(Component, props = {}) {
   return {
-    slots: [], effects: [], cursor: 0, tree: null,
+    slots: [], effects: [], cursor: 0, tree: null, props,
     render() {
       renderingHarness = this;
       this.cursor = 0;
-      this.tree = Component(props);
+      this.tree = Component(this.props);
       return this.tree;
     },
     find(predicate) {
@@ -195,14 +195,32 @@ const flushEffects = async (harness) => {
   harness.render();
 };
 
-async function mountMatter(t, mutate = () => assert.fail("Unexpected mutation"), loadResources = () => resources) {
+async function mountMatter(
+  t,
+  mutate = () => assert.fail("Unexpected mutation"),
+  loadResources = () => resources,
+  loadCategories = () => categories,
+) {
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
   const calls = [];
   globalThis.window = { prompt: () => "Renamed Guides", confirm: () => true };
   globalThis.fetch = async (url, options = {}) => {
     calls.push({ url, options });
-    if (!options.method) return response({ success: true, categories, resources: loadResources() });
+    if (!options.method) {
+      if (url.startsWith("/api/matter/")) {
+        return response({ success: true, categories: loadCategories(), resources: loadResources() });
+      }
+      if (url === "/api/resource-templates") {
+        return response({ success: true, templates: templateDefinitions });
+      }
+      const slug = url.split("/").at(-1);
+      return response({
+        success: true,
+        template: templateDefinitions.find((item) => item.visaSlug === slug),
+        items: templateResources[slug] || [],
+      });
+    }
     return mutate(url, options);
   };
   t.after(() => {
@@ -210,12 +228,22 @@ async function mountMatter(t, mutate = () => assert.fail("Unexpected mutation"),
     globalThis.window = originalWindow;
   });
   const wrapper = pageModule.default();
-  const harness = createHarness(wrapper.type, wrapper.props);
+  const pageHarness = createHarness(wrapper.type, wrapper.props);
+  pageHarness.render();
+  await flushEffects(pageHarness);
+  const manager = pageHarness.find((node) => node.type === TemplatesManager);
+  const harness = createHarness(TemplatesManager, manager.props);
+  const renderManager = harness.render.bind(harness);
+  harness.render = () => {
+    pageHarness.render();
+    harness.props = pageHarness.find((node) => node.type === TemplatesManager).props;
+    return renderManager();
+  };
   harness.render();
   await flushEffects(harness);
-  harness.button("Only This MatterMatter-specific resources3").props.onClick();
-  harness.render();
-  return { harness, calls };
+  const initialScope = harness.control("Resource scope").props.value;
+  change(harness, "Resource scope", "matter");
+  return { harness, calls, pageHarness, initialScope };
 }
 
 const templateDefinitions = [
@@ -329,17 +357,13 @@ test("matter folder handles save a full order and show it after reload", async (
   assert.deepEqual(folderNames(harness), ["Empty folder", "Uncategorized", "Guides"]);
   assert.equal(mutationCalls(calls).length, 1);
 
-  const wrapper = pageModule.default();
-  const reload = createHarness(wrapper.type, wrapper.props);
-  // The saved API result is the source of truth for a fresh manager.
-  globalThis.fetch = async (_url, options = {}) => options.method
-    ? assert.fail("Unexpected mutation")
-    : response({ success: true, categories: savedCategories, resources });
-  reload.render();
-  await flushEffects(reload);
-  reload.button("Only This MatterMatter-specific resources3").props.onClick();
-  reload.render();
-  assert.deepEqual(folderNames(reload), ["Empty folder", "Uncategorized", "Guides"]);
+  const reloaded = await mountMatter(
+    t,
+    undefined,
+    () => resources,
+    () => savedCategories,
+  );
+  assert.deepEqual(folderNames(reloaded.harness), ["Empty folder", "Uncategorized", "Guides"]);
 });
 
 test("template folder keyboard order is saved for all visas and blocks filtered moves", async (t) => {
@@ -415,26 +439,40 @@ test("a new template folder is appended after an existing saved order", async (t
   assert.equal(mutationCalls(calls).length, 2);
 });
 
-test("matter navigation keys resource state by matter and both scopes render the same folder sidebar", async (t) => {
+test("the matter page uses one Resource scope selector with no top scope tabs", async (t) => {
   const first = pageModule.default();
   assert.equal(first.key, "matter-123");
   assert.equal(first.props.matterId, "matter-123");
   params = { matterId: "matter-456" };
   assert.equal(pageModule.default().key, "matter-456");
   params = { matterId: "matter-123" };
-  const { harness, calls } = await mountMatter(t);
+  const { harness, calls, pageHarness, initialScope } = await mountMatter(t);
   assert.equal(calls[0].url, "/api/matter/matter-123/resources");
+  assert.equal(initialScope, "all");
+  const scope = harness.control("Resource scope");
+  assert.equal(scope.props.value, "matter");
+  assert.deepEqual(
+    [...walk(scope)].filter((node) => node.type === "option").map((node) => [node.props.value, text(node)]),
+    [
+      ["all", "All Matters"],
+      ["visa-alpha", "Alpha visa"],
+      ["visa-beta", "Beta visa"],
+      ["matter", "Only This Matter"],
+    ],
+  );
+  const oldScopeTabs = [...walk(pageHarness.tree)].filter((node) =>
+    node.type === "button" &&
+    node.props["aria-pressed"] !== undefined &&
+    ["All Matters", "Only This Matter"].some((label) => text(node).includes(label)));
+  assert.equal(oldScopeTabs.length, 0);
   assert.equal(harness.sidebar().type, Sidebar);
-  harness.button("All MattersReusable resourcesTemplates").props.onClick();
-  harness.render();
-  assert.equal(harness.find((node) => node.type === TemplatesManager).type, TemplatesManager);
-  const templatesHarness = createHarness(TemplatesManager);
-  templatesHarness.render();
-  const loadingStatus = templatesHarness.find((node) =>
-    node.type === "section" && node.props.role === "status");
-  assert.match(text(loadingStatus), /Loading resources data/);
-  await flushEffects(templatesHarness);
-  assert.equal(templatesHarness.sidebar().type, Sidebar);
+  assert.deepEqual(displayedResourceNames(harness), ["General note"]);
+  change(harness, "Resource scope", "all");
+  assert.deepEqual(displayedResourceNames(harness), [
+    "Alpha first", "Alpha second", "Alpha third", "Beta first", "Beta second",
+  ]);
+  change(harness, "Resource scope", "matter");
+  assert.deepEqual(displayedResourceNames(harness), ["General note"]);
 });
 
 test("empty matter folders remain visible, with their icon and zero count, and folders filter resources", async (t) => {
@@ -475,7 +513,7 @@ test("creating a matter folder sends scoped name/icon metadata without discardin
   harness.render();
   await harness.button("Add").props.onClick();
   harness.render();
-  assert.equal(calls.length, 2);
+  assert.equal(mutationCalls(calls).length, 1);
   assert.equal(harness.control("resource-title").props.value, "Unfinished draft title");
   assert.equal(harness.control("resource-description").props.value, "Keep this description");
   assert.equal(harness.control("resource-category").props.value, "New guidance");
@@ -585,7 +623,7 @@ test("the default all-visas view can drag an existing resource when the folder c
       return orderResponse(body.itemIds);
     },
   });
-  assert.equal(harness.control("Visa scope").props.value, "all");
+  assert.equal(harness.control("Resource scope").props.value, "all");
   assert.ok(reorderButtons(harness).every((node) => node.props.draggable && !node.props.disabled));
   const { pending } = dragResource(harness, "Alpha second", "Alpha first");
   await settleInteraction(harness, pending);
@@ -607,7 +645,7 @@ test("adding a resource uses the selected visa scope without a second visa selec
     },
   });
 
-  change(harness, "Visa scope", "visa-beta");
+  change(harness, "Resource scope", "visa-beta");
   harness.button("Add resource").props.onClick();
   harness.render();
 
@@ -638,7 +676,7 @@ for (const kind of ["file", "link"]) {
       },
     });
 
-    change(harness, "Visa scope", "visa-alpha");
+    change(harness, "Resource scope", "visa-alpha");
     harness.button("Add resource").props.onClick();
     harness.render();
 
@@ -694,11 +732,11 @@ test("editing a template link restores and saves its description", async (t) => 
 
 test("all visa types requires a specific scope before adding a resource", async (t) => {
   const { harness, calls } = await mountTemplates(t);
-  assert.equal(harness.control("Visa scope").props.value, "all");
+  assert.equal(harness.control("Resource scope").props.value, "all");
   harness.button("Add resource").props.onClick();
   harness.render();
   assert.ok(![...walk(harness.tree)].some((node) => node.type === "form"));
-  assert.match(text(harness.tree), /select a specific visa scope/i);
+  assert.match(text(harness.tree), /select a specific visa in resource scope/i);
   assert.equal(mutationCalls(calls).length, 0);
 });
 

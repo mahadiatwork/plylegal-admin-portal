@@ -40,7 +40,11 @@ test("all three matter tabs replace their data area with the shared loading stat
   );
   assert.match(
     resources,
-    /isIndividualLoading[\s\S]*?\? "Loading…"[\s\S]*?: individualResources\.length/,
+    /matterResourceCount=\{individualResources\.length\}/,
+  );
+  assert.match(
+    sharedResources,
+    /isMatterScope \? matterResourceCount : visaScopedItems\.length/,
   );
   assert.match(
     sharedResources,

@@ -29,6 +29,7 @@ import MatterTabLoadingState from "@/components/matter/MatterTabLoadingState";
 import ResourceFoldersSidebar, { categoryIconOptions } from "@/components/admin/ResourceFoldersSidebar";
 
 const ALL_VISAS = "all";
+const MATTER_SCOPE = "matter";
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const DEFAULT_CATEGORIES = [
   { name: "Uncategorized", icon: "folder" },
@@ -183,7 +184,11 @@ function FormSelect({ value, onChange, children, className = "", ...props }) {
   );
 }
 
-export default function AdminResourceTemplatesManager() {
+export default function AdminResourceTemplatesManager({
+  matterContent = null,
+  matterResourceCount = 0,
+  onScopeChange = null,
+}) {
   const [templates, setTemplates] = useState([]);
   const [itemsBySlug, setItemsBySlug] = useState({});
   const [activeVisa, setActiveVisa] = useState(ALL_VISAS);
@@ -390,11 +395,12 @@ export default function AdminResourceTemplatesManager() {
       ...current,
       category: "Uncategorized",
     }));
+    onScopeChange?.(visaSlug);
   };
 
   const handleAddResource = () => {
     if (activeVisa === ALL_VISAS) {
-      setError("Select a specific Visa scope above before adding a resource.");
+      setError("Select a specific visa in Resource scope before adding a resource.");
       setMessage(null);
       return;
     }
@@ -751,7 +757,7 @@ export default function AdminResourceTemplatesManager() {
     const targetCategory = cleanText(form.category) || activeCategory || "Uncategorized";
 
     if (!targetVisa || targetVisa === ALL_VISAS) {
-      setError("Select a specific Visa scope before saving.");
+      setError("Select a specific visa in Resource scope before saving.");
       return;
     }
 
@@ -1081,8 +1087,16 @@ export default function AdminResourceTemplatesManager() {
     }
   };
 
+  const isMatterScope = activeVisa === MATTER_SCOPE && matterContent !== null;
   const activeVisaTitle =
-    activeVisa === ALL_VISAS ? "All Resources" : templateBySlug[activeVisa]?.title || "Resources";
+    activeVisa === ALL_VISAS
+      ? "All Matters"
+      : templateBySlug[activeVisa]?.title || "Resources";
+  const scopeDescription = isMatterScope
+    ? "Add, edit and organise resources attached only to this matter."
+    : activeVisa === ALL_VISAS
+      ? "Review reusable resources across all visa types. Choose a specific visa before adding a resource."
+      : `Resources in ${activeVisaTitle} are available only to that visa type.`;
 
   const reorderGuidance =
     isReordering
@@ -1109,35 +1123,42 @@ export default function AdminResourceTemplatesManager() {
             <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-2xl font-semibold tracking-tight text-[#17372e]">Resource Centre</h1>
               <Badge variant="outline" className="border-[#dbe7e1] bg-[#f7faf8] text-[#60786f]">
-                {visaScopedItems.length} resources
+                {isMatterScope ? matterResourceCount : visaScopedItems.length} resources
               </Badge>
             </div>
             <p className="mt-1 text-sm text-[#60786f]">
-              Add, edit and organise client resources by visa type and folder.
+              {scopeDescription}
             </p>
           </div>
           <div className="w-full lg:w-72">
-            <label htmlFor="resource-visa-scope" className="mb-1.5 block text-xs font-semibold text-[#60786f]">
-              Visa scope
+            <label htmlFor="resource-scope" className="mb-1.5 block text-xs font-semibold text-[#60786f]">
+              Resource scope
             </label>
             <FormSelect
-              id="resource-visa-scope"
-              aria-label="Visa scope"
+              id="resource-scope"
+              aria-label="Resource scope"
               value={activeVisa}
               onChange={handleVisaScopeChange}
               disabled={isLoading || categoryMutationActive || isReordering}
             >
-              <option value={ALL_VISAS}>All visa types</option>
+              <option value={ALL_VISAS}>All Matters</option>
               {templates.map((template) => (
                 <option key={template.visaSlug} value={template.visaSlug}>
                   {template.title}
                 </option>
               ))}
+              {matterContent !== null ? (
+                <option value={MATTER_SCOPE}>Only This Matter</option>
+              ) : null}
             </FormSelect>
           </div>
         </div>
       </section>
 
+      {isMatterScope ? (
+        matterContent
+      ) : (
+        <>
       {(error || message) && (
         <div
           className={`flex items-start gap-3 rounded-md border px-4 py-3 text-sm shadow-sm ${
@@ -1573,6 +1594,8 @@ export default function AdminResourceTemplatesManager() {
           </section>
         </div>
       </section>
+        </>
+      )}
     </div>
   );
 }
