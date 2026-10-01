@@ -247,10 +247,15 @@ async function mountMatter(
 }
 
 const templateDefinitions = [
+  { visaSlug: "global", title: "All Matters", categories },
   { visaSlug: "visa-alpha", title: "Alpha visa", categories },
   { visaSlug: "visa-beta", title: "Beta visa", categories },
 ];
 const templateResources = {
+  global: [
+    { id: "global-a", kind: "note", name: "Global first", category: "Uncategorized", order: 10, status: "active" },
+    { id: "global-b", kind: "link", name: "Global second", category: "Uncategorized", order: 20, status: "active" },
+  ],
   "visa-alpha": [
     { id: "shared", kind: "note", name: "Alpha first", category: "Uncategorized", order: 10, status: "active" },
     { id: "alpha-b", kind: "link", name: "Alpha second", category: "Uncategorized", order: 20, status: "hidden" },
@@ -366,22 +371,25 @@ test("matter folder handles save a full order and show it after reload", async (
   assert.deepEqual(folderNames(reloaded.harness), ["Empty folder", "Uncategorized", "Guides"]);
 });
 
-test("template folder keyboard order is saved for all visas and blocks filtered moves", async (t) => {
+test("template folder keyboard order is saved within the global scope and blocks filtered moves", async (t) => {
   let savedDefinitions = structuredClone(templateDefinitions);
   const { harness, calls } = await mountTemplates(t, {
     definitions: savedDefinitions,
     mutate: (url, options) => {
-      assert.equal(url, "/api/resource-templates/all/categories");
+      assert.equal(url, "/api/resource-templates/global/categories");
       assert.equal(options.method, "PUT");
       const { names } = JSON.parse(options.body);
       assert.deepEqual(names, ["Guides", "Uncategorized", "Empty folder"]);
-      savedDefinitions = savedDefinitions.map((definition) => ({
-        ...definition,
-        categories: names.map((name, index) => ({ name, icon: "folder", order: (index + 1) * 10 })),
-      }));
-      return response({ success: true, changes: savedDefinitions.map((definition) => ({
-        visaSlug: definition.visaSlug, categories: definition.categories,
-      })) });
+      savedDefinitions = savedDefinitions.map((definition) => definition.visaSlug === "global"
+        ? {
+            ...definition,
+            categories: names.map((name, index) => ({ name, icon: "folder", order: (index + 1) * 10 })),
+          }
+        : definition);
+      const globalTemplate = savedDefinitions.find((definition) => definition.visaSlug === "global");
+      return response({ success: true, changes: [{
+        visaSlug: globalTemplate.visaSlug, categories: globalTemplate.categories,
+      }] });
     },
   });
   change(harness, "Search folders", "Guide");
@@ -422,6 +430,7 @@ test("a new template folder is appended after an existing saved order", async (t
   const { harness, calls } = await mountTemplates(t, {
     definitions,
     mutate: (url, options) => {
+      assert.equal(url, "/api/resource-templates/global");
       assert.equal(options.method, "PATCH");
       const { categories } = JSON.parse(options.body);
       assert.deepEqual(categories.map((category) => category.name),
@@ -436,7 +445,7 @@ test("a new template folder is appended after an existing saved order", async (t
   change(harness, "Folder name", "New folder");
   await settleInteraction(harness, harness.button("Add").props.onClick());
   assert.deepEqual(folderNames(harness), ["Guides", "Uncategorized", "Empty folder", "New folder"]);
-  assert.equal(mutationCalls(calls).length, 2);
+  assert.equal(mutationCalls(calls).length, 1);
 });
 
 test("the matter page uses one Resource scope selector with no top scope tabs", async (t) => {
@@ -448,13 +457,13 @@ test("the matter page uses one Resource scope selector with no top scope tabs", 
   params = { matterId: "matter-123" };
   const { harness, calls, pageHarness, initialScope } = await mountMatter(t);
   assert.equal(calls[0].url, "/api/matter/matter-123/resources");
-  assert.equal(initialScope, "all");
+  assert.equal(initialScope, "global");
   const scope = harness.control("Resource scope");
   assert.equal(scope.props.value, "matter");
   assert.deepEqual(
     [...walk(scope)].filter((node) => node.type === "option").map((node) => [node.props.value, text(node)]),
     [
-      ["all", "All Matters"],
+      ["global", "All Matters"],
       ["visa-alpha", "Alpha visa"],
       ["visa-beta", "Beta visa"],
       ["matter", "Only This Matter"],
@@ -467,10 +476,8 @@ test("the matter page uses one Resource scope selector with no top scope tabs", 
   assert.equal(oldScopeTabs.length, 0);
   assert.equal(harness.sidebar().type, Sidebar);
   assert.deepEqual(displayedResourceNames(harness), ["General note"]);
-  change(harness, "Resource scope", "all");
-  assert.deepEqual(displayedResourceNames(harness), [
-    "Alpha first", "Alpha second", "Alpha third", "Beta first", "Beta second",
-  ]);
+  change(harness, "Resource scope", "global");
+  assert.deepEqual(displayedResourceNames(harness), ["Global first", "Global second"]);
   change(harness, "Resource scope", "matter");
   assert.deepEqual(displayedResourceNames(harness), ["General note"]);
 });
@@ -612,22 +619,21 @@ test("resource search and non-custom sorting disable all folder reorder handles"
   assert.ok(reorderButtons().every((node) => node.props.draggable && !node.props.disabled));
 });
 
-test("the default all-visas view can drag an existing resource when the folder contains one visa", async (t) => {
+test("the default All Matters scope reorders only the global template", async (t) => {
   const { harness, calls } = await mountTemplates(t, {
-    definitions: templateDefinitions.slice(0, 1),
     mutate(url, options) {
-      assert.equal(url, "/api/resource-templates/visa-alpha/items/order");
+      assert.equal(url, "/api/resource-templates/global/items/order");
       assert.equal(options.method, "PATCH");
       const body = JSON.parse(options.body);
-      assert.deepEqual(body, { category: "Uncategorized", itemIds: ["alpha-b", "shared", "alpha-c"] });
+      assert.deepEqual(body, { category: "Uncategorized", itemIds: ["global-b", "global-a"] });
       return orderResponse(body.itemIds);
     },
   });
-  assert.equal(harness.control("Resource scope").props.value, "all");
+  assert.equal(harness.control("Resource scope").props.value, "global");
   assert.ok(reorderButtons(harness).every((node) => node.props.draggable && !node.props.disabled));
-  const { pending } = dragResource(harness, "Alpha second", "Alpha first");
+  const { pending } = dragResource(harness, "Global second", "Global first");
   await settleInteraction(harness, pending);
-  assert.deepEqual(displayedResourceNames(harness), ["Alpha second", "Alpha first", "Alpha third"]);
+  assert.deepEqual(displayedResourceNames(harness), ["Global second", "Global first"]);
   assert.equal(mutationCalls(calls).length, 1);
   assert.ok(text(harness.tree).includes("Resource order saved."));
 });
@@ -700,7 +706,7 @@ for (const kind of ["file", "link"]) {
 }
 
 test("editing a template link restores and saves its description", async (t) => {
-  const definitions = [templateDefinitions[0]];
+  const definitions = [templateDefinitions.find((definition) => definition.visaSlug === "visa-alpha")];
   const existingLink = {
     id: "police-check",
     kind: "link",
@@ -722,6 +728,7 @@ test("editing a template link restores and saves its description", async (t) => 
     },
   });
 
+  change(harness, "Resource scope", "visa-alpha");
   harness.find((node) => node.type === "button" && node.props.title === "Edit").props.onClick();
   harness.render();
   assert.equal(harness.control("resource-description").props.value, "Use Code 33");
@@ -730,69 +737,58 @@ test("editing a template link restores and saves its description", async (t) => 
   assert.equal(mutationCalls(calls).length, 1);
 });
 
-test("all visa types requires a specific scope before adding a resource", async (t) => {
-  const { harness, calls } = await mountTemplates(t);
-  assert.equal(harness.control("Resource scope").props.value, "all");
+test("creating an All Matters resource posts once to global and renders it once", async (t) => {
+  let globalItems = [];
+  const createdItem = {
+    id: "global-note",
+    kind: "note",
+    name: "Shared guidance",
+    noteText: "Available for every visa.",
+    noteHtml: "<p>Available for every visa.</p>",
+    category: "Uncategorized",
+    order: 0,
+    status: "active",
+  };
+  const { harness, calls } = await mountTemplates(t, {
+    loadItems: (slug) => slug === "global" ? globalItems : templateResources[slug],
+    mutate(url, options) {
+      assert.equal(url, "/api/resource-templates/global/items");
+      assert.equal(options.method, "POST");
+      assert.equal(options.body.get("kind"), "note");
+      assert.equal(options.body.get("name"), "Shared guidance");
+      globalItems = [createdItem];
+      return response({ success: true, item: createdItem });
+    },
+  });
+
+  assert.equal(harness.control("Resource scope").props.value, "global");
+  assert.match(text(harness.tree), /available across every visa type/i);
   harness.button("Add resource").props.onClick();
   harness.render();
-  assert.ok(![...walk(harness.tree)].some((node) => node.type === "form"));
-  assert.match(text(harness.tree), /select a specific visa in resource scope/i);
+  const kind = harness.find((node) => node.type === "select" && node.props.value === "file");
+  kind.props.onChange({ target: { value: "note" } });
+  harness.render();
+  change(harness, "resource-name", "Shared guidance");
+  change(harness, "resource-note", "Available for every visa.");
+  await settleInteraction(harness, harness.find((node) => node.type === "form").props.onSubmit({ preventDefault() {} }));
+
+  assert.equal(mutationCalls(calls).length, 1);
+  assert.deepEqual(displayedResourceNames(harness), ["Shared guidance"]);
+});
+
+test("switching scopes shows only global or the selected visa resources", async (t) => {
+  const { harness, calls } = await mountTemplates(t);
+  assert.deepEqual(displayedResourceNames(harness), ["Global first", "Global second"]);
+  change(harness, "Resource scope", "visa-alpha");
+  assert.deepEqual(displayedResourceNames(harness), ["Alpha first", "Alpha second", "Alpha third"]);
+  change(harness, "Resource scope", "visa-beta");
+  assert.deepEqual(displayedResourceNames(harness), ["Beta first", "Beta second"]);
   assert.equal(mutationCalls(calls).length, 0);
 });
 
-test("all-visas custom order groups resources and sends the complete folder list for only the dragged visa", async (t) => {
-  const { harness, calls } = await mountTemplates(t, {
-    mutate(url, options) {
-      assert.equal(url, "/api/resource-templates/visa-alpha/items/order");
-      const body = JSON.parse(options.body);
-      assert.deepEqual(body, { category: "Uncategorized", itemIds: ["alpha-c", "shared", "alpha-b"] });
-      return orderResponse(body.itemIds);
-    },
-  });
-  assert.deepEqual(displayedResourceNames(harness), [
-    "Alpha first", "Alpha second", "Alpha third", "Beta first", "Beta second",
-  ]);
-  const { event, pending } = dragResource(harness, "Alpha third", "Alpha first");
-  assert.equal(event.dataTransfer.getData("text/plain"), "visa-alpha:alpha-c");
-  await settleInteraction(harness, pending);
-  assert.deepEqual(displayedResourceNames(harness), [
-    "Alpha third", "Alpha first", "Alpha second", "Beta first", "Beta second",
-  ]);
-  assert.equal(mutationCalls(calls).length, 1);
-  selectFolder(harness, "Guides");
-  assert.deepEqual(displayedResourceNames(harness), ["Alpha guide"]);
-});
-
-test("duplicate resource IDs in different visas retain independent drag identities and order", async (t) => {
-  const { harness, calls } = await mountTemplates(t, {
-    mutate(url, options) {
-      assert.equal(url, "/api/resource-templates/visa-beta/items/order");
-      const body = JSON.parse(options.body);
-      assert.deepEqual(body, { category: "Uncategorized", itemIds: ["beta-b", "shared"] });
-      return orderResponse(body.itemIds);
-    },
-  });
-  const { event, pending } = dragResource(harness, "Beta first", "Beta second");
-  assert.equal(event.dataTransfer.getData("text/plain"), "visa-beta:shared");
-  await settleInteraction(harness, pending);
-  assert.deepEqual(displayedResourceNames(harness), [
-    "Alpha first", "Alpha second", "Alpha third", "Beta second", "Beta first",
-  ]);
-  assert.equal(mutationCalls(calls).length, 1);
-});
-
-test("dropping across visas rejects the move even when source and target IDs match", async (t) => {
+test("visa-scoped search and alternate sort modes disable reordering without writing", async (t) => {
   const { harness, calls } = await mountTemplates(t);
-  const original = displayedResourceNames(harness);
-  const { pending } = dragResource(harness, "Alpha first", "Beta first");
-  await settleInteraction(harness, pending);
-  assert.equal(mutationCalls(calls).length, 0);
-  assert.deepEqual(displayedResourceNames(harness), original);
-  assert.ok(text(harness.tree).includes("within the same visa type"));
-});
-
-test("shared-resource search and alternate sort modes disable reordering without writing", async (t) => {
-  const { harness, calls } = await mountTemplates(t);
+  change(harness, "Resource scope", "visa-alpha");
   change(harness, "Search resources", "Alpha");
   assert.ok(reorderButtons(harness).every((node) => node.props.disabled && !node.props.draggable));
   const filteredTarget = resourceRow(harness, "Alpha first");
@@ -808,11 +804,12 @@ test("shared-resource search and alternate sort modes disable reordering without
   assert.ok(reorderButtons(harness).every((node) => node.props.draggable && !node.props.disabled));
 });
 
-test("shared-resource keyboard moves update immediately, block duplicate saves, and restore order on failure", async (t) => {
+test("visa-scoped keyboard moves update immediately, block duplicate saves, and restore order on failure", async (t) => {
   let finishSave;
   const { harness, calls } = await mountTemplates(t, {
     mutate: () => new Promise((resolve) => { finishSave = resolve; }),
   });
+  change(harness, "Resource scope", "visa-alpha");
   const handle = harness.control("Reorder Alpha second");
   let prevented = 0;
   const keyEvent = { key: "ArrowUp", preventDefault() { prevented++; } };
@@ -831,7 +828,7 @@ test("shared-resource keyboard moves update immediately, block duplicate saves, 
   assert.ok(reorderButtons(harness).every((node) => !node.props.disabled));
 });
 
-test("shared-resource keyboard moves stop at visa boundaries and saved order survives reload", async (t) => {
+test("visa-scoped keyboard order survives reload without changing another scope", async (t) => {
   const savedItems = structuredClone(templateResources);
   const loadItems = (slug) => savedItems[slug];
   const { harness, calls } = await mountTemplates(t, {
@@ -845,17 +842,17 @@ test("shared-resource keyboard moves stop at visa boundaries and saved order sur
       return orderResponse(body.itemIds);
     },
   });
-  await settleInteraction(harness, harness.control("Reorder Alpha third").props.onKeyDown({ key: "ArrowDown", preventDefault() {} }));
-  await settleInteraction(harness, harness.control("Reorder Beta first").props.onKeyDown({ key: "ArrowUp", preventDefault() {} }));
-  assert.equal(mutationCalls(calls).length, 0);
+  change(harness, "Resource scope", "visa-beta");
   await settleInteraction(harness, harness.control("Reorder Beta second").props.onKeyDown({ key: "ArrowUp", preventDefault() {} }));
+  assert.equal(mutationCalls(calls)[0].url, "/api/resource-templates/visa-beta/items/order");
   assert.deepEqual(JSON.parse(mutationCalls(calls)[0].options.body), {
     category: "Uncategorized", itemIds: ["beta-b", "shared"],
   });
   const reloaded = await mountTemplates(t, { loadItems });
-  assert.deepEqual(displayedResourceNames(reloaded.harness), [
-    "Alpha first", "Alpha second", "Alpha third", "Beta second", "Beta first",
-  ]);
+  change(reloaded.harness, "Resource scope", "visa-beta");
+  assert.deepEqual(displayedResourceNames(reloaded.harness), ["Beta second", "Beta first"]);
+  change(reloaded.harness, "Resource scope", "visa-alpha");
+  assert.deepEqual(displayedResourceNames(reloaded.harness), ["Alpha first", "Alpha second", "Alpha third"]);
 });
 
 test("matter-resource drag saves the whole folder, updates immediately, and persists after reload", async (t) => {

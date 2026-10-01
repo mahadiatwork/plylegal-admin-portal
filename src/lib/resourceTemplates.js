@@ -31,7 +31,24 @@ export const DEFAULT_RESOURCE_TEMPLATE_CATEGORIES = [
   { name: "Helpful Links", icon: "link" },
 ];
 
+export const GLOBAL_RESOURCE_TEMPLATE_SLUG = "global";
+
 const RESOURCE_TEMPLATE_DEFINITIONS = [
+  {
+    visaSlug: GLOBAL_RESOURCE_TEMPLATE_SLUG,
+    title: "All Matters",
+    workDriveFolderId: "hf3e609480d012c3c4244bc51956d41cb7925",
+    workDriveFolderUrl:
+      "https://workdrive.zoho.com.au/darpt4bf78c59b8684d9bb6b479804432d247/teams/darpt4bf78c59b8684d9bb6b479804432d247/ws/hf3e609480d012c3c4244bc51956d41cb7925/folders/files",
+    envKeys: [
+      "GLOBAL_RESOURCE_TEMPLATE_WORKDRIVE_FOLDER_ID",
+      "ALL_MATTERS_RESOURCE_TEMPLATE_WORKDRIVE_FOLDER_ID",
+      "SHARED_RESOURCES_WORKDRIVE_FOLDER_ID",
+      "WORKDRIVE_SHARED_FOLDER_ID",
+      "SHARED_WORKDRIVE_FOLDER_ID",
+      "WORKDRIVE_FOLDER_ID",
+    ],
+  },
   {
     visaSlug: "186",
     title: "Subclass 186",

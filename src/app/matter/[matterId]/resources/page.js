@@ -968,8 +968,8 @@ function MatterResourcesManager({ matterId }) {
       <section className="rounded-lg border border-gray-200 bg-white px-5 py-4 shadow-sm">
         <p className="text-sm font-medium text-gray-600">
           Manage the resources available to clients through the Client Portal.
-          Use Resource scope to switch between reusable resources and resources
-          attached only to this matter.
+          Use Resource scope to choose All Matters, a visa type, or Only This
+          Matter before adding and organising folders and resources.
         </p>
       </section>
 

@@ -15,10 +15,22 @@ registerHooks({
   },
 });
 const { default: zohoClient, ZohoCRMClient } = await import('../src/lib/zohoClient.js');
-const { uploadResourceTemplateFile } = await import('../src/lib/resourceTemplates.js');
+const {
+  GLOBAL_RESOURCE_TEMPLATE_SLUG,
+  getResourceTemplateDefinitions,
+  uploadResourceTemplateFile,
+} = await import('../src/lib/resourceTemplates.js');
 const { uploadSharedResourceFile } = await import('../src/lib/sharedResources.js');
 const viewerUrl = 'https://workdrive.zohopublic.com.au/external/view-only-link';
 const file = (name, type = '') => new File(['document contents'], name, { type });
+
+test('All Matters is a single persisted global resource template', () => {
+  const definitions = getResourceTemplateDefinitions();
+  const globalTemplates = definitions.filter(({ visaSlug }) => visaSlug === GLOBAL_RESOURCE_TEMPLATE_SLUG);
+  assert.equal(globalTemplates.length, 1);
+  assert.equal(globalTemplates[0].title, 'All Matters');
+  assert.ok(globalTemplates[0].workDriveFolderId);
+});
 
 test('PDF, Word, OpenDocument, spreadsheet and presentation MIME types survive missing browser types', () => {
   for (const [name, mime] of [
