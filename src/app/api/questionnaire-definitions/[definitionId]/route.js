@@ -302,10 +302,9 @@ async function updateDefinition(request, params, { replace }) {
         pages: legacyPages || currentData.pages || [],
         revision: currentRevision,
       };
-      const bodyForSave = { ...body, status: "active" };
       const candidate = replace
-        ? { ...bodyForSave, id: definitionId }
-        : mergeQuestionnaireDefinition(current, bodyForSave, { id: definitionId });
+        ? { ...body, id: definitionId }
+        : mergeQuestionnaireDefinition(current, body, { id: definitionId });
       const normalized = normalizeQuestionnaireDefinition(
         hydrateLegacyQuestionnaireDefinition(candidate),
         { id: definitionId }
@@ -329,10 +328,30 @@ async function updateDefinition(request, params, { replace }) {
         updatedAt: now,
         updatedBy: actor,
       };
-      savedRecord.publishedAt = currentData.publishedAt || now;
-      savedRecord.publishedBy = currentData.publishedBy || actor;
-      savedRecord.archivedAt = null;
-      savedRecord.archivedBy = null;
+      if (normalized.status === "active") {
+        savedRecord.publishedAt = currentData.status === "active" && currentData.publishedAt
+          ? currentData.publishedAt
+          : now;
+        savedRecord.publishedBy = currentData.status === "active" && currentData.publishedBy
+          ? currentData.publishedBy
+          : actor;
+        savedRecord.archivedAt = null;
+        savedRecord.archivedBy = null;
+      } else if (normalized.status === "archived") {
+        savedRecord.publishedAt = currentData.publishedAt || null;
+        savedRecord.publishedBy = currentData.publishedBy || null;
+        savedRecord.archivedAt = currentData.status === "archived" && currentData.archivedAt
+          ? currentData.archivedAt
+          : now;
+        savedRecord.archivedBy = currentData.status === "archived" && currentData.archivedBy
+          ? currentData.archivedBy
+          : actor;
+      } else {
+        savedRecord.publishedAt = currentData.publishedAt || null;
+        savedRecord.publishedBy = currentData.publishedBy || null;
+        savedRecord.archivedAt = null;
+        savedRecord.archivedBy = null;
+      }
 
       if (conflicts) {
         await archiveConflictingDefinitions(transaction, conflicts, savedRecord, actor, now);

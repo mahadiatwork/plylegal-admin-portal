@@ -57,6 +57,8 @@ const starterDefinition = {
   pages: [],
 };
 
+let registeredQuestionnaireRoutes = [];
+
 async function loadComponent(relativePath) {
   const filename = path.resolve(relativePath);
   const source = await readFile(filename, "utf8");
@@ -93,7 +95,7 @@ async function loadComponent(relativePath) {
       return { useMatterData: () => null };
     }
     if (specifier === "@/lib/routes") {
-      return { getRegisteredQuestionnaireRoutes: () => [] };
+      return { getRegisteredQuestionnaireRoutes: () => registeredQuestionnaireRoutes };
     }
     if (specifier === "@/lib/questionnaireStarterTemplates") {
       return { temporaryWork482Definition: starterDefinition };
@@ -306,41 +308,75 @@ function richDefinition() {
   };
 }
 
-async function mountBuilder(t, { definition = richDefinition() } = {}) {
+async function mountBuilder(t, {
+  definition = richDefinition(),
+  embeddedInMatter = true,
+  routes = [],
+  confirm = () => true,
+} = {}) {
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
   const calls = [];
+  const storedDefinitions = [definition];
+  registeredQuestionnaireRoutes = routes;
   globalThis.window = {
     addEventListener() {},
     removeEventListener() {},
-    confirm: () => true,
+    confirm,
   };
   globalThis.fetch = async (url, options = {}) => {
     calls.push({ url, options });
     if (url === "/api/questionnaire-definitions" && !options.method) {
-      return jsonResponse({ definitions: [definition] });
+      return jsonResponse({ definitions: storedDefinitions });
     }
-    if (url === `/api/questionnaire-definitions/${definition.id}` && !options.method) {
-      return jsonResponse({ definition });
+    if (url === "/api/questionnaire-definitions" && options.method === "POST") {
+      const submitted = JSON.parse(options.body);
+      const persisted = { ...submitted, revision: 1 };
+      storedDefinitions.push(persisted);
+      return jsonResponse({ definition: persisted }, 201);
     }
-    if (url === `/api/questionnaire-definitions/${definition.id}` && options.method === "PUT") {
-      return jsonResponse({ definition: JSON.parse(options.body) });
+    if (url.startsWith("/api/questionnaire-definitions/") && !options.method) {
+      const id = decodeURIComponent(url.slice("/api/questionnaire-definitions/".length));
+      const stored = storedDefinitions.find((candidate) => candidate.id === id);
+      assert.ok(stored, `Expected ${id} to exist in the questionnaire fixture`);
+      return jsonResponse({ definition: stored });
+    }
+    if (url.startsWith("/api/questionnaire-definitions/") && options.method === "PUT") {
+      const id = decodeURIComponent(url.slice("/api/questionnaire-definitions/".length));
+      const submitted = JSON.parse(options.body);
+      const persisted = { ...submitted, revision: Number(submitted.revision || 0) + 1 };
+      const index = storedDefinitions.findIndex((candidate) => candidate.id === id);
+      assert.notEqual(index, -1, `Expected ${id} to exist before update`);
+      storedDefinitions[index] = persisted;
+      return jsonResponse({ definition: persisted });
     }
     assert.fail(`Unexpected request: ${options.method || "GET"} ${url}`);
   };
   t.after(() => {
     globalThis.fetch = originalFetch;
     globalThis.window = originalWindow;
+    registeredQuestionnaireRoutes = [];
   });
 
-  const harness = createHarness(AdminQuestionnaireBuilder, { embeddedInMatter: true });
+  const harness = createHarness(AdminQuestionnaireBuilder, { embeddedInMatter });
   harness.render();
   await flushEffects(harness);
-  return { harness, calls, definition };
+  return { harness, calls, definition, storedDefinitions };
 }
 
-test("embedded builder exposes client-editable choices, conditions, and follow-up wording without developer fields", async (t) => {
-  const { harness } = await mountBuilder(t);
+const questionnaireRoutes = [
+  {
+    href: "/intake/temporary-work/main-applicant/details",
+    title: "Identity details",
+  },
+  {
+    href: "/intake/temporary-work/all-applicants/health",
+    title: "Health details",
+  },
+];
+
+test("embedded live builder exposes safe copy fields and visible but locked structural controls without machine keys", async (t) => {
+  const { harness } = await mountBuilder(t, { routes: questionnaireRoutes });
 
   for (const id of [
     "page-title",
@@ -366,9 +402,14 @@ test("embedded builder exposes client-editable choices, conditions, and follow-u
   for (const id of [
     "questionnaire-title",
     "questionnaire-version",
-    "questionnaire-id",
     "questionnaire-visa-type",
     "questionnaire-contexts",
+  ]) {
+    assert.ok(harness.maybeControl(id), `${id} should be visible in the embedded builder`);
+  }
+
+  for (const id of [
+    "questionnaire-id",
     "page-id",
     "page-route",
     "page-section",
@@ -386,8 +427,11 @@ test("embedded builder exposes client-editable choices, conditions, and follow-u
   }
 
   const renderedText = text(harness.tree);
+  assert.ok(
+    renderedText.includes("Questionnaire settings · title, visa type and version"),
+    "questionnaire settings should be visible",
+  );
   for (const label of [
-    "Questionnaire settings · title, visa type and version",
     "Required answer",
     "Advanced JSON",
   ]) {
@@ -402,19 +446,26 @@ test("embedded builder exposes client-editable choices, conditions, and follow-u
     assert.ok(renderedText.includes(label), `${label} should be available`);
   }
 
+  assert.equal(harness.button("Add questionnaire").props.disabled, false);
+  assert.equal(harness.button("Copy as test").props.disabled, false);
+  assert.equal(harness.button("Add question").props.disabled, true);
   for (const label of [
     "Add page",
-    "Add question",
     "Move page up",
     "Move page down",
     "Delete page",
     "Move question up",
     "Move question down",
     "Delete question",
-    "Delete questionnaire",
   ]) {
-    assert.equal(harness.maybeControl(label), undefined, `${label} should be hidden`);
+    const control = harness.control(label);
+    assert.equal(control.props.disabled, true, `${label} should be visible but locked on a live questionnaire`);
   }
+  assert.equal(
+    harness.control("Delete questionnaire").props.disabled,
+    false,
+    "the saved questionnaire itself should remain deletable",
+  );
 
   const choiceLabels = harness.nodes().filter((node) =>
     node.type === "input" && ["Yes label", "No label"].includes(node.props.value)
@@ -485,6 +536,148 @@ test("embedded builder exposes client-editable choices, conditions, and follow-u
   assert.equal(text(harness.control("record-record-field-internal-id-condition-answer").props.children).includes("Eligible"), false);
   assert.equal(text(harness.tree).includes("record_field_internal"), false);
   assert.equal(text(harness.tree).includes("record_one_internal"), false);
+});
+
+test("copy as test creates a separate draft and saving posts it without mutating the live source", async (t) => {
+  const definition = richDefinition();
+  const original = structuredClone(definition);
+  const { harness, calls, storedDefinitions } = await mountBuilder(t, {
+    definition,
+    routes: questionnaireRoutes,
+  });
+
+  harness.button("Copy as test").props.onClick();
+  harness.render();
+
+  assert.equal(harness.control("questionnaire-title").props.value, "Rich questionnaire — Test");
+  assert.ok(text(harness.tree).includes("Test copy created"));
+  assert.equal(harness.maybeControl("questionnaire-id"), undefined, "the generated ID stays hidden");
+
+  await harness.button("Save").props.onClick();
+  harness.render();
+
+  const postCall = calls.find(({ url, options }) =>
+    url === "/api/questionnaire-definitions" && options.method === "POST"
+  );
+  assert.ok(postCall, "the test copy should be created through POST");
+  const submitted = JSON.parse(postCall.options.body);
+  assert.equal(submitted.status, "draft");
+  assert.equal(submitted.revision, 0);
+  assert.notEqual(submitted.id, definition.id);
+  assert.match(submitted.id, /^questionnaire-/);
+  assert.equal(submitted.title, "Rich questionnaire — Test");
+  assert.deepEqual(submitted.pages, definition.pages);
+  assert.deepEqual(definition, original, "copying and saving must not alter the live source object");
+  assert.equal(
+    calls.some(({ options }) => options.method === "PUT"),
+    false,
+    "a new test copy must not update the live definition",
+  );
+  assert.ok(
+    storedDefinitions.some((candidate) => candidate.id === definition.id && candidate.status === "active"),
+    "the live definition should remain active",
+  );
+  assert.ok(
+    storedDefinitions.some((candidate) => candidate.id === submitted.id && candidate.status === "draft"),
+    "the saved test copy should coexist as a draft",
+  );
+});
+
+test("a copied test can add and delete registered pages and questions while keeping machine keys hidden", async (t) => {
+  const definition = richDefinition();
+  const { harness } = await mountBuilder(t, {
+    definition,
+    routes: questionnaireRoutes,
+  });
+
+  harness.button("Copy as test").props.onClick();
+  harness.render();
+
+  assert.equal(harness.control("Add page").props.disabled, false);
+  assert.equal(harness.button("Add question").props.disabled, false);
+  assert.equal(harness.control("Delete page").props.disabled, false);
+  assert.equal(harness.control("Delete question").props.disabled, false);
+
+  harness.control("Add page").props.onClick();
+  harness.render();
+  assert.ok(text(harness.tree).includes("Health details"));
+  assert.equal(harness.button("Add question").props.disabled, false);
+
+  harness.button("Add question").props.onClick();
+  harness.render();
+  assert.ok(text(harness.tree).includes("New question"));
+  assert.ok(harness.control("question-type"), "draft questions should expose their type control");
+  assert.equal(harness.maybeControl("question-id"), undefined);
+  assert.equal(harness.maybeControl("question-key"), undefined);
+  assert.equal(harness.control("Delete question").props.disabled, false);
+
+  harness.control("Delete question").props.onClick();
+  harness.render();
+  assert.equal(text(harness.tree).includes("New question"), false);
+  assert.ok(text(harness.tree).includes("No questions on this page."));
+
+  assert.equal(harness.control("Delete page").props.disabled, false);
+  harness.control("Delete page").props.onClick();
+  harness.render();
+  assert.equal(text(harness.tree).includes("Health details"), false);
+  assert.ok(text(harness.tree).includes("1 total"));
+  assert.equal(definition.pages.length, 1, "draft structure edits must not mutate the live source");
+  assert.equal(definition.pages[0].questions.length, 3);
+});
+
+test("previously absent legacy help and placeholder fields are enabled and promote the page before save", async (t) => {
+  const definition = richDefinition();
+  definition.pages[0].metadata.renderer = "legacy";
+  delete definition.pages[0].questions[0].description;
+  delete definition.pages[0].questions[0].placeholder;
+
+  const { harness, calls } = await mountBuilder(t, { definition });
+  const helpText = harness.control("question-description");
+  const placeholder = harness.control("question-placeholder");
+  assert.notEqual(helpText.props.disabled, true);
+  assert.notEqual(placeholder.props.disabled, true);
+  assert.equal(harness.maybeControl("question-id"), undefined, "live machine keys remain hidden");
+  assert.equal(harness.maybeControl("question-key"), undefined, "live answer keys remain hidden");
+
+  helpText.props.onChange({ target: { value: "Newly added guidance" } });
+  harness.render();
+  harness.control("question-placeholder").props.onChange({
+    target: { value: "Newly added placeholder" },
+  });
+  harness.render();
+
+  await harness.button("Save").props.onClick();
+  const saveCall = calls.find(({ url, options }) =>
+    url === `/api/questionnaire-definitions/${definition.id}` && options.method === "PUT"
+  );
+  assert.ok(saveCall);
+  const submitted = JSON.parse(saveCall.options.body);
+  assert.equal(submitted.pages[0].metadata.renderer, "dynamic");
+  assert.equal(submitted.pages[0].questions[0].description, "Newly added guidance");
+  assert.equal(submitted.pages[0].questions[0].placeholder, "Newly added placeholder");
+});
+
+test("a draft source question cannot be deleted while another question depends on its answer", async (t) => {
+  const definition = richDefinition();
+  definition.status = "draft";
+  const { harness } = await mountBuilder(t, { definition });
+
+  harness.buttonMatching(/Eligibility source/).props.onClick();
+  harness.render();
+  assert.equal(harness.control("Delete question").props.disabled, false);
+
+  harness.control("Delete question").props.onClick();
+  harness.render();
+
+  assert.ok(text(harness.tree).includes("controls Original question text?"));
+  assert.ok(
+    harness.nodes().some((node) =>
+      node.type === "button" && text(node).includes("Eligibility source")
+    ),
+    "the dependency source should remain in the questionnaire",
+  );
+  assert.equal(harness.maybeControl("question-id"), undefined);
+  assert.equal(harness.maybeControl("question-key"), undefined);
 });
 
 test("embedded edits serialize hidden choice and condition values while preserving metadata", async (t) => {

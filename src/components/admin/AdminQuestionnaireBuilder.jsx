@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  Send,
   Trash2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -49,13 +50,19 @@ const CONDITION_OPERATORS = [
   ["notExists", "Has no answer"],
 ];
 
+const STATUS_STYLES = {
+  active: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  draft: "border-amber-200 bg-amber-50 text-amber-700",
+  archived: "border-slate-200 bg-slate-100 text-slate-600",
+};
+
 const inputClassName = "h-10 border-[#d7e4de] bg-white text-[#17372e]";
 const selectClassName =
   "h-10 w-full rounded-md border border-[#d7e4de] bg-white px-3 text-sm text-[#17372e] outline-none transition focus:border-[#4F726B] focus:ring-2 focus:ring-[#4F726B]/15 disabled:cursor-not-allowed disabled:bg-[#f3f6f4] disabled:text-[#80928b]";
 const RESERVED_WORKFLOW_ROUTE = /\/(?:start|profile|submit)$/;
 
 function getRouteScope(route) {
-  return /^\/intake\/(?:temporary-work|partner|protection)\/(?:main-applicant|spouse-partner|children\/[^/]+)\//.test(route)
+  return /^\/intake\/(?:temporary-work|partner|protection)\/(?:main-applicant|spouse-partner|children\/[^/]+|non-migrating\/[^/]+)\//.test(route)
     ? "profile"
     : "shared";
 }
@@ -149,9 +156,9 @@ function normalizeDefinition(definition = {}) {
     version: String(definition.version || "1.0.0"),
     visaType: String(definition.visaType || "temporary-work"),
     visaContexts: [...new Set(visaContexts)],
-    // The client portal still needs this internal marker, but owners do not
-    // need to manage questionnaire lifecycle states.
-    status: "active",
+    status: ["draft", "active", "archived"].includes(String(definition.status || "draft").toLowerCase())
+      ? String(definition.status || "draft").toLowerCase()
+      : "draft",
     revision: Number.isInteger(Number(definition.revision)) ? Number(definition.revision) : 0,
     pages: Array.isArray(definition.pages)
       ? definition.pages.map((page, pageIndex) => normalizePage(page, pageIndex))
@@ -237,6 +244,20 @@ function findChoiceDependents(questions, answerKey, value, matches = []) {
     }
     findChoiceDependents(question.followUps, answerKey, value, matches);
     findChoiceDependents(question.metadata?.fields, answerKey, value, matches);
+  });
+  return [...new Set(matches)];
+}
+
+function findQuestionDependents(questions, answerKey, excludedQuestionId, matches = []) {
+  (questions || []).forEach((question) => {
+    if (
+      question.id !== excludedQuestionId &&
+      (question.visibleIf || []).some((condition) => condition.field === answerKey)
+    ) {
+      matches.push(question.label || "another question");
+    }
+    findQuestionDependents(question.followUps, answerKey, excludedQuestionId, matches);
+    findQuestionDependents(question.metadata?.fields, answerKey, excludedQuestionId, matches);
   });
   return [...new Set(matches)];
 }
@@ -332,47 +353,58 @@ function definitionUpdatedAt(definition) {
 }
 
 function getOwnerQuestionnaires(definitions) {
-  const byAudience = new Map();
-
+  const currentActiveByAudience = new Map();
+  const tests = [];
   definitions.forEach((candidate) => {
     if (!candidate || candidate.status === "archived") return;
-    const key = questionnaireAudienceKey(candidate);
-    const current = byAudience.get(key);
-    if (!current) {
-      byAudience.set(key, candidate);
+    if (candidate.status !== "active") {
+      tests.push(candidate);
       return;
     }
-
-    const candidateIsActive = candidate.status === "active";
-    const currentIsActive = current.status === "active";
-    if (
-      (candidateIsActive && !currentIsActive) ||
-      (candidateIsActive === currentIsActive && definitionUpdatedAt(candidate) > definitionUpdatedAt(current))
-    ) {
-      byAudience.set(key, candidate);
+    const audienceKey = questionnaireAudienceKey(candidate);
+    const current = currentActiveByAudience.get(audienceKey);
+    if (!current || definitionUpdatedAt(candidate) > definitionUpdatedAt(current)) {
+      currentActiveByAudience.set(audienceKey, candidate);
     }
   });
 
-  return [...byAudience.values()].sort((left, right) =>
-    definitionUpdatedAt(right) - definitionUpdatedAt(left) ||
-    String(left?.title || left?.id || "").localeCompare(String(right?.title || right?.id || ""))
-  );
+  return [...currentActiveByAudience.values(), ...tests]
+    .sort((left, right) =>
+      Number(right.status === "active") - Number(left.status === "active") ||
+      definitionUpdatedAt(right) - definitionUpdatedAt(left) ||
+      String(left?.title || left?.id || "").localeCompare(String(right?.title || right?.id || ""))
+    );
 }
 
 function getEmbeddedQuestionnaireCatalog(definitions) {
-  const savedByAudience = new Map(
-    definitions.map((definition) => [questionnaireAudienceKey(definition), definition])
+  const supportedAudiences = new Set(
+    questionnaireBuiltInTemplates.map(questionnaireAudienceKey)
   );
+  const savedEntries = definitions
+    .filter((definition) => supportedAudiences.has(questionnaireAudienceKey(definition)))
+    .map((definition) => ({
+      audienceKey: questionnaireAudienceKey(definition),
+      definition,
+      source: "saved",
+    }));
+  const activeAudiences = new Set(
+    definitions
+      .filter((definition) => definition.status === "active")
+      .map(questionnaireAudienceKey)
+  );
+  const fallbackEntries = questionnaireBuiltInTemplates
+    .filter((template) => !activeAudiences.has(questionnaireAudienceKey(template)))
+    .map((template) => ({
+      audienceKey: questionnaireAudienceKey(template),
+      definition: template,
+      source: "builtIn",
+    }));
 
-  return questionnaireBuiltInTemplates.map((template) => {
-    const audienceKey = questionnaireAudienceKey(template);
-    const savedDefinition = savedByAudience.get(audienceKey);
-    return {
-      audienceKey,
-      definition: savedDefinition || template,
-      source: savedDefinition ? "saved" : "builtIn",
-    };
-  });
+  return [...savedEntries, ...fallbackEntries].sort((left, right) =>
+    Number(right.definition.status === "active") - Number(left.definition.status === "active") ||
+    definitionUpdatedAt(right.definition) - definitionUpdatedAt(left.definition) ||
+    String(left.definition.title || "").localeCompare(String(right.definition.title || ""))
+  );
 }
 
 function getErrorMessage(payload, fallback) {
@@ -507,10 +539,19 @@ function makeNewDefinition() {
     version: "1.0.0",
     visaType: "temporary-work",
     visaContexts: ["482"],
-    status: "active",
+    status: "draft",
     revision: 0,
     pages: [],
   });
+}
+
+function StatusBadge({ status }) {
+  const label = status === "active" ? "Live" : status === "draft" ? "Test" : "Archived";
+  return (
+    <Badge variant="outline" className={STATUS_STYLES[status] || STATUS_STYLES.draft}>
+      {label}
+    </Badge>
+  );
 }
 
 function FieldLabel({ children, htmlFor, hint }) {
@@ -528,14 +569,14 @@ function RecordFieldWording({ fields, onChange, legacy, depth = 0 }) {
       <p className="font-mono text-[11px] text-[#71857d]">{field.answerKey} · {field.type}</p>
       <FieldLabel htmlFor={`record-${field.id}-label`}>Field text</FieldLabel>
       <Textarea id={`record-${field.id}-label`} rows={2} className="border-[#d7e4de] bg-white" value={field.label} onChange={(event) => onChange(field.id, "label", event.target.value)} />
-      {(!legacy || Object.hasOwn(field.metadata || {}, "originalDescription")) && <div className="space-y-2">
+      <div className="space-y-2">
         <FieldLabel htmlFor={`record-${field.id}-description`}>Help text</FieldLabel>
         <Input id={`record-${field.id}-description`} className={inputClassName} value={field.description || ""} onChange={(event) => onChange(field.id, "description", event.target.value)} />
-      </div>}
-      {(!legacy || Object.hasOwn(field.metadata || {}, "originalPlaceholder")) && <div className="space-y-2">
+      </div>
+      <div className="space-y-2">
         <FieldLabel htmlFor={`record-${field.id}-placeholder`}>Placeholder</FieldLabel>
         <Input id={`record-${field.id}-placeholder`} className={inputClassName} value={field.placeholder || ""} onChange={(event) => onChange(field.id, "placeholder", event.target.value)} />
-      </div>}
+      </div>
       {field.options?.map((option, index) => <div key={option.value} className="space-y-1">
         <FieldLabel htmlFor={`record-${field.id}-option-${index}`}>Option label <span className="font-mono font-normal text-[#71857d]">({option.value})</span></FieldLabel>
         <Input id={`record-${field.id}-option-${index}`} className={inputClassName} value={option.label} onChange={(event) => onChange(field.id, "option", { index, label: event.target.value })} />
@@ -788,12 +829,11 @@ function EmbeddedNestedQuestionEditor({
           <Input
             id={`${idBase}-description`}
             className={inputClassName}
-            disabled={legacy && !Object.hasOwn(question.metadata || {}, "originalDescription") && !question.description}
             value={question.description || ""}
             onChange={(event) => onUpdate(
               question.id,
               (current) => ({ ...current, description: event.target.value }),
-              false
+              legacy && !Object.hasOwn(question.metadata || {}, "originalDescription")
             )}
           />
         </div>
@@ -802,12 +842,11 @@ function EmbeddedNestedQuestionEditor({
           <Input
             id={`${idBase}-placeholder`}
             className={inputClassName}
-            disabled={legacy && !Object.hasOwn(question.metadata || {}, "originalPlaceholder") && !question.placeholder}
             value={question.placeholder || ""}
             onChange={(event) => onUpdate(
               question.id,
               (current) => ({ ...current, placeholder: event.target.value }),
-              false
+              legacy && !Object.hasOwn(question.metadata || {}, "originalPlaceholder")
             )}
           />
         </div>
@@ -905,7 +944,7 @@ function EmptyPane({ onCreate }) {
       </p>
       <Button type="button" className="mt-5 bg-[#4F726B] text-white" onClick={onCreate}>
         <Plus className="h-4 w-4" />
-        New questionnaire
+        Add questionnaire
       </Button>
     </section>
   );
@@ -951,8 +990,12 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
   );
   const activeQuestion = activeQuestionIndex >= 0 ? activePage.questions[activeQuestionIndex] : null;
   const legacyPage = activePage?.metadata?.renderer === "legacy";
-  const machineKeysLocked = legacyPage;
+  const machineKeysLocked = definition?.status === "active";
   const registeredRoutes = useMemo(() => getRegisteredRoutes(definition), [definition]);
+  const nextAvailableRoute = useMemo(() => {
+    const usedRoutes = new Set(definition?.pages?.map((page) => page.route));
+    return registeredRoutes.find((route) => !usedRoutes.has(route.href)) || null;
+  }, [definition?.pages, registeredRoutes]);
   const pageQuestions = useMemo(
     () => flattenQuestions(activePage?.questions),
     [activePage]
@@ -1004,6 +1047,10 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
         if (embeddedInMatter) {
           const catalog = getEmbeddedQuestionnaireCatalog(ownerQuestionnaires);
           const preferredEntry = catalog.find(
+            (entry) => entry.audienceKey === preferredAudienceKey && entry.definition.status === "active"
+          ) || catalog.find(
+            (entry) => entry.audienceKey === preferredAudienceKey && entry.source === "builtIn"
+          ) || catalog.find(
             (entry) => entry.audienceKey === preferredAudienceKey
           ) || catalog[0];
           if (preferredEntry?.source === "builtIn") {
@@ -1104,7 +1151,15 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
         const preferredEntry = catalog.find(
           (entry) => entry.source === "saved" && String(entry.definition.id) === String(preferredId)
         ) || catalog.find(
+          (entry) => entry.audienceKey === selectedAudienceKey && entry.definition.status === "active"
+        ) || catalog.find(
+          (entry) => entry.audienceKey === selectedAudienceKey && entry.source === "builtIn"
+        ) || catalog.find(
           (entry) => entry.audienceKey === selectedAudienceKey
+        ) || catalog.find(
+          (entry) => entry.audienceKey === preferredAudienceKey && entry.definition.status === "active"
+        ) || catalog.find(
+          (entry) => entry.audienceKey === preferredAudienceKey && entry.source === "builtIn"
         ) || catalog.find(
           (entry) => entry.audienceKey === preferredAudienceKey
         ) || catalog[0];
@@ -1203,19 +1258,25 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
     setActiveQuestionId("");
     setIsCreating(true);
     setError("");
-    setNotice("New questionnaire ready. Add pages and save when you are finished.");
+    setNotice("New test questionnaire ready. Add pages and questions, then save when you are finished.");
   }
 
-  function createDefinitionFrom(source, { starter = false, checkDiscard = true } = {}) {
+  function createDefinitionFrom(source, {
+    starter = false,
+    asTestCopy = false,
+    checkDiscard = true,
+  } = {}) {
     if (checkDiscard && !confirmDiscard()) return;
     selectionRequestId.current += 1;
     setIsLoading(false);
     setIsLoadingDefinition(false);
     const definitionId = `questionnaire-${crypto.randomUUID()}`;
+    const sourceTitle = String(source.title || "Questionnaire").replace(/\s+— Test$/, "");
     const nextDefinition = normalizeDefinition({
       ...clone(source),
       id: definitionId,
-      status: "active",
+      title: asTestCopy ? `${sourceTitle} — Test` : source.title,
+      status: asTestCopy ? "draft" : source.status || "active",
       revision: 0,
     });
     setDefinition(nextDefinition);
@@ -1228,9 +1289,16 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
     setJsonError("");
     setIsCreating(true);
     setError("");
-    setNotice(starter
-      ? `${source.title} is ready to edit. Its existing forms and client answers are preserved while you make changes.`
-      : "A new questionnaire is ready. Make your changes, then save it when you are finished.");
+    setNotice(asTestCopy
+      ? "Test copy created. Saving it will not change the live questionnaire."
+      : starter
+        ? `${source.title} is ready to edit. Its existing forms and client answers are preserved while you make changes.`
+        : "A new test questionnaire is ready. Add pages and questions, then save it when you are finished.");
+  }
+
+  function copyDefinitionAsTest() {
+    if (!definition) return;
+    createDefinitionFrom(savedDefinition || definition, { asTestCopy: true });
   }
 
   function updateDefinitionField(field, value) {
@@ -1253,10 +1321,13 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
   }
 
   function addPage() {
+    if (!nextAvailableRoute) {
+      setError("Every available client page is already included. A brand-new page URL still requires a client portal release.");
+      return;
+    }
     const existingIds = new Set(definition.pages.map((page) => page.id));
     const id = uniqueId(existingIds, `page-${definition.pages.length + 1}`);
-    const usedRoutes = new Set(definition.pages.map((page) => page.route));
-    const registeredRoute = registeredRoutes.find((route) => !usedRoutes.has(route.href));
+    const registeredRoute = nextAvailableRoute;
     const page = normalizePage({
       id,
       title: registeredRoute?.title || `Page ${definition.pages.length + 1}`,
@@ -1272,10 +1343,16 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
     setDefinition((current) => ({ ...current, pages: [...current.pages, page] }));
     setActivePageId(page.id);
     setActiveQuestionId("");
+    setError("");
   }
 
   function deletePage() {
-    if (!activePage || !window.confirm(`Delete the page “${activePage.title}” and all of its questions?`)) return;
+    if (!activePage) return;
+    const registeredPage = registeredRoutes.some((route) => route.href === activePage.route);
+    const fallbackNotice = registeredPage
+      ? "\n\nThis removes the custom version. The existing built-in client page remains in the client journey."
+      : "";
+    if (!window.confirm(`Delete the page “${activePage.title}” and all of its questions?${fallbackNotice}`)) return;
     const remaining = definition.pages.filter((page) => page.id !== activePage.id);
     setDefinition((current) => ({ ...current, pages: remaining }));
     setActivePageId(remaining[0]?.id || "");
@@ -1317,7 +1394,21 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
   }
 
   function updateQuestionField(field, value) {
-    updateActiveQuestion((question) => ({ ...question, [field]: value }));
+    const originalCopyKey = field === "description"
+      ? "originalDescription"
+      : field === "placeholder"
+        ? "originalPlaceholder"
+        : null;
+    const needsDynamicRenderer = Boolean(
+      legacyPage && originalCopyKey && !Object.hasOwn(activeQuestion?.metadata || {}, originalCopyKey)
+    );
+    if (needsDynamicRenderer) {
+      setNotice("This page will use the dynamic client form so the new help text or placeholder is displayed.");
+    }
+    const updateQuestion = needsDynamicRenderer || ["id", "answerKey", "type", "required"].includes(field)
+      ? updateActiveQuestionStructure
+      : updateActiveQuestion;
+    updateQuestion((question) => ({ ...question, [field]: value }));
     if (field === "id") setActiveQuestionId(value);
   }
 
@@ -1330,7 +1421,20 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
         : {}),
     }));
 
-    updateActiveQuestion((question) => ({
+    const nestedQuestion = pageQuestions.find((question) => question.id === questionId);
+    const originalCopyKey = field === "description"
+      ? "originalDescription"
+      : field === "placeholder"
+        ? "originalPlaceholder"
+        : null;
+    const updateQuestion = legacyPage && originalCopyKey
+      && !Object.hasOwn(nestedQuestion?.metadata || {}, originalCopyKey)
+      ? updateActiveQuestionStructure
+      : updateActiveQuestion;
+    if (updateQuestion === updateActiveQuestionStructure) {
+      setNotice("This page will use the dynamic client form so the new help text or placeholder is displayed.");
+    }
+    updateQuestion((question) => ({
       ...question,
       followUps: updateQuestions(question.followUps),
     }));
@@ -1344,7 +1448,22 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
         : { [field]: value } : {}),
       ...(question.metadata?.fields ? { metadata: { ...question.metadata, fields: updateFields(question.metadata.fields) } } : {}),
     }));
-    updateActiveQuestion((question) => ({ ...question, metadata: { ...question.metadata, fields: updateFields(question.metadata.fields) } }));
+    const nestedQuestion = flattenQuestions(activeQuestion?.metadata?.fields).find(
+      (question) => question.id === questionId
+    );
+    const originalCopyKey = field === "description"
+      ? "originalDescription"
+      : field === "placeholder"
+        ? "originalPlaceholder"
+        : null;
+    const updateQuestion = legacyPage && originalCopyKey
+      && !Object.hasOwn(nestedQuestion?.metadata || {}, originalCopyKey)
+      ? updateActiveQuestionStructure
+      : updateActiveQuestion;
+    if (updateQuestion === updateActiveQuestionStructure) {
+      setNotice("This page will use the dynamic client form so the new help text or placeholder is displayed.");
+    }
+    updateQuestion((question) => ({ ...question, metadata: { ...question.metadata, fields: updateFields(question.metadata.fields) } }));
   }
 
   function updateNestedQuestion(questionId, updater, structural = false) {
@@ -1380,7 +1499,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
   }
 
   function changeQuestionType(type) {
-    updateActiveQuestion((question) => {
+    updateActiveQuestionStructure((question) => {
       if (type === "yesNo") {
         return {
           ...question,
@@ -1419,27 +1538,43 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
       type: "text",
       required: false,
     });
-    updateActivePage((page) => ({ ...page, questions: [...page.questions, question] }));
+    updateActivePage((page) => {
+      const editablePage = promotePageForStructure(page);
+      return { ...editablePage, questions: [...editablePage.questions, question] };
+    });
     setActiveQuestionId(question.id);
   }
 
   function deleteQuestion() {
     if (!activeQuestion || !window.confirm(`Delete the question “${activeQuestion.label}”?`)) return;
+    const dependents = findQuestionDependents(
+      activePage.questions,
+      activeQuestion.answerKey,
+      activeQuestion.id
+    );
+    if (dependents.length) {
+      setError(
+        `“${activeQuestion.label}” controls ${dependents.join(", ")}. Change ${dependents.length === 1 ? "that question's" : "those questions'"} display rule before deleting it.`
+      );
+      return;
+    }
     const remaining = activePage.questions.filter((question) => question.id !== activeQuestion.id);
-    updateActivePage((page) => ({ ...page, questions: remaining }));
+    updateActivePage((page) => ({ ...promotePageForStructure(page), questions: remaining }));
     setActiveQuestionId(remaining[0]?.id || "");
+    setError("");
   }
 
   function moveQuestion(direction) {
     const nextIndex = activeQuestionIndex + direction;
     if (activeQuestionIndex < 0 || nextIndex < 0 || nextIndex >= activePage.questions.length) return;
     updateActivePage((page) => {
-      const questions = [...page.questions];
+      const editablePage = promotePageForStructure(page);
+      const questions = [...editablePage.questions];
       [questions[activeQuestionIndex], questions[nextIndex]] = [
         questions[nextIndex],
         questions[activeQuestionIndex],
       ];
-      return { ...page, questions };
+      return { ...editablePage, questions };
     });
   }
 
@@ -1570,7 +1705,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
         ...parsed,
         id: isCreating ? parsed.id : definition.id,
         revision: definition.revision,
-        status: "active",
+        status: definition.status,
       });
       setDefinition(normalized);
       setSelectedId(normalized.id);
@@ -1617,7 +1752,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
     });
   }
 
-  async function saveDefinition() {
+  async function saveDefinition(statusOverride = null) {
     if (jsonHasPendingEdits) {
       setError("Apply or discard the pending Advanced JSON edits before saving.");
       return;
@@ -1626,13 +1761,21 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
       setError("Questionnaire ID is required.");
       return;
     }
+    if (statusOverride === "active") {
+      const contexts = definition.visaContexts?.length
+        ? definition.visaContexts.join(", ")
+        : "all contexts";
+      if (!window.confirm(
+        `Make this questionnaire live for ${definition.visaType} (${contexts})?\n\nThe current live questionnaire for this audience will be archived.`
+      )) return;
+    }
     try {
       setIsSaving(true);
       setError("");
       setNotice("");
       const nextDefinition = normalizeDefinition({
         ...definition,
-        status: "active",
+        status: statusOverride || definition.status,
       });
       const currentRevision = Number(savedDefinition?.revision ?? definition.revision ?? 0);
       const url = isCreating
@@ -1674,7 +1817,11 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
         // The saved definition is already reflected locally; Refresh can
         // reconcile any hidden legacy records.
       }
-      setNotice("Questionnaire saved. Changes are now available to clients.");
+      setNotice(statusOverride === "active"
+        ? "Questionnaire is now live. The previous live version was archived."
+        : persisted.status === "draft"
+          ? "Test questionnaire saved. Clients will continue using the live questionnaire."
+          : "Questionnaire saved. Changes are now available to clients.");
     } catch (saveError) {
       setError(saveError.message);
     } finally {
@@ -1777,22 +1924,20 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
             <RefreshCw className={isLoading ? "animate-spin" : ""} />
             Refresh
           </Button>
-          {!embeddedInMatter ? (
-            <Button type="button" className="bg-[#4F726B] text-white" disabled={isSaving || isDeleting} onClick={createDefinition}>
-              <Plus />
-              New questionnaire
-            </Button>
-          ) : null}
+          <Button type="button" className="bg-[#4F726B] text-white" disabled={isSaving || isDeleting} onClick={createDefinition}>
+            <Plus />
+            Add questionnaire
+          </Button>
         </div>
       </header>
 
       <div className="rounded-xl border border-[#d7e4de] bg-white px-4 py-4 text-sm leading-6 text-[#38564b]">
         {embeddedInMatter ? (
-          <p>Choose a page and question below. Edit the visible text, then select <strong>Save</strong>.</p>
+          <p>Choose a live questionnaire to edit its visible copy, or create a <strong>Test</strong> copy before changing pages and questions.</p>
         ) : (
           <>
             <p><strong>To edit a questionnaire:</strong> open it below, choose a page and question, make your changes, then select <strong>Save</strong>.</p>
-            <p className="mt-2 text-[#60786f]">Changes are saved directly to the questionnaire used by clients. Built-in visa questionnaires preserve their existing forms and saved answers while you edit their wording and options.</p>
+            <p className="mt-2 text-[#60786f]">Live questionnaires are used by clients. Test questionnaires are private drafts that can be copied, changed, and saved without replacing the live version.</p>
           </>
         )}
       </div>
@@ -1833,7 +1978,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
               <p className="text-xs text-[#71857d]">
                 {embeddedInMatter
                   ? `${availableDefinitionEntries.length} available`
-                  : `${definitions.length} saved`}
+                  : `${definitions.filter((item) => item.status === "active").length} live · ${definitions.filter((item) => item.status === "draft").length} tests`}
               </p>
             </div>
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin text-[#4F726B]" /> : null}
@@ -1874,6 +2019,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                     <span className="line-clamp-2 text-sm font-semibold text-[#17372e]">
                       {item.title || item.id}
                     </span>
+                    <StatusBadge status={entry.source === "builtIn" ? "active" : item.status} />
                   </div>
                   {!embeddedInMatter ? (
                     <p className="mt-2 truncate text-xs text-[#60786f]">{audienceLabel(item)}</p>
@@ -1895,13 +2041,13 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
               <p className="mt-1 text-xs leading-5 text-[#60786f]">The existing questionnaire structure is bundled as a fallback. Choose a visa to open it as a new editable questionnaire.</p>
               <div className="mt-3 space-y-2">
                 {questionnaireBuiltInTemplates.map((template) => (
-                  <Button key={template.id} type="button" variant="outline" className="h-auto w-full justify-start whitespace-normal border-[#d7e4de] bg-white py-3 text-left text-[#38564b]" disabled={isSaving || isDeleting} onClick={() => createDefinitionFrom(template, { starter: true })}>
+                  <Button key={template.id} type="button" variant="outline" className="h-auto w-full justify-start whitespace-normal border-[#d7e4de] bg-white py-3 text-left text-[#38564b]" disabled={isSaving || isDeleting} onClick={() => createDefinitionFrom(template, { starter: true, asTestCopy: true })}>
                     <Copy className="h-4 w-4 shrink-0" />
                     <span>{template.title}<span className="mt-1 block text-xs font-normal text-[#71857d]">{template.pages.length} pages · {definitionCounts(template).questionCount} questions</span></span>
                   </Button>
                 ))}
               </div>
-              <Button type="button" variant="outline" className="mt-3 w-full border-[#d7e4de] bg-white text-[#38564b]" disabled={isSaving || isDeleting} onClick={() => createDefinitionFrom(temporaryWork482Definition, { starter: true })}>
+              <Button type="button" variant="outline" className="mt-3 w-full border-[#d7e4de] bg-white text-[#38564b]" disabled={isSaving || isDeleting} onClick={() => createDefinitionFrom(temporaryWork482Definition, { starter: true, asTestCopy: true })}>
                 <Copy className="h-4 w-4" />
                 Use 482 Character starter
               </Button>
@@ -1934,6 +2080,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="truncate text-xl font-semibold text-[#17372e]">{definition.title}</h2>
+                    <StatusBadge status={definition.status} />
                     {isDirty ? (
                       <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
                         Unsaved
@@ -1956,33 +2103,51 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                     {isSaving ? <Loader2 className="animate-spin" /> : <Save />}
                     Save
                   </Button>
-                  {!embeddedInMatter ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-[#d7e4de] bg-white text-[#38564b]"
+                    disabled={isSaving || isDeleting}
+                    onClick={copyDefinitionAsTest}
+                  >
+                    <Copy />
+                    Copy as test
+                  </Button>
+                  {definition.status === "draft" ? (
                     <Button
                       type="button"
-                      variant="ghost"
-                      className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                      disabled={isSaving || isDeleting || isCreating}
-                      onClick={deleteDefinition}
-                      aria-label="Delete questionnaire"
+                      className="bg-[#24453b] text-white hover:bg-[#17372e]"
+                      disabled={isSaving || isDeleting}
+                      onClick={() => saveDefinition("active")}
                     >
-                      {isDeleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                      <Send />
+                      Make live
                     </Button>
                   ) : null}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                    disabled={isSaving || isDeleting || isCreating}
+                    onClick={deleteDefinition}
+                    aria-label="Delete questionnaire"
+                  >
+                    {isDeleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                  </Button>
                 </div>
               </div>
 
-              {machineKeysLocked && !embeddedInMatter ? (
+              {machineKeysLocked ? (
                 <div className="mt-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
                   <CircleAlert className="mt-1 h-4 w-4 shrink-0" />
                   <span>
-                    {legacyPage ? "This page uses the existing client form. Edit its wording and option labels while its answer keys, fields and validation remain preserved." : "You can update the questionnaire structure, wording, help text and option labels here, then save your changes directly."}
+                    This questionnaire is live. You can edit visible wording directly; use <strong>Copy as test</strong> before adding, deleting, moving, or changing question structure.
                   </span>
                 </div>
               ) : null}
             </section>
 
-            {!embeddedInMatter ? (
-              <details className="rounded-2xl border border-white/80 bg-white p-5 shadow-sm sm:p-6" open={isCreating && !definition.pages.length}>
+            <details className="rounded-2xl border border-white/80 bg-white p-5 shadow-sm sm:p-6" open={isCreating && !definition.pages.length}>
                 <summary className="cursor-pointer text-sm font-semibold text-[#17372e]">Questionnaire settings · title, visa type and version</summary>
                 <div className="mb-5 mt-4">
                   <p className="text-xs text-[#71857d]">Choose which visa applications use this questionnaire.</p>
@@ -2006,21 +2171,23 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                     onChange={(event) => updateDefinitionField("version", event.target.value)}
                   />
                 </div>
-                <div className="space-y-2 md:col-span-2">
-                  <FieldLabel htmlFor="questionnaire-id" hint="machine key">
-                    ID
-                  </FieldLabel>
-                  <Input
-                    id="questionnaire-id"
-                    className={`${inputClassName} font-mono`}
-                    value={definition.id}
-                    disabled={!isCreating || machineKeysLocked}
-                    onChange={(event) => {
-                      updateDefinitionField("id", event.target.value);
-                      setSelectedId(event.target.value);
-                    }}
-                  />
-                </div>
+                {!embeddedInMatter ? (
+                  <div className="space-y-2 md:col-span-2">
+                    <FieldLabel htmlFor="questionnaire-id" hint="machine key">
+                      ID
+                    </FieldLabel>
+                    <Input
+                      id="questionnaire-id"
+                      className={`${inputClassName} font-mono`}
+                      value={definition.id}
+                      disabled={!isCreating || machineKeysLocked}
+                      onChange={(event) => {
+                        updateDefinitionField("id", event.target.value);
+                        setSelectedId(event.target.value);
+                      }}
+                    />
+                  </div>
+                ) : null}
                 <div className="space-y-2">
                   <FieldLabel htmlFor="questionnaire-visa-type">Visa type</FieldLabel>
                   <select
@@ -2064,8 +2231,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                   />
                 </div>
                 </div>
-              </details>
-            ) : null}
+            </details>
 
             <section className="overflow-hidden rounded-2xl border border-white/80 bg-white shadow-sm">
               <div className="grid lg:grid-cols-[230px_minmax(0,1fr)]">
@@ -2075,19 +2241,27 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                       <h3 className="font-semibold text-[#17372e]">Pages</h3>
                       <p className="text-xs text-[#71857d]">{definition.pages.length} total</p>
                     </div>
-                    {!embeddedInMatter ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        disabled={machineKeysLocked}
-                        onClick={addPage}
-                        aria-label="Add page"
-                      >
-                        <Plus />
-                      </Button>
-                    ) : null}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      disabled={machineKeysLocked || !nextAvailableRoute}
+                      onClick={addPage}
+                      aria-label="Add page"
+                      title={machineKeysLocked
+                        ? "Copy this questionnaire as a test before changing its pages."
+                        : nextAvailableRoute
+                          ? "Add the next available client page"
+                          : "All existing client page routes are already used."}
+                    >
+                      <Plus />
+                    </Button>
                   </div>
+                  {!machineKeysLocked && definition.pages.length > 0 && !nextAvailableRoute ? (
+                    <p className="border-b border-[#e1e9e5] px-4 py-3 text-xs leading-5 text-[#71857d]">
+                      All existing client page slots are already included. A brand-new page URL requires a client portal release.
+                    </p>
+                  ) : null}
                   <div className="flex gap-2 overflow-x-auto p-3 lg:block lg:max-h-[760px] lg:space-y-2 lg:overflow-y-auto">
                     {definition.pages.map((page, index) => (
                       <button
@@ -2128,17 +2302,15 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                       <p className="mt-1 text-sm text-[#71857d]">
                         {embeddedInMatter ? "This questionnaire does not have any pages to edit." : "Pages group related questions and control where answers are stored."}
                       </p>
-                      {!embeddedInMatter ? (
-                        <Button
-                          type="button"
-                          className="mt-4 bg-[#4F726B] text-white"
-                          disabled={machineKeysLocked}
-                          onClick={addPage}
-                        >
-                          <Plus />
-                          Add page
-                        </Button>
-                      ) : null}
+                      <Button
+                        type="button"
+                        className="mt-4 bg-[#4F726B] text-white"
+                        disabled={machineKeysLocked || !nextAvailableRoute}
+                        onClick={addPage}
+                      >
+                        <Plus />
+                        Add page
+                      </Button>
                     </div>
                   ) : (
                     <div className="space-y-6">
@@ -2147,19 +2319,17 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                           <h3 className="font-semibold text-[#17372e]">Page details</h3>
                           <p className="text-xs text-[#71857d]">Order {activePageIndex + 1} of {definition.pages.length}</p>
                         </div>
-                        {!embeddedInMatter ? (
-                          <div className="flex gap-1">
-                            <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activePageIndex === 0} onClick={() => movePage(-1)} aria-label="Move page up">
-                              <ArrowUp />
-                            </Button>
-                            <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activePageIndex === definition.pages.length - 1} onClick={() => movePage(1)} aria-label="Move page down">
-                              <ArrowDown />
-                            </Button>
-                            <Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" disabled={machineKeysLocked} onClick={deletePage} aria-label="Delete page">
-                              <Trash2 />
-                            </Button>
-                          </div>
-                        ) : null}
+                        <div className="flex gap-1">
+                          <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activePageIndex === 0} onClick={() => movePage(-1)} aria-label="Move page up">
+                            <ArrowUp />
+                          </Button>
+                          <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activePageIndex === definition.pages.length - 1} onClick={() => movePage(1)} aria-label="Move page down">
+                            <ArrowDown />
+                          </Button>
+                          <Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" disabled={machineKeysLocked} onClick={deletePage} aria-label="Delete page">
+                            <Trash2 />
+                          </Button>
+                        </div>
                       </div>
 
                       <div className="grid gap-4 md:grid-cols-2">
@@ -2235,12 +2405,10 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                               {embeddedInMatter ? "Choose a question to edit its wording, choices, and display rules." : "Choose a question to edit its text and behavior."}
                             </p>
                           </div>
-                          {!embeddedInMatter ? (
-                            <Button type="button" variant="outline" className="border-[#d7e4de] bg-white text-[#38564b]" disabled={machineKeysLocked} onClick={addQuestion}>
-                              <Plus />
-                              Add question
-                            </Button>
-                          ) : null}
+                          <Button type="button" variant="outline" className="border-[#d7e4de] bg-white text-[#38564b]" disabled={machineKeysLocked} onClick={addQuestion}>
+                            <Plus />
+                            Add question
+                          </Button>
                         </div>
 
                         <div className="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
@@ -2290,13 +2458,11 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                     <p className="mt-1 font-mono text-xs text-[#60786f]">{activeQuestion.answerKey}</p>
                                   ) : null}
                                 </div>
-                                {!embeddedInMatter ? (
-                                  <div className="flex gap-1">
-                                    <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activeQuestionIndex === 0} onClick={() => moveQuestion(-1)} aria-label="Move question up"><ArrowUp /></Button>
-                                    <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activeQuestionIndex === activePage.questions.length - 1} onClick={() => moveQuestion(1)} aria-label="Move question down"><ArrowDown /></Button>
-                                    <Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" disabled={machineKeysLocked} onClick={deleteQuestion} aria-label="Delete question"><Trash2 /></Button>
-                                  </div>
-                                ) : null}
+                                <div className="flex gap-1">
+                                  <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activeQuestionIndex === 0} onClick={() => moveQuestion(-1)} aria-label="Move question up"><ArrowUp /></Button>
+                                  <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activeQuestionIndex === activePage.questions.length - 1} onClick={() => moveQuestion(1)} aria-label="Move question down"><ArrowDown /></Button>
+                                  <Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" disabled={machineKeysLocked} onClick={deleteQuestion} aria-label="Delete question"><Trash2 /></Button>
+                                </div>
                               </div>
 
                               <div className="grid gap-4 md:grid-cols-2">
@@ -2314,6 +2480,10 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                       <FieldLabel htmlFor="question-key" hint="saved answer key">Answer key</FieldLabel>
                                       <Input id="question-key" className={`${inputClassName} font-mono`} value={activeQuestion.answerKey} disabled={machineKeysLocked} onChange={(event) => updateQuestionField("answerKey", event.target.value)} />
                                     </div>
+                                  </>
+                                ) : null}
+                                {!embeddedInMatter || definition.status === "draft" ? (
+                                  <>
                                     <div className="space-y-2">
                                       <FieldLabel htmlFor="question-type">Question type</FieldLabel>
                                       <select id="question-type" className={selectClassName} value={activeQuestion.type} disabled={machineKeysLocked} onChange={(event) => changeQuestionType(event.target.value)}>
@@ -2331,11 +2501,11 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                 ) : null}
                                 <div className="space-y-2 md:col-span-2">
                                   <FieldLabel htmlFor="question-description">Help text</FieldLabel>
-                                  <Textarea id="question-description" rows={2} className="border-[#d7e4de] bg-white" disabled={legacyPage && !Object.hasOwn(activeQuestion.metadata || {}, "originalDescription")} value={activeQuestion.description || ""} onChange={(event) => updateQuestionField("description", event.target.value)} />
+                                  <Textarea id="question-description" rows={2} className="border-[#d7e4de] bg-white" value={activeQuestion.description || ""} onChange={(event) => updateQuestionField("description", event.target.value)} />
                                 </div>
                                 <div className="space-y-2 md:col-span-2">
                                   <FieldLabel htmlFor="question-placeholder">Placeholder</FieldLabel>
-                                  <Input id="question-placeholder" className={inputClassName} disabled={legacyPage && !Object.hasOwn(activeQuestion.metadata || {}, "originalPlaceholder")} value={activeQuestion.placeholder || ""} onChange={(event) => updateQuestionField("placeholder", event.target.value)} />
+                                  <Input id="question-placeholder" className={inputClassName} value={activeQuestion.placeholder || ""} onChange={(event) => updateQuestionField("placeholder", event.target.value)} />
                                 </div>
                               </div>
 
@@ -2392,7 +2562,6 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                           <Input
                                             id={`follow-up-${question.id}-description`}
                                             className={inputClassName}
-                                            disabled={legacyPage && !Object.hasOwn(question.metadata || {}, "originalDescription")}
                                             value={question.description || ""}
                                             onChange={(event) => updateFollowUpText(question.id, "description", event.target.value)}
                                           />
@@ -2402,7 +2571,6 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                           <Input
                                             id={`follow-up-${question.id}-placeholder`}
                                             className={inputClassName}
-                                            disabled={legacyPage && !Object.hasOwn(question.metadata || {}, "originalPlaceholder")}
                                             value={question.placeholder || ""}
                                             onChange={(event) => updateFollowUpText(question.id, "placeholder", event.target.value)}
                                           />

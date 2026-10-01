@@ -248,9 +248,7 @@ export async function POST(request) {
       : generateQuestionnaireDefinitionId(body);
     const normalized = normalizeQuestionnaireDefinition(
       hydrateLegacyQuestionnaireDefinition(
-      // Client reads use the active marker. Lifecycle choices are no longer
-      // exposed in the admin editor, so every saved questionnaire is active.
-        { ...body, id: definitionId, revision: 0, status: "active" }
+        { ...body, id: definitionId, revision: 0 }
       ),
       { id: definitionId }
     );
@@ -264,8 +262,14 @@ export async function POST(request) {
       updatedAt: now,
       updatedBy: actor,
     };
-    record.publishedAt = now;
-    record.publishedBy = actor;
+    if (record.status === "active") {
+      record.publishedAt = now;
+      record.publishedBy = actor;
+    }
+    if (record.status === "archived") {
+      record.archivedAt = now;
+      record.archivedBy = actor;
+    }
 
     const definitionRef = collectionRef.doc(definitionId);
     await db.runTransaction(async (transaction) => {
