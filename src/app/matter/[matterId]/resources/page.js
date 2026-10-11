@@ -26,7 +26,9 @@ import { Input } from "@/components/ui/input";
 import { RichTextContent, RichTextEditor } from "@/components/ui/rich-text";
 import { Textarea } from "@/components/ui/textarea";
 import AdminResourceTemplatesManager from "@/components/admin/AdminResourceTemplatesManager";
-import ResourceFoldersSidebar from "@/components/admin/ResourceFoldersSidebar";
+import ResourceFoldersSidebar, {
+  ResourceFolderGrid,
+} from "@/components/admin/ResourceFoldersSidebar";
 import MatterTabLoadingState from "@/components/matter/MatterTabLoadingState";
 import { getWorkDrivePreviewUrl } from "@/lib/workDrivePreviewUrl.mjs";
 
@@ -296,7 +298,9 @@ export default function ResourcesPage() {
   return <MatterResourcesManager key={matterId} matterId={matterId} />;
 }
 
-function MatterResourcesManager({ matterId }) {
+export function MatterResourcesManager({ matterId, resourceSource = "", pageTitle = "Resources" }) {
+  const sharedFilesMode = resourceSource === "sharedFiles";
+  const resourceQuery = sharedFilesMode ? "?source=sharedFiles" : "";
   const [individualResources, setIndividualResources] = useState([]);
   const [isIndividualLoading, setIsIndividualLoading] = useState(true);
   const [mode, setMode] = useState("file");
@@ -331,6 +335,7 @@ function MatterResourcesManager({ matterId }) {
     useState(false);
   const matterReorderPending = useRef(false);
   const matterReorderFocusTarget = useRef(null);
+  const resourceListHeadingRef = useRef(null);
   const [isReorderingFolders, setIsReorderingFolders] = useState(false);
   const folderReorderPending = useRef(false);
   const folderReorderFocusTarget = useRef(null);
@@ -360,7 +365,7 @@ function MatterResourcesManager({ matterId }) {
       try {
         setIsIndividualLoading(true);
         setIndividualError(null);
-        const response = await fetch(`/api/matter/${matterId}/resources`);
+        const response = await fetch(`/api/matter/${matterId}/resources${resourceQuery}`);
         const data = await response.json();
 
         if (!response.ok || !data.success) {
@@ -397,7 +402,7 @@ function MatterResourcesManager({ matterId }) {
     return () => {
       isMounted = false;
     };
-  }, [matterId]);
+  }, [matterId, resourceQuery]);
 
   const matterCategories = useMemo(() => {
     const byName = new Map();
@@ -491,6 +496,13 @@ function MatterResourcesManager({ matterId }) {
     isSubmitting ||
     Boolean(archiveId) ||
     isReorderingMatterResources;
+  const isRootCategory =
+    categoryKey(activeCategory) === categoryKey(DEFAULT_MATTER_CATEGORY);
+
+  useEffect(() => {
+    if (!isRootCategory) resourceListHeadingRef.current?.focus();
+  }, [activeCategory, isRootCategory]);
+
   const canReorder =
     filteredResources.length > 1 &&
     sortMode === "order" &&
@@ -571,7 +583,7 @@ function MatterResourcesManager({ matterId }) {
       {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, ...(sharedFilesMode ? { source: resourceSource } : {}) }),
       },
     );
     const data = await response.json();
@@ -601,7 +613,10 @@ function MatterResourcesManager({ matterId }) {
       const response = await fetch(`/api/matter/${matterId}/resources/categories`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ names: reordered.map((category) => category.name) }),
+        body: JSON.stringify({
+          names: reordered.map((category) => category.name),
+          ...(sharedFilesMode ? { source: resourceSource } : {}),
+        }),
       });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || "Failed to reorder folders.");
@@ -713,6 +728,15 @@ function MatterResourcesManager({ matterId }) {
     setSuccessMessage("");
   };
 
+  const handleSelectCategory = (category) => {
+    setDraggedMatterResourceId(null);
+    setDragOverMatterResourceId(null);
+    setActiveCategory(category.name);
+    setSelectedCategory(category.name);
+    setShowResourceForm(false);
+    resetForm();
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError(null);
@@ -745,6 +769,7 @@ function MatterResourcesManager({ matterId }) {
       formData.append("noteHtml", noteHtml);
     }
     formData.append("category", selectedCategory);
+    if (sharedFilesMode) formData.append("source", resourceSource);
     const categoryResources = individualResources.filter(
       (resource) =>
         categoryKey(resource.category) === categoryKey(selectedCategory),
@@ -903,6 +928,7 @@ function MatterResourcesManager({ matterId }) {
         body: JSON.stringify({
           category: activeCategory,
           itemIds: reorderedResources.map((resource) => resource.id),
+          ...(sharedFilesMode ? { source: resourceSource } : {}),
         }),
       });
       const data = await response.json();
@@ -961,19 +987,20 @@ function MatterResourcesManager({ matterId }) {
     <div className="space-y-6">
       <section className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-          Resources
+          {pageTitle}
         </h1>
       </section>
 
       <section className="rounded-lg border border-gray-200 bg-white px-5 py-4 shadow-sm">
         <p className="text-sm font-medium text-gray-600">
-          Manage the resources available to clients through the Client Portal.
-          Use Resource scope to switch between reusable resources and resources
-          attached only to this matter.
+          {sharedFilesMode
+            ? "Manage the files shared with this matter through the Client Portal. Create folders, upload files, and organise the client-facing Shared Files area."
+            : "Manage the resources available to clients through the Client Portal. Use Resource scope to choose All Matters, a visa type, or Only This Matter before adding and organising folders and resources."}
         </p>
       </section>
 
       <AdminResourceTemplatesManager
+        matterOnly={sharedFilesMode}
         matterResourceCount={individualResources.length}
         onScopeChange={() => {
           setError(null);
@@ -1008,14 +1035,7 @@ function MatterResourcesManager({ matterId }) {
               activeCategory={activeCategory}
               categorySearchQuery={categorySearchQuery}
               onCategorySearchChange={setCategorySearchQuery}
-              onSelectCategory={(category) => {
-                setDraggedMatterResourceId(null);
-                setDragOverMatterResourceId(null);
-                setActiveCategory(category.name);
-                setSelectedCategory(category.name);
-                setShowResourceForm(false);
-                resetForm();
-              }}
+              onSelectCategory={handleSelectCategory}
               showNewCategory={showNewCategory}
               newCategoryName={newCategoryName}
               newCategoryIcon={newCategoryIcon}
@@ -1042,6 +1062,15 @@ function MatterResourcesManager({ matterId }) {
             />
 
             <div className="min-w-0 space-y-5">
+              {isRootCategory ? (
+                <ResourceFolderGrid
+                  categories={visibleCategories}
+                  categoryCounts={categoryCounts}
+                  onSelectCategory={handleSelectCategory}
+                  disabled={interactionPending || isReorderingFolders}
+                />
+              ) : null}
+
               {showResourceForm ? (
                 <section className="rounded-lg border border-[#dbe7e1] bg-white p-5 shadow-sm">
                   <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -1070,7 +1099,9 @@ function MatterResourcesManager({ matterId }) {
                       Resource type
                     </p>
                     <div className="flex flex-wrap gap-3">
-                      {addResourceActions.map((item) => {
+                      {addResourceActions
+                        .filter((item) => !sharedFilesMode || item.id === "file")
+                        .map((item) => {
                         const Icon = item.icon;
                         const active = mode === item.id;
                         return (
@@ -1220,14 +1251,14 @@ function MatterResourcesManager({ matterId }) {
                           htmlFor="resource-title"
                           className="text-sm font-medium text-gray-700"
                         >
-                          Title
+                          {mode === "note" ? "Title (optional)" : "Title"}
                         </label>
                         <Input
                           id="resource-title"
                           value={title}
                           onChange={(event) => setTitle(event.target.value)}
                           placeholder={
-                            mode === "note" ? "Note title" : "Resource title"
+                            mode === "note" ? "Optional note title" : "Resource title"
                           }
                           className="h-10 bg-white"
                         />
@@ -1304,8 +1335,12 @@ function MatterResourcesManager({ matterId }) {
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="text-base font-semibold text-[#17372e]">
-                          {activeCategory}
+                        <h2
+                          ref={resourceListHeadingRef}
+                          tabIndex={-1}
+                          className="text-base font-semibold text-[#17372e] focus:outline-none"
+                        >
+                          {isRootCategory ? "Files" : activeCategory}
                         </h2>
                         <Badge
                           variant="outline"

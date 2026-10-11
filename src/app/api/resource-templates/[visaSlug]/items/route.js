@@ -146,10 +146,6 @@ export async function POST(request, { params }) {
         { format: noteHtmlWasProvided ? "html" : "plain" }
       );
 
-      if (!nameInput) {
-        return errorResponse("Note name is required", 400);
-      }
-
       if (!noteContent.valid) {
         return errorResponse(noteContent.error, 400);
       }

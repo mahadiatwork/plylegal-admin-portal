@@ -7,7 +7,9 @@ import { getResourceMimeType } from "@/lib/resourceFiles.mjs";
 import { normalizeMatterResourceCategories } from "@/lib/matterResourceCategories.mjs";
 import { buildNoteFields, serializeStoredNoteFields } from "@/lib/richText";
 import {
+  MATTER_SHARED_FILES_SOURCE,
   createViewOnlyMatterResourceLink,
+  matchesMatterResourceSource,
   normalizeMatterResourceOrder,
   reorderMatterResources,
   sortMatterResources,
@@ -19,6 +21,7 @@ export const dynamic = "force-dynamic";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const DOCUMENT_SOURCE = "documentReview";
+const SHARED_FILES_SOURCE = MATTER_SHARED_FILES_SOURCE;
 const FINAL_FILE_FIELD = "Final_File_For_Visa_Submission";
 const DEFAULT_DOCUMENT_REVIEW_FOLDER_URL =
   "https://workdrive.zoho.com.au/darpt4bf78c59b8684d9bb6b479804432d247/teams/darpt4bf78c59b8684d9bb6b479804432d247/ws/hf3e609480d012c3c4244bc51956d41cb7925/folders/h8zdkeb46cf4752f14337b5b7508081031550";
@@ -267,6 +270,9 @@ export async function GET(request, { params }) {
     const { matterId } = await params;
     const { resolved, response } = await resolveMatter(matterId);
     if (response) return response;
+    const source = new URL(request.url).searchParams.get("source") === SHARED_FILES_SOURCE
+      ? SHARED_FILES_SOURCE
+      : "";
 
     const snapshot = await db
       .collection("applications")
@@ -279,14 +285,19 @@ export async function GET(request, { params }) {
         .map(serializeResource)
         .filter(
           (resource) =>
-            resource.status !== "archived" ||
-            resource.workDriveCleanupPending === true
+            (source === SHARED_FILES_SOURCE
+              ? matchesMatterResourceSource(resource, source)
+              : resource.source !== SHARED_FILES_SOURCE) &&
+            (resource.status !== "archived" || resource.workDriveCleanupPending === true)
         )
     );
 
     const categories = normalizeMatterResourceCategories(
-      resolved.application?.resourceCategories,
-      resources
+      source === SHARED_FILES_SOURCE
+        ? resolved.application?.sharedFileCategories
+        : resolved.application?.resourceCategories,
+      resources,
+      source,
     );
     return NextResponse.json({ success: true, resources, categories });
   } catch (error) {
@@ -312,6 +323,7 @@ export async function PATCH(request, { params }) {
       appId: resolved.appId,
       category: body.category,
       itemIds: body.itemIds,
+      source: body.source === SHARED_FILES_SOURCE ? SHARED_FILES_SOURCE : "",
       actor: session.role || "admin",
     });
 
@@ -343,7 +355,10 @@ export async function POST(request, { params }) {
     const descriptionInput = formData.get("description");
     const description = cleanText(descriptionInput);
     const noteHtmlWasProvided = formData.has("noteHtml");
-    const source = cleanText(formData.get("source"));
+    const sourceInput = cleanText(formData.get("source"));
+    const source = ["", DOCUMENT_SOURCE, SHARED_FILES_SOURCE].includes(sourceInput)
+      ? sourceInput
+      : "";
     const category = cleanText(formData.get("category"));
     const order = normalizeMatterResourceOrder(formData.get("order"));
 
@@ -412,7 +427,7 @@ export async function POST(request, { params }) {
 
       const resourceData = {
         type: "note",
-        title: titleInput || "Note",
+        title: titleInput,
         description: noteContent.noteText,
         ...noteContent.fields,
         status: "active",

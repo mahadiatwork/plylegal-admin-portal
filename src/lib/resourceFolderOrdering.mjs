@@ -1,4 +1,5 @@
 import { normalizeMatterResourceCategories } from "./matterResourceCategories.mjs";
+import { matchesMatterResourceSource } from "./matterResources.mjs";
 
 const MAX_FOLDERS = 200;
 
@@ -34,22 +35,28 @@ function assertCompleteOrder(categories, keys) {
   }
 }
 
-export async function reorderMatterResourceFolders({ db, appId, names, actor }) {
+export async function reorderMatterResourceFolders({ db, appId, names, actor, source = "" }) {
   const keys = validateNames(names);
   const ref = db.collection("applications").doc(appId);
   return db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(ref);
     if (!snapshot.exists) throw folderError("Matter not found", 404);
     const resources = await transaction.get(ref.collection("resources"));
+    const categoryField = source === "sharedFiles" ? "sharedFileCategories" : "resourceCategories";
     const categories = normalizeMatterResourceCategories(
-      snapshot.data()?.resourceCategories,
+      snapshot.data()?.[categoryField],
       resources.docs.map((doc) => doc.data() || {}),
+      source,
     );
     assertCompleteOrder(categories, keys);
     const byName = new Map(categories.map((category) => [keyOf(category), category]));
     const ordered = keys.map((key) => byName.get(key));
     const now = new Date();
-    transaction.update(ref, { resourceCategories: ordered, updatedAt: now, updatedBy: actor });
+    transaction.update(ref, {
+      [categoryField]: ordered,
+      updatedAt: now,
+      updatedBy: actor,
+    });
     return { categories: ordered, updatedAt: now.toISOString(), updatedBy: actor };
   });
 }

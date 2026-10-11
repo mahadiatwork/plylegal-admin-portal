@@ -26,9 +26,12 @@ import {
   RichTextEditor,
 } from "@/components/ui/rich-text";
 import MatterTabLoadingState from "@/components/matter/MatterTabLoadingState";
-import ResourceFoldersSidebar, { categoryIconOptions } from "@/components/admin/ResourceFoldersSidebar";
+import ResourceFoldersSidebar, {
+  categoryIconOptions,
+  ResourceFolderGrid,
+} from "@/components/admin/ResourceFoldersSidebar";
 
-const ALL_VISAS = "all";
+const GLOBAL_SCOPE = "global";
 const MATTER_SCOPE = "matter";
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const DEFAULT_CATEGORIES = [
@@ -188,10 +191,11 @@ export default function AdminResourceTemplatesManager({
   matterContent = null,
   matterResourceCount = 0,
   onScopeChange = null,
+  matterOnly = false,
 }) {
   const [templates, setTemplates] = useState([]);
   const [itemsBySlug, setItemsBySlug] = useState({});
-  const [activeVisa, setActiveVisa] = useState(ALL_VISAS);
+  const [activeVisa, setActiveVisa] = useState(GLOBAL_SCOPE);
   const [activeCategory, setActiveCategory] = useState("Uncategorized");
   const [categorySearchQuery, setCategorySearchQuery] = useState("");
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -210,6 +214,8 @@ export default function AdminResourceTemplatesManager({
   const [isReordering, setIsReordering] = useState(false);
   const reorderPending = useRef(false);
   const reorderFocusTarget = useRef(null);
+  const resourceListHeadingRef = useRef(null);
+  const matterScopeAvailable = useRef(matterContent !== null);
   const [isReorderingFolders, setIsReorderingFolders] = useState(false);
   const [folderOrderOverride, setFolderOrderOverride] = useState(null);
   const folderReorderPending = useRef(false);
@@ -223,6 +229,8 @@ export default function AdminResourceTemplatesManager({
   const [message, setMessage] = useState(null);
   const [successLinks, setSuccessLinks] = useState([]);
   const [error, setError] = useState(null);
+  const [failedTemplateSlugs, setFailedTemplateSlugs] = useState([]);
+  const [templateLoadWarning, setTemplateLoadWarning] = useState(null);
 
   useEffect(() => {
     if (isReordering || !reorderFocusTarget.current) return;
@@ -249,6 +257,24 @@ export default function AdminResourceTemplatesManager({
     [templates]
   );
 
+  const failedTemplateSlugSet = useMemo(
+    () => new Set(failedTemplateSlugs),
+    [failedTemplateSlugs]
+  );
+  const firstAvailableTemplate = templates.find(
+    (template) => !failedTemplateSlugSet.has(template.visaSlug)
+  );
+  const selectedScope =
+    (activeVisa === MATTER_SCOPE && matterContent !== null) ||
+    (templateBySlug[activeVisa] && !failedTemplateSlugSet.has(activeVisa))
+      ? activeVisa
+      : matterContent !== null
+        ? MATTER_SCOPE
+        : firstAvailableTemplate?.visaSlug || "";
+  const isActiveTemplateAvailable = Boolean(
+    templateBySlug[selectedScope] && !failedTemplateSlugSet.has(selectedScope)
+  );
+
   const allItems = useMemo(() => {
     return Object.entries(itemsBySlug).flatMap(([visaSlug, items]) =>
       (items || []).map((item) => ({
@@ -265,15 +291,13 @@ export default function AdminResourceTemplatesManager({
   );
 
   const visaScopedItems = useMemo(() => {
-    if (activeVisa === ALL_VISAS) return resourceItems;
-    return resourceItems.filter((item) => item.visaSlug === activeVisa);
-  }, [activeVisa, resourceItems]);
+    return resourceItems.filter((item) => item.visaSlug === selectedScope);
+  }, [resourceItems, selectedScope]);
 
   const categories = useMemo(() => {
-    const sourceTemplates =
-      activeVisa === ALL_VISAS
-        ? templates
-        : templates.filter((template) => template.visaSlug === activeVisa);
+    const sourceTemplates = templates.filter(
+      (template) => template.visaSlug === selectedScope
+    );
     const templateCategories = sourceTemplates.flatMap((template) =>
       Array.isArray(template.categories) ? template.categories : []
     );
@@ -291,7 +315,7 @@ export default function AdminResourceTemplatesManager({
     const positions = new Map(folderOrderOverride.map((name, index) => [categoryKey(name), index]));
     return merged.sort((a, b) => (positions.get(categoryKey(a.name)) ?? Infinity) -
       (positions.get(categoryKey(b.name)) ?? Infinity));
-  }, [activeVisa, templates, visaScopedItems, folderOrderOverride]);
+  }, [templates, visaScopedItems, folderOrderOverride, selectedScope]);
 
   const visibleCategories = useMemo(() => {
     const query = categorySearchQuery.trim().toLowerCase();
@@ -346,25 +370,19 @@ export default function AdminResourceTemplatesManager({
     }
 
     if (sortMode === "order") {
-      const orderedItems = sortByOrderThenName(items);
-      if (activeVisa !== ALL_VISAS) return orderedItems;
-      // Each visa has its own saved order. Keep its resources together when
-      // displaying multiple visas so a drag has the same result in both views.
-      return orderedItems.sort((a, b) =>
-        a.templateTitle.localeCompare(b.templateTitle) || a.visaSlug.localeCompare(b.visaSlug)
-      );
+      return sortByOrderThenName(items);
     }
 
     return [...items].sort(
       (a, b) => String(a.name || "").localeCompare(String(b.name || ""))
     );
-  }, [activeCategoryItems, activeVisa, searchQuery, sortMode]);
+  }, [activeCategoryItems, searchQuery, sortMode]);
 
   const nextOrder = useMemo(() => {
-    const visaItems = itemsBySlug[activeVisa] || [];
+    const visaItems = itemsBySlug[selectedScope] || [];
     if (!visaItems.length) return 0;
     return Math.max(...visaItems.map((item) => Number(item.order) || 0)) + 10;
-  }, [activeVisa, itemsBySlug]);
+  }, [itemsBySlug, selectedScope]);
 
   const setDefaultForm = useCallback(
     (overrides = {}) => {
@@ -383,6 +401,7 @@ export default function AdminResourceTemplatesManager({
   );
 
   const handleVisaScopeChange = (visaSlug) => {
+    if (failedTemplateSlugSet.has(visaSlug)) return;
     setDraggedItemId(null);
     setDragOverItemId(null);
     setError(null);
@@ -398,9 +417,18 @@ export default function AdminResourceTemplatesManager({
     onScopeChange?.(visaSlug);
   };
 
+  const handleSelectCategory = (category) => {
+    setDraggedItemId(null);
+    setDragOverItemId(null);
+    setActiveCategory(category.name);
+    setForm((current) => ({ ...current, category: category.name }));
+    setEditingItem(null);
+    setShowResourceForm(false);
+  };
+
   const handleAddResource = () => {
-    if (activeVisa === ALL_VISAS) {
-      setError("Select a specific visa in Resource scope before adding a resource.");
+    if (!isActiveTemplateAvailable) {
+      setError("Select a resource scope above before adding a resource.");
       setMessage(null);
       return;
     }
@@ -414,6 +442,7 @@ export default function AdminResourceTemplatesManager({
   };
 
   const handleEdit = (item) => {
+    if (failedTemplateSlugSet.has(item.visaSlug)) return;
     const noteText = item.noteText || item.content || "";
     setEditingItem(item);
     setForm({
@@ -458,9 +487,16 @@ export default function AdminResourceTemplatesManager({
     let isMounted = true;
 
     async function loadTemplates() {
+      if (matterOnly) {
+        setIsLoading(false);
+        return;
+      }
+
       try {
         setIsLoading(true);
         setError(null);
+        setFailedTemplateSlugs([]);
+        setTemplateLoadWarning(null);
 
         const response = await fetch("/api/resource-templates");
         const data = await response.json();
@@ -470,7 +506,7 @@ export default function AdminResourceTemplatesManager({
         }
 
         const loadedTemplates = data.templates || [];
-        const detailResults = await Promise.all(
+        const detailResults = await Promise.allSettled(
           loadedTemplates.map(async (template) => {
             const detailResponse = await fetch(`/api/resource-templates/${template.visaSlug}`);
             const detailData = await detailResponse.json();
@@ -487,17 +523,53 @@ export default function AdminResourceTemplatesManager({
         );
 
         if (isMounted) {
-          setTemplates(detailResults.map((result) => result.template));
+          const loadedDetails = detailResults.flatMap((result) =>
+            result.status === "fulfilled" ? [result.value] : []
+          );
+          const failedSlugs = detailResults.flatMap((result, index) =>
+            result.status === "rejected" ? [loadedTemplates[index].visaSlug] : []
+          );
+          const detailsBySlug = new Map(
+            loadedDetails.map((result) => [result.template.visaSlug, result])
+          );
+
+          // Keep the catalog as the source of scope options even when one or
+          // more detail requests fail. Matter-only resources must remain
+          // selectable independently of template availability.
+          setTemplates(loadedTemplates.map((template) =>
+            detailsBySlug.get(template.visaSlug)?.template || template
+          ));
           setItemsBySlug(
-            detailResults.reduce((index, result) => {
+            loadedDetails.reduce((index, result) => {
               index[result.template.visaSlug] = result.items;
               return index;
             }, {})
           );
+          setFailedTemplateSlugs(failedSlugs);
+
+          const failedCount = detailResults.length - loadedDetails.length;
+          if (failedCount) {
+            setTemplateLoadWarning(
+              failedCount === detailResults.length
+                ? "Resource scope details could not be loaded."
+                : `${failedCount} resource scope${failedCount === 1 ? "" : "s"} could not be loaded.`
+            );
+          }
+
+          const successfulSlugs = new Set(
+            loadedDetails.map((result) => result.template.visaSlug)
+          );
+          setActiveVisa((current) => {
+            if (current === MATTER_SCOPE && matterScopeAvailable.current) return current;
+            if (successfulSlugs.has(current)) return current;
+            if (matterScopeAvailable.current) return MATTER_SCOPE;
+            return loadedDetails[0]?.template.visaSlug || "";
+          });
         }
       } catch (loadError) {
         if (isMounted) {
-          setError(loadError.message);
+          setTemplateLoadWarning(loadError.message);
+          setActiveVisa(matterScopeAvailable.current ? MATTER_SCOPE : "");
         }
       } finally {
         if (isMounted) {
@@ -511,7 +583,7 @@ export default function AdminResourceTemplatesManager({
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [matterOnly]);
 
   const updateFormField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -552,13 +624,10 @@ export default function AdminResourceTemplatesManager({
 
     const categoryMeta = { name: category, icon: newCategoryIcon };
     const displayedOrder = new Map(categories.map((item, index) => [categoryKey(item.name), (index + 1) * 10]));
-    const targetSlugs =
-      activeVisa === ALL_VISAS
-        ? templates.map((template) => template.visaSlug)
-        : [activeVisa];
+    const targetSlugs = isActiveTemplateAvailable ? [selectedScope] : [];
 
     if (!targetSlugs.length) {
-      setError("Choose a visa type before creating a folder.");
+      setError("Choose a resource scope before creating a folder.");
       return;
     }
 
@@ -608,11 +677,7 @@ export default function AdminResourceTemplatesManager({
       setNewCategoryIcon("folder");
       setShowNewCategory(false);
       setForm((current) => ({ ...current, category }));
-      setMessage(
-        activeVisa === ALL_VISAS
-          ? "Folder created for all visa templates."
-          : "Folder created."
-      );
+      setMessage("Folder created.");
     } catch (categoryError) {
       setError(categoryError.message);
     } finally {
@@ -621,6 +686,7 @@ export default function AdminResourceTemplatesManager({
   };
 
   const handleRenameCategory = async (category) => {
+    if (!isActiveTemplateAvailable) return;
     if (category.name.toLowerCase() === "uncategorized") return;
     const nextName = window.prompt("Rename folder", category.name);
     if (nextName === null) return;
@@ -628,16 +694,14 @@ export default function AdminResourceTemplatesManager({
     const replacementName = cleanText(nextName);
     if (!replacementName || replacementName === category.name) return;
 
-    const scope = activeVisa === ALL_VISAS
-      ? "all visa templates"
-      : templateBySlug[activeVisa]?.title || activeVisa;
+    const scope = templateBySlug[selectedScope]?.title || selectedScope;
 
     try {
       setRenamingCategory(category.name);
       setError(null);
       setMessage(null);
       setSuccessLinks([]);
-      const response = await fetch(`/api/resource-templates/${activeVisa}/categories`, {
+      const response = await fetch(`/api/resource-templates/${selectedScope}/categories`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: category.name, nextName: replacementName }),
@@ -683,10 +747,9 @@ export default function AdminResourceTemplatesManager({
   };
 
   const handleDeleteCategory = async (category) => {
+    if (!isActiveTemplateAvailable) return;
     if (category.name.toLowerCase() === "uncategorized") return;
-    const scope = activeVisa === ALL_VISAS
-      ? "all visa templates"
-      : templateBySlug[activeVisa]?.title || activeVisa;
+    const scope = templateBySlug[selectedScope]?.title || selectedScope;
     if (!window.confirm(
       `Delete the "${category.name}" category from ${scope}? Existing resources will be moved to Uncategorized. Files, notes, and links will be kept.`
     )) return;
@@ -696,7 +759,7 @@ export default function AdminResourceTemplatesManager({
       setError(null);
       setMessage(null);
       setSuccessLinks([]);
-      const response = await fetch(`/api/resource-templates/${activeVisa}/categories`, {
+      const response = await fetch(`/api/resource-templates/${selectedScope}/categories`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: category.name }),
@@ -753,15 +816,15 @@ export default function AdminResourceTemplatesManager({
     setMessage(null);
     setSuccessLinks([]);
 
-    const targetVisa = editingItem?.visaSlug || activeVisa;
+    const targetVisa = editingItem?.visaSlug || selectedScope;
     const targetCategory = cleanText(form.category) || activeCategory || "Uncategorized";
 
-    if (!targetVisa || targetVisa === ALL_VISAS) {
-      setError("Select a specific visa in Resource scope before saving.");
+    if (!targetVisa || !templateBySlug[targetVisa] || failedTemplateSlugSet.has(targetVisa)) {
+      setError("Select a resource scope before saving.");
       return;
     }
 
-    if (!form.name.trim() && form.kind !== "file") {
+    if (!form.name.trim() && !["file", "note"].includes(form.kind)) {
       setError("Name is required.");
       return;
     }
@@ -899,6 +962,7 @@ export default function AdminResourceTemplatesManager({
   };
 
   const handleDelete = async (item) => {
+    if (failedTemplateSlugSet.has(item.visaSlug)) return;
     const resourceName = item.name || item.fileName || "this resource";
     const confirmed = window.confirm(
       item.deletionPending
@@ -933,7 +997,7 @@ export default function AdminResourceTemplatesManager({
   };
 
   const categoryMutationActive = isCategorySaving || Boolean(deletingCategory || renamingCategory);
-  const canReorderFolders = categories.length > 1 && !categorySearchQuery.trim() &&
+  const canReorderFolders = isActiveTemplateAvailable && categories.length > 1 && !categorySearchQuery.trim() &&
     !isLoading && !isSubmitting && !isReordering && !isReorderingFolders &&
     !activeMutationId && !categoryMutationActive && !showResourceForm;
 
@@ -954,7 +1018,7 @@ export default function AdminResourceTemplatesManager({
       setFolderOrderOverride(names);
       setError(null);
       setMessage(null);
-      const response = await fetch(`/api/resource-templates/${activeVisa}/categories`, {
+      const response = await fetch(`/api/resource-templates/${selectedScope}/categories`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ names }),
@@ -978,8 +1042,8 @@ export default function AdminResourceTemplatesManager({
     counts[item.visaSlug] = (counts[item.visaSlug] || 0) + 1;
     return counts;
   }, {});
-  const hasMultipleVisas = Object.keys(visaResourceCounts).length > 1;
   const canReorder =
+    isActiveTemplateAvailable &&
     sortMode === "order" &&
     !searchQuery.trim() &&
     tableItems.length > 1 &&
@@ -1087,15 +1151,18 @@ export default function AdminResourceTemplatesManager({
     }
   };
 
-  const isMatterScope = activeVisa === MATTER_SCOPE && matterContent !== null;
-  const activeVisaTitle =
-    activeVisa === ALL_VISAS
-      ? "All Matters"
-      : templateBySlug[activeVisa]?.title || "Resources";
+  const activeVisaTitle = templateBySlug[selectedScope]?.title || "Resources";
+  const isMatterScope = selectedScope === MATTER_SCOPE;
+  const isRootCategory = categoryKey(activeCategory) === "uncategorized";
+
+  useEffect(() => {
+    if (!isRootCategory) resourceListHeadingRef.current?.focus();
+  }, [activeCategory, isRootCategory]);
+
   const scopeDescription = isMatterScope
     ? "Add, edit and organise resources attached only to this matter."
-    : activeVisa === ALL_VISAS
-      ? "Review reusable resources across all visa types. Choose a specific visa before adding a resource."
+    : selectedScope === GLOBAL_SCOPE
+      ? "Resources in All Matters are available across every visa type."
       : `Resources in ${activeVisaTitle} are available only to that visa type.`;
 
   const reorderGuidance =
@@ -1106,10 +1173,12 @@ export default function AdminResourceTemplatesManager({
         : sortMode !== "order"
           ? "Choose Custom order to drag resources."
           : tableItems.length > 1
-            ? hasMultipleVisas
-              ? "Drag resources within the same visa type, or focus a handle and use the Up and Down arrow keys. Changes save automatically."
-              : "Drag the handles to reorder resources, or focus a handle and use the Up and Down arrow keys. Changes save automatically."
+            ? "Drag the handles to reorder resources, or focus a handle and use the Up and Down arrow keys. Changes save automatically."
             : null;
+
+  if (matterOnly) {
+    return matterContent;
+  }
 
   if (isLoading) {
     return <MatterTabLoadingState label="Loading resources data…" />;
@@ -1137,14 +1206,20 @@ export default function AdminResourceTemplatesManager({
             <FormSelect
               id="resource-scope"
               aria-label="Resource scope"
-              value={activeVisa}
+              value={selectedScope}
               onChange={handleVisaScopeChange}
-              disabled={isLoading || categoryMutationActive || isReordering}
+              disabled={isLoading || categoryMutationActive || isReordering || (!selectedScope && matterContent === null)}
             >
-              <option value={ALL_VISAS}>All Matters</option>
+              {!selectedScope ? (
+                <option value="" disabled>No resource scopes available</option>
+              ) : null}
               {templates.map((template) => (
-                <option key={template.visaSlug} value={template.visaSlug}>
-                  {template.title}
+                <option
+                  key={template.visaSlug}
+                  value={template.visaSlug}
+                  disabled={failedTemplateSlugSet.has(template.visaSlug)}
+                >
+                  {template.title}{failedTemplateSlugSet.has(template.visaSlug) ? " (unavailable)" : ""}
                 </option>
               ))}
               {matterContent !== null ? (
@@ -1155,9 +1230,17 @@ export default function AdminResourceTemplatesManager({
         </div>
       </section>
 
-      {isMatterScope ? (
-        matterContent
-      ) : (
+      {templateLoadWarning ? (
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 shadow-sm"
+        >
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>{templateLoadWarning}</p>
+        </div>
+      ) : null}
+
+      {isMatterScope ? matterContent : (
         <>
       {(error || message) && (
         <div
@@ -1201,14 +1284,7 @@ export default function AdminResourceTemplatesManager({
           activeCategory={activeCategory}
           categorySearchQuery={categorySearchQuery}
           onCategorySearchChange={setCategorySearchQuery}
-          onSelectCategory={(category) => {
-            setDraggedItemId(null);
-            setDragOverItemId(null);
-            setActiveCategory(category.name);
-            setForm((current) => ({ ...current, category: category.name }));
-            setEditingItem(null);
-            setShowResourceForm(false);
-          }}
+          onSelectCategory={handleSelectCategory}
           showNewCategory={showNewCategory}
           newCategoryName={newCategoryName}
           newCategoryIcon={newCategoryIcon}
@@ -1221,7 +1297,7 @@ export default function AdminResourceTemplatesManager({
             setNewCategoryIcon("folder");
           }}
           onNewCategory={handleNewCategory}
-          isLoading={isLoading}
+          isLoading={isLoading || !isActiveTemplateAvailable}
           isCategorySaving={isCategorySaving}
           categoryMutationActive={categoryMutationActive}
           isSubmitting={isSubmitting}
@@ -1237,6 +1313,15 @@ export default function AdminResourceTemplatesManager({
         />
 
         <div className="min-w-0 space-y-5">
+          {isRootCategory ? (
+            <ResourceFolderGrid
+              categories={visibleCategories}
+              categoryCounts={categoryCounts}
+              onSelectCategory={handleSelectCategory}
+              disabled={categoryMutationActive || isReordering || isReorderingFolders}
+            />
+          ) : null}
+
           {showResourceForm ? (
             <section className="rounded-lg border border-[#dbe7e1] bg-white p-5 shadow-sm">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1307,12 +1392,20 @@ export default function AdminResourceTemplatesManager({
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <label htmlFor="resource-name" className="text-sm font-medium text-[#224238]">Name</label>
+                    <label htmlFor="resource-name" className="text-sm font-medium text-[#224238]">
+                      {form.kind === "note" ? "Title (optional)" : "Name"}
+                    </label>
                     <Input
                       id="resource-name"
                       value={form.name}
                       onChange={(event) => updateFormField("name", event.target.value)}
-                      placeholder={form.kind === "file" ? "Optional for file uploads" : "Resource name"}
+                      placeholder={
+                        form.kind === "file"
+                          ? "Optional for file uploads"
+                          : form.kind === "note"
+                            ? "Optional note title"
+                            : "Resource name"
+                      }
                     />
                   </div>
                   <div className="space-y-2">
@@ -1375,7 +1468,7 @@ export default function AdminResourceTemplatesManager({
                   </Button>
                   <Button
                     type="submit"
-                    disabled={isSubmitting || isLoading || categoryMutationActive || isReordering}
+                    disabled={isSubmitting || isLoading || !isActiveTemplateAvailable || categoryMutationActive || isReordering}
                     className="bg-[#4F726B] text-white hover:bg-[#3c5b54]"
                   >
                     {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
@@ -1391,7 +1484,13 @@ export default function AdminResourceTemplatesManager({
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-base font-semibold text-[#17372e]">{activeCategory}</h2>
+                  <h2
+                    ref={resourceListHeadingRef}
+                    tabIndex={-1}
+                    className="text-base font-semibold text-[#17372e] focus:outline-none"
+                  >
+                    {isRootCategory ? "Files" : activeCategory}
+                  </h2>
                   <Badge variant="outline" className="border-[#dbe7e1] bg-[#f7faf8] text-[#60786f]">{tableItems.length}</Badge>
                 </div>
                 <p className="mt-1 text-xs text-[#71857d]">{activeVisaTitle} / {activeCategory}</p>
@@ -1400,7 +1499,7 @@ export default function AdminResourceTemplatesManager({
                 <Button
                   type="button"
                   onClick={handleAddResource}
-                  disabled={isLoading || categoryMutationActive || isReordering || showResourceForm}
+                  disabled={isLoading || !isActiveTemplateAvailable || categoryMutationActive || isReordering || showResourceForm}
                   className="bg-[#4F726B] text-white hover:bg-[#3c5b54]"
                 >
                   <Plus className="h-4 w-4" />
@@ -1490,9 +1589,6 @@ export default function AdminResourceTemplatesManager({
                           <p className="truncate font-semibold text-[#17372e]">
                             {item.name || item.fileName || "Untitled resource"}
                           </p>
-                          {activeVisa === ALL_VISAS && hasMultipleVisas ? (
-                            <p className="mt-1 truncate text-xs text-[#71857d]">{item.templateTitle}</p>
-                          ) : null}
                         </div>
                         {item.deletionPending ? (
                           <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
@@ -1547,7 +1643,7 @@ export default function AdminResourceTemplatesManager({
                           variant="ghost"
                           size="icon"
                           title="Edit"
-                          disabled={isBusy || item.deletionPending || categoryMutationActive || isReordering}
+                          disabled={isBusy || item.deletionPending || !isActiveTemplateAvailable || categoryMutationActive || isReordering}
                           onClick={() => handleEdit(item)}
                           className="text-[#4F726B] hover:bg-[#e8f4ee] hover:text-[#17372e]"
                         >
@@ -1558,7 +1654,7 @@ export default function AdminResourceTemplatesManager({
                           variant="ghost"
                           size="icon"
                           title={item.deletionPending ? "Retry deletion" : "Delete"}
-                          disabled={isBusy || categoryMutationActive || isReordering}
+                          disabled={isBusy || !isActiveTemplateAvailable || categoryMutationActive || isReordering}
                           onClick={() => handleDelete(item)}
                           className="text-red-600 hover:bg-red-50 hover:text-red-700"
                         >
@@ -1584,6 +1680,7 @@ export default function AdminResourceTemplatesManager({
               <Button
                 type="button"
                 onClick={handleAddResource}
+                disabled={!isActiveTemplateAvailable}
                 className="mt-4 bg-[#4F726B] text-white hover:bg-[#3c5b54]"
               >
                 <Plus className="h-4 w-4" />

@@ -191,7 +191,7 @@ export async function POST(request) {
 
       resourceData = {
         ...baseData,
-        title: titleInput || "Note",
+        title: titleInput,
         ...noteContent.fields,
       };
     }

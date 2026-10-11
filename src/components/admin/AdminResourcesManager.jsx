@@ -808,13 +808,19 @@ export default function AdminResourcesManager() {
 
               <div className="space-y-2">
                 <label htmlFor="resource-title" className="text-sm font-medium text-[#224238]">
-                  Title
+                  {form.type === "note" ? "Title (optional)" : "Title"}
                 </label>
                 <Input
                   id="resource-title"
                   value={form.title}
                   onChange={(event) => updateFormField("title", event.target.value)}
-                  placeholder={currentType ? `${currentType.label} title` : "Resource title"}
+                  placeholder={
+                    form.type === "note"
+                      ? "Optional note title"
+                      : currentType
+                        ? `${currentType.label} title`
+                        : "Resource title"
+                  }
                   className="h-11 border-[#d7e4de] bg-white"
                 />
               </div>

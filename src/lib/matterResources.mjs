@@ -1,6 +1,7 @@
 import { getWorkDriveViewerUrl } from "./resourceFiles.mjs";
 
 const MAX_MATTER_REORDER_WRITES = 400;
+export const MATTER_SHARED_FILES_SOURCE = "sharedFiles";
 
 function matterCategory(value) {
   const category = typeof value === "string" ? value.trim() : "";
@@ -9,6 +10,15 @@ function matterCategory(value) {
 
 function matterResourceError(message, status) {
   return Object.assign(new Error(message), { status });
+}
+
+export function matchesMatterResourceSource(resource, source = "") {
+  const resourceSource = String(resource?.source || "").trim();
+  if (source === MATTER_SHARED_FILES_SOURCE) {
+    return resourceSource === MATTER_SHARED_FILES_SOURCE;
+  }
+
+  return resourceSource !== "documentReview" && resourceSource !== MATTER_SHARED_FILES_SOURCE;
 }
 
 export function normalizeMatterResourceOrder(rawValue, fallback = undefined) {
@@ -67,6 +77,7 @@ export async function reorderMatterResources({
   category,
   itemIds,
   actor,
+  source = "",
 }) {
   if (typeof category !== "string" || !category.trim()) {
     throw matterResourceError("Resource category is required", 400);
@@ -100,7 +111,7 @@ export async function reorderMatterResources({
       const data = doc.data() || {};
       return (
         data.status !== "archived" &&
-        data.source !== "documentReview" &&
+        matchesMatterResourceSource(data, source) &&
         matterCategory(data.category).toLowerCase() === normalizedCategory.toLowerCase()
       );
     });

@@ -385,7 +385,7 @@ test('matter resource metadata can update without deleting or archiving the reso
   assert.equal(fixture.commits, 0);
 });
 
-test('matter note metadata responses sanitize stored rich text defensively', async () => {
+test('matter note metadata can clear an optional title and sanitize stored rich text defensively', async () => {
   fixture = {
     resources: [{
       id: 'note',
@@ -404,13 +404,14 @@ test('matter note metadata responses sanitize stored rich text defensively', asy
     new Request('https://portal.test/api/matter/app/resources/note', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'Updated note' }),
+      body: JSON.stringify({ title: '' }),
     }),
     { params: Promise.resolve({ matterId: 'app', resourceId: 'note' }) },
   );
 
   assert.equal(response.status, 200);
   const body = await response.json();
+  assert.equal(body.resource.title, '');
   assert.equal(body.resource.noteHtml, '<p>Hello <strong>client</strong></p>');
   assert.equal(body.resource.noteText, 'Hello client');
   assert.equal(body.resource.content, 'Hello client');

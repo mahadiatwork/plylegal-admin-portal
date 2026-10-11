@@ -126,6 +126,7 @@ test("shared note create supports rich HTML without changing legacy note semanti
   }));
   assert.equal(legacyResponse.status, 201);
   const legacy = documents.get("created");
+  assert.equal(legacy.title, "");
   assert.equal(legacy.noteText, "<em>Literal plaintext</em>");
   assert.equal(legacy.content, "<em>Literal plaintext</em>");
   assert.equal("noteHtml" in legacy, false);
@@ -149,10 +150,12 @@ test("shared note update sanitizes rich HTML and a legacy update safely downgrad
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      title: "",
       noteHtml: '<p>Updated <strong>rich</strong></p><a href="data:text/html,bad">unsafe</a>',
     }),
   }), context);
   assert.equal(richResponse.status, 200);
+  assert.equal(documents.get("note").title, "");
   assert.equal(documents.get("note").noteHtml, "<p>Updated <strong>rich</strong></p>unsafe");
   assert.equal(documents.get("note").noteText, "Updated rich\nunsafe");
   assert.equal(documents.get("note").contentFormat, "html");

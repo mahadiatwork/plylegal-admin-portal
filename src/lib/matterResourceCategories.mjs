@@ -1,5 +1,7 @@
 import { UNCATEGORIZED } from "./resourceTemplateCategories.mjs";
 import {
+  MATTER_SHARED_FILES_SOURCE,
+  matchesMatterResourceSource,
   normalizeMatterResourceOrder,
   sortMatterResources,
 } from "./matterResources.mjs";
@@ -23,11 +25,7 @@ function categoryError(message, status) {
   return Object.assign(new Error(message), { status });
 }
 
-function isMatterResource(resource) {
-  return resource.source !== "documentReview";
-}
-
-export function normalizeMatterResourceCategories(rawCategories, resources = []) {
+export function normalizeMatterResourceCategories(rawCategories, resources = [], source = "") {
   const categories = [];
   const seen = new Set();
   const addCategory = (value) => {
@@ -46,23 +44,27 @@ export function normalizeMatterResourceCategories(rawCategories, resources = [])
     seen.add(uncategorizedKey);
   }
   resources
-    .filter((resource) => isMatterResource(resource) && resource.status !== "archived")
+    .filter((resource) => matchesMatterResourceSource(resource, source) && resource.status !== "archived")
     .forEach((resource) => addCategory(resource.category));
   return categories;
 }
 
-async function readMatter(transaction, db, appId) {
+async function readMatter(transaction, db, appId, source = "") {
   const ref = db.collection("applications").doc(appId);
   const snapshot = await transaction.get(ref);
   if (!snapshot.exists) throw categoryError("Matter not found", 404);
   const resources = await transaction.get(ref.collection("resources"));
-  const docs = resources.docs.filter((doc) => isMatterResource(doc.data() || {}));
+  const docs = resources.docs.filter((doc) => matchesMatterResourceSource(doc.data() || {}, source));
+  const categoryField = source === MATTER_SHARED_FILES_SOURCE
+    ? "sharedFileCategories"
+    : "resourceCategories";
   return {
     ref,
     docs,
     categories: normalizeMatterResourceCategories(
-      snapshot.data()?.resourceCategories,
-      docs.map((doc) => doc.data() || {})
+      snapshot.data()?.[categoryField],
+      docs.map((doc) => doc.data() || {}),
+      source,
     ),
   };
 }
@@ -76,7 +78,7 @@ function assertSafeMutationSize(writeCount) {
   }
 }
 
-function commitCategories(transaction, matter, categories, changes, actor) {
+function commitCategories(transaction, matter, categories, changes, actor, source = "") {
   assertSafeMutationSize(changes.length + 1);
   const now = new Date();
   const items = changes.map(({ doc, update }) => {
@@ -88,7 +90,7 @@ function commitCategories(transaction, matter, categories, changes, actor) {
     };
   });
   transaction.update(matter.ref, {
-    resourceCategories: categories,
+    [source === MATTER_SHARED_FILES_SOURCE ? "sharedFileCategories" : "resourceCategories"]: categories,
     updatedAt: now,
     updatedBy: actor,
   });
@@ -106,11 +108,11 @@ function hasCategory(matter, key) {
     matter.docs.some((doc) => categoryKey(doc.data()?.category) === key);
 }
 
-export async function createMatterResourceCategory({ db, appId, name, icon = "folder", actor }) {
+export async function createMatterResourceCategory({ db, appId, name, icon = "folder", actor, source = "" }) {
   const nextName = requireCategoryName(name);
   if (!CATEGORY_ICONS.has(icon)) throw categoryError("Unsupported folder icon", 400);
   return db.runTransaction(async (transaction) => {
-    const matter = await readMatter(transaction, db, appId);
+    const matter = await readMatter(transaction, db, appId, source);
     if (hasCategory(matter, nextName.toLowerCase())) {
       throw categoryError(`Folder "${nextName}" already exists`, 409);
     }
@@ -119,12 +121,13 @@ export async function createMatterResourceCategory({ db, appId, name, icon = "fo
       matter,
       [...matter.categories, { name: nextName, icon }],
       [],
-      actor
+      actor,
+      source,
     );
   });
 }
 
-export async function renameMatterResourceCategory({ db, appId, name, nextName, actor }) {
+export async function renameMatterResourceCategory({ db, appId, name, nextName, actor, source = "" }) {
   const currentName = requireCategoryName(name);
   const replacementName = requireCategoryName(nextName, "New folder name is required");
   const key = currentName.toLowerCase();
@@ -134,7 +137,7 @@ export async function renameMatterResourceCategory({ db, appId, name, nextName, 
   if (currentName === replacementName) throw categoryError("Choose a different folder name", 400);
 
   return db.runTransaction(async (transaction) => {
-    const matter = await readMatter(transaction, db, appId);
+    const matter = await readMatter(transaction, db, appId, source);
     if (!hasCategory(matter, key)) throw categoryError(`Folder "${currentName}" was not found`, 404);
     if (nextKey !== key && hasCategory(matter, nextKey)) {
       throw categoryError(`Folder "${replacementName}" already exists`, 409);
@@ -148,24 +151,24 @@ export async function renameMatterResourceCategory({ db, appId, name, nextName, 
     const changes = matter.docs
       .filter((doc) => categoryKey(doc.data()?.category) === key)
       .map((doc) => ({ doc, update: { category: replacementName } }));
-    return commitCategories(transaction, matter, categories, changes, actor);
+    return commitCategories(transaction, matter, categories, changes, actor, source);
   });
 }
 
-export async function deleteMatterResourceCategory({ db, appId, name, actor }) {
+export async function deleteMatterResourceCategory({ db, appId, name, actor, source = "" }) {
   const currentName = requireCategoryName(name);
   const key = currentName.toLowerCase();
   if (key === uncategorizedKey) throw categoryError("Uncategorized cannot be deleted", 400);
 
   return db.runTransaction(async (transaction) => {
-    const matter = await readMatter(transaction, db, appId);
+    const matter = await readMatter(transaction, db, appId, source);
     if (!hasCategory(matter, key)) throw categoryError(`Folder "${currentName}" was not found`, 404);
     const categories = matter.categories.filter((category) => categoryKey(category) !== key);
     const movedResources = sortMatterResources(matter.docs
       .filter((doc) => categoryKey(doc.data()?.category) === key)
       .map((doc) => ({ ...doc.data(), id: doc.id })));
     if (!movedResources.length) {
-      return commitCategories(transaction, matter, categories, [], actor);
+      return commitCategories(transaction, matter, categories, [], actor, source);
     }
     const byId = new Map(matter.docs.map((doc) => [doc.id, doc]));
     const targetResources = sortMatterResources(matter.docs
@@ -192,6 +195,6 @@ export async function deleteMatterResourceCategory({ db, appId, name, actor }) {
         update: { category: UNCATEGORIZED, order: nextOrder },
       });
     }
-    return commitCategories(transaction, matter, categories, changes, actor);
+    return commitCategories(transaction, matter, categories, changes, actor, source);
   });
 }

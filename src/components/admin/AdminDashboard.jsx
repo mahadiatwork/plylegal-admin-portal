@@ -48,7 +48,7 @@ export default function AdminDashboard() {
       </div>
       <section className="mt-8 rounded-2xl bg-white p-7 shadow-sm">
         <h2 className="text-xl font-semibold text-[#17372e]">Open a matter</h2>
-        <p className="mt-2 text-sm text-gray-600">View client answers and add matter-specific resources.</p>
+        <p className="mt-2 text-sm text-gray-600">View client answers, manage resources, and add matter-specific Shared Files.</p>
         <form onSubmit={openMatter} className="mt-6 max-w-3xl">
           <label htmlFor="matterId" className="text-sm font-medium text-gray-700">Matter name, Application ID or Zoho Deal ID</label>
           <div className="mt-2 flex flex-col gap-3 sm:flex-row">

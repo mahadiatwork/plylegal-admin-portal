@@ -95,7 +95,7 @@ export async function PATCH(request, { params }) {
 
     if (Object.prototype.hasOwnProperty.call(body, "name")) {
       const name = cleanText(body.name);
-      if (!name) {
+      if (!name && String(currentItem.kind || "").toLowerCase() !== "note") {
         return errorResponse("Item name is required", 400);
       }
 

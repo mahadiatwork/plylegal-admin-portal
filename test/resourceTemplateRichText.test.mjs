@@ -135,7 +135,6 @@ test("template note create stores sanitized rich HTML and keeps legacy creates p
   reset();
   const legacyForm = new FormData();
   legacyForm.set("kind", "note");
-  legacyForm.set("name", "Legacy");
   legacyForm.set("content", "<h1>Literal old value</h1>");
   const legacyResponse = await collectionRoute.POST(new Request("https://portal.test/api/resource-templates/482/items", {
     method: "POST",
@@ -143,6 +142,7 @@ test("template note create stores sanitized rich HTML and keeps legacy creates p
   }), collectionContext);
   assert.equal(legacyResponse.status, 201);
   const legacy = items.get("created");
+  assert.equal(legacy.name, "");
   assert.equal(legacy.noteText, "<h1>Literal old value</h1>");
   assert.equal("noteHtml" in legacy, false);
   assert.equal("contentFormat" in legacy, false);
@@ -177,9 +177,10 @@ test("template note update sanitizes rich HTML and legacy clients can replace it
   const legacyResponse = await itemRoute.PATCH(new Request("https://portal.test/api/resource-templates/482/items/note", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content: "<u>Literal replacement</u>" }),
+    body: JSON.stringify({ name: "", content: "<u>Literal replacement</u>" }),
   }), itemContext);
   assert.equal(legacyResponse.status, 200);
+  assert.equal(items.get("note").name, "");
   assert.equal(items.get("note").noteText, "<u>Literal replacement</u>");
   assert.equal(items.get("note").content, "<u>Literal replacement</u>");
   assert.equal(items.get("note").noteHtml, null);

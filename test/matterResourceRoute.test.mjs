@@ -335,6 +335,7 @@ test("matter note creation keeps legacy note text literal and rejects formatted-
     body: legacy,
   }), context);
   assert.equal(legacyResponse.status, 201);
+  assert.equal(fixture.adds[0].title, "");
   assert.equal(fixture.adds[0].noteText, "<strong>Literal legacy text</strong>");
   assert.equal("noteHtml" in fixture.adds[0], false);
   assert.equal("contentFormat" in fixture.adds[0], false);

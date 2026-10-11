@@ -1,8 +1,7 @@
 "use client";
 
-import Image from "next/image";
 import { useMemo, useState } from "react";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Menu, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import {
   buildQuestionnaireAnswerGroups,
@@ -13,7 +12,7 @@ import {
 import { formatLabel } from "@/lib/questionnaireSections";
 import QuestionnairePdfLink from "@/components/QuestionnairePdfLink";
 
-const inputClass = "flex min-h-9 w-full rounded-md border border-[#bdd2c8] bg-[#E9F0FE] px-3 py-2 text-sm text-black";
+const inputClass = "flex min-h-9 w-full rounded-md border-2 border-slate-200 bg-white px-3 py-2 text-sm text-slate-900";
 const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const internalKeys = new Set(["id", "profileId", "profile_id", "relationship", "createdAt", "updatedAt", "lastUpdated", "zohoDependentId", "zoho_dependent_id"]);
 
@@ -179,40 +178,148 @@ export default function ClientQuestionnaireReview({ questionnaire = {}, definiti
     if (next.has(key)) next.delete(key); else next.add(key);
     return next;
   });
-  return <div className="-mx-4 -my-8 min-h-[calc(100vh-210px)] bg-[#E4E9FF] sm:-mx-6 lg:-mx-8">
-    <button type="button" onClick={() => setSidebarOpen(true)} className="m-4 flex items-center gap-2 rounded-lg bg-[#4F726B] px-4 py-2 text-sm text-white lg:hidden print:hidden"><Menu className="h-4 w-4" />Questionnaire sections</button>
-    {sidebarOpen && <button aria-label="Close questionnaire menu" onClick={() => setSidebarOpen(false)} className="fixed inset-0 z-40 bg-black/40 lg:hidden" />}
-    <div className="flex items-start">
-      <aside className={`${sidebarOpen ? "flex" : "hidden"} fixed inset-y-0 left-0 z-50 w-[88vw] max-w-[20.75rem] shrink-0 flex-col border-r border-white/10 bg-[#4F726B] text-white shadow-[18px_0_50px_rgba(12,43,34,0.14)] lg:sticky lg:z-20 lg:flex lg:w-[20.75rem] print:hidden`} style={{ top: sidebarOpen ? 0 : "var(--matter-header-height, 255px)", height: sidebarOpen ? "100dvh" : "calc(100dvh - var(--matter-header-height, 255px))" }}>
-        <div className="px-8 pb-7 pt-7">
-          <button aria-label="Close menu" onClick={() => setSidebarOpen(false)} className="mb-3 lg:hidden"><X className="h-5 w-5" /></button>
-          <Image src="/Ply_Logo_White.png" alt="PlyLegal" width={210} height={70} priority className="h-14 w-auto" />
-          <p className="mt-1 text-sm text-white/70">Client Portal</p>
+  return (
+    <div className="relative -mx-4 -my-8 min-h-[calc(100vh-210px)] overflow-x-hidden bg-[#E5EAFF] text-slate-900 sm:-mx-6 lg:-mx-8">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+        <svg className="absolute -right-16 -top-12 h-[850px] w-[850px] sm:h-[1100px] sm:w-[1100px]" viewBox="0 0 1000 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M320 0 C 460 220, 520 480, 950 780 L 1000 780 L 1000 0 Z" fill="url(#swoosh-gradient-admin-questionnaire-1)" opacity="0.8" />
+          <path d="M180 0 C 380 260, 420 540, 850 900 L 1000 900 L 1000 0 Z" fill="url(#swoosh-gradient-admin-questionnaire-2)" opacity="0.45" />
+          <defs>
+            <linearGradient id="swoosh-gradient-admin-questionnaire-1" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.75" />
+              <stop offset="60%" stopColor="#EEF2FF" stopOpacity="0.4" />
+              <stop offset="100%" stopColor="#E2E7FE" stopOpacity="0.1" />
+            </linearGradient>
+            <linearGradient id="swoosh-gradient-admin-questionnaire-2" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.55" />
+              <stop offset="100%" stopColor="#DEE3FF" stopOpacity="0.05" />
+            </linearGradient>
+          </defs>
+        </svg>
+      </div>
+
+      <div className="relative z-10">
+      <div className="border-b border-[#E2DDD5] bg-[#FAF8F5] px-4 py-3 lg:hidden print:hidden">
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+              <span>Section progress</span>
+              <span>{progress.completedSections} of {progress.totalSections} complete</span>
+            </div>
+            <Progress value={progress.percentage} className="mt-1.5 h-1.5 rounded-full bg-slate-100 [&>div]:bg-[#244D42]" />
+          </div>
+          <button
+            type="button"
+            onClick={() => setSidebarOpen((open) => !open)}
+            className="h-8 shrink-0 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700"
+          >
+            {sidebarOpen ? "Hide steps" : "View steps"}
+          </button>
         </div>
-        <div className="mx-8 border-t border-white/20 py-6">
-          <div className="mb-2 flex items-center justify-between text-sm text-[#E6F2EC]"><span>Completion</span><span className="font-semibold">{progress.percentage}%</span></div>
-          <Progress value={progress.percentage} className="h-3 rounded-full bg-[#2F4A43] [&>div]:bg-[#A7E0C2]" />
-          <p className="mt-3 text-sm font-medium text-[#E6F2EC]">{progress.completedSections} of {progress.totalSections} sections complete</p>
-        </div>
-        <nav aria-label="Questionnaire sections" className="flex-1 space-y-2 overflow-y-auto px-5 pb-8 pt-1">
-          {groups.map((group) => group.items.length === 1 && group.type === "standalone"
-            ? <button key={group.key} type="button" onClick={() => select(group.items[0].key)} aria-current={active?.item.key === group.items[0].key ? "page" : undefined} className={`flex min-h-12 w-full items-center gap-3 rounded-lg px-4 text-left text-sm font-semibold hover:bg-white/10 ${active?.item.key === group.items[0].key ? "bg-white/10" : "text-white/80"}`}><Check className={`h-4 w-4 ${isQuestionnaireAnswerSectionComplete(group.items[0], completion) ? "" : "invisible"}`} />{group.title}</button>
-            : <div key={group.key} className="space-y-1">
-              <button type="button" aria-expanded={!collapsedGroups.has(group.key)} onClick={() => toggle(group.key)} className={`mt-2 flex w-full items-center justify-between gap-3 rounded-lg px-4 py-3 text-left text-white/90 hover:bg-white/10 ${active?.group.key === group.key ? "bg-white/10" : ""}`}><span><span className="block text-sm font-semibold">{group.title}</span>{group.subtitle && <span className="block text-xs text-white/70">({group.subtitle})</span>}</span><ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${collapsedGroups.has(group.key) ? "" : "rotate-180"}`} /></button>
-              {!collapsedGroups.has(group.key) && <ul className="mb-1 ml-6 mt-1 space-y-1">{group.items.map((item) => <li key={item.key} className="flex items-center gap-3"><span aria-hidden="true" className="text-sm text-[#f2d887]">•</span><button type="button" onClick={() => select(item.key)} aria-current={active?.item.key === item.key ? "page" : undefined} className={`flex min-h-7 flex-1 items-center gap-2 py-1 text-left text-[13px] hover:text-white ${active?.item.key === item.key ? "font-semibold text-white" : isQuestionnaireAnswerSectionComplete(item, completion) ? "text-white/50" : "text-white/80"}`}>{isQuestionnaireAnswerSectionComplete(item, completion) && <Check className="h-3 w-3 shrink-0" />}{item.title}</button></li>)}</ul>}
-            </div>)}
-        </nav>
-      </aside>
-      <div className="min-w-0 flex-1 px-5 pb-16 pt-5 sm:px-8 lg:px-12 lg:pt-10">
-        <div className="mx-auto max-w-4xl">
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600"><span>Client answers · Read only</span><QuestionnairePdfLink matterId={application.id} />{application.stage || application.status ? <span>Current stage: {application.stage || application.status}</span> : null}</div>
-          <ReviewPage active={active} applicantOptions={applicantOptions} />
-          <div className="mt-6 flex items-center justify-between gap-4 print:hidden">
-            <button type="button" disabled={activeIndex === 0} onClick={() => select(items[activeIndex - 1].item.key)} className="flex items-center gap-2 rounded-lg border border-[#dde8e1] bg-white px-4 py-2.5 text-sm disabled:opacity-40"><ChevronLeft className="h-4 w-4" />Previous</button>
-            <button type="button" disabled={activeIndex >= items.length - 1} onClick={() => select(items[activeIndex + 1].item.key)} className="flex items-center gap-2 rounded-lg bg-[#4F726B] px-4 py-2.5 text-sm text-white disabled:opacity-40">Next<ChevronRight className="h-4 w-4" /></button>
+      </div>
+
+      <div className="mx-auto w-full max-w-[1608px] px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+        <div className="overflow-hidden rounded-2xl border border-white/70 bg-[#FAF8F5] shadow-[0_4px_24px_rgba(20,40,30,0.03)]">
+          <div className="flex flex-col lg:flex-row lg:items-stretch">
+            <aside className={`${sidebarOpen ? "block" : "hidden lg:block"} w-full shrink-0 p-5 sm:p-6 lg:w-[320px] lg:border-r lg:border-[#EBE7DF]/80 print:hidden`}>
+              <div className="mb-5 flex items-start justify-between gap-3">
+                <div>
+                  <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Questionnaire</span>
+                  <p className="text-sm font-medium text-slate-700">{progress.completedSections} of {progress.totalSections} sections complete</p>
+                  <Progress value={progress.percentage} className="mt-2.5 h-1.5 rounded-full bg-slate-100 [&>div]:bg-[#244D42]" />
+                </div>
+                <button type="button" aria-label="Close steps" onClick={() => setSidebarOpen(false)} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 lg:hidden"><X className="h-4 w-4" /></button>
+              </div>
+
+              <nav aria-label="Questionnaire sections" className="space-y-1">
+                {groups.map((group) => {
+                  const isStandalone = group.items.length === 1 && group.type === "standalone";
+                  const groupIsActive = active?.group.key === group.key;
+                  const groupIsOpen = !collapsedGroups.has(group.key);
+
+                  if (isStandalone) {
+                    const item = group.items[0];
+                    const isActive = active?.item.key === item.key;
+                    const isComplete = isQuestionnaireAnswerSectionComplete(item, completion);
+                    return (
+                      <button
+                        key={group.key}
+                        type="button"
+                        onClick={() => select(item.key)}
+                        aria-current={isActive ? "page" : undefined}
+                        className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${isActive ? "bg-[#EEF7F2] font-semibold text-[#244D42]" : "text-slate-700 hover:bg-slate-50"}`}
+                      >
+                        <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs ${isActive ? "bg-[#244D42] font-bold text-white" : isComplete ? "bg-[#EEF7F2] font-semibold text-[#244D42]" : "border border-slate-200 text-slate-400"}`}>
+                          {isComplete && !isActive ? <Check className="h-3.5 w-3.5" /> : "•"}
+                        </span>
+                        <span className="flex-1 truncate">{group.title}</span>
+                        {isComplete && <Check className="h-3.5 w-3.5 shrink-0 text-[#244D42]" />}
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <div key={group.key} className="space-y-1">
+                      <button
+                        type="button"
+                        aria-expanded={groupIsOpen}
+                        onClick={() => toggle(group.key)}
+                        className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition-colors ${groupIsActive ? "bg-slate-100 text-slate-900" : "text-slate-700 hover:bg-slate-50"}`}
+                      >
+                        <span className="min-w-0 truncate">
+                          <span className="block truncate">{group.title}</span>
+                          {group.subtitle && <span className="mt-0.5 block truncate text-xs font-normal text-slate-400">{group.subtitle}</span>}
+                        </span>
+                        <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${groupIsOpen ? "rotate-180" : ""}`} />
+                      </button>
+                      {groupIsOpen && (
+                        <ul className="ml-3 space-y-0.5 border-l-2 border-slate-100 pl-3">
+                          {group.items.map((item, index) => {
+                            const isActive = active?.item.key === item.key;
+                            const isComplete = isQuestionnaireAnswerSectionComplete(item, completion);
+                            return (
+                              <li key={item.key}>
+                                <button
+                                  type="button"
+                                  onClick={() => select(item.key)}
+                                  aria-current={isActive ? "page" : undefined}
+                                  className={`group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors ${isActive ? "bg-[#EEF7F2] font-semibold text-[#244D42]" : "text-slate-600 hover:bg-slate-50"}`}
+                                >
+                                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] ${isActive ? "bg-[#244D42] font-bold text-white" : isComplete ? "bg-[#EEF7F2] font-semibold text-[#244D42]" : "border border-slate-200 text-slate-400"}`}>
+                                    {isComplete && !isActive ? <Check className="h-3 w-3" /> : index + 1}
+                                  </span>
+                                  <span className="flex-1 truncate">{item.title}</span>
+                                  {isComplete && <Check className="h-3 w-3 shrink-0 text-[#244D42]" />}
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })}
+              </nav>
+            </aside>
+
+            <main className="min-w-0 flex-1 p-6 sm:p-8 lg:p-10">
+              <div className="mx-auto max-w-4xl">
+                <div className="mb-5 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600">
+                  <span>Client answers · Read only</span>
+                  <QuestionnairePdfLink matterId={application.id} />
+                  {application.stage || application.status ? <span>Current stage: {application.stage || application.status}</span> : null}
+                </div>
+                <ReviewPage active={active} applicantOptions={applicantOptions} />
+                <div className="mt-6 flex items-center justify-between gap-4 print:hidden">
+                  <button type="button" disabled={activeIndex === 0} onClick={() => select(items[activeIndex - 1].item.key)} className="flex items-center gap-2 rounded-lg border border-[#dde8e1] bg-white px-4 py-2.5 text-sm disabled:opacity-40"><ChevronLeft className="h-4 w-4" />Previous</button>
+                  <button type="button" disabled={activeIndex >= items.length - 1} onClick={() => select(items[activeIndex + 1].item.key)} className="flex items-center gap-2 rounded-lg bg-[#244D42] px-4 py-2.5 text-sm text-white transition-colors hover:bg-[#1C3E35] disabled:opacity-40">Next<ChevronRight className="h-4 w-4" /></button>
+                </div>
+              </div>
+            </main>
           </div>
         </div>
       </div>
+      </div>
     </div>
-  </div>;
+  );
 }

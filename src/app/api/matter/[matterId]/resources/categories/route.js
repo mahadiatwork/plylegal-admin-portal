@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAdminSession } from "@/lib/adminSession";
 import { db } from "@/lib/firebase-admin";
+import { MATTER_SHARED_FILES_SOURCE } from "@/lib/matterResources.mjs";
 import { resolveMatterApplication } from "@/lib/matterResolver";
 import {
   createMatterResourceCategory,
@@ -31,12 +32,16 @@ async function mutateCategory(request, params, mutate, fallback) {
     }
 
     const body = await request.json().catch(() => ({}));
+    const source = body?.source === MATTER_SHARED_FILES_SOURCE
+      ? MATTER_SHARED_FILES_SOURCE
+      : "";
     const result = await mutate({
       db,
       appId: resolved.appId,
       name: typeof body?.name === "string" ? body.name : "",
       nextName: typeof body?.nextName === "string" ? body.nextName : "",
       icon: body?.icon === undefined ? "folder" : body.icon,
+      source,
       actor: session.role || "admin",
     });
     return NextResponse.json({ success: true, ...result });
@@ -67,10 +72,14 @@ export async function PUT(request, { params }) {
     const resolved = await resolveMatterApplication(db, matterId);
     if (!resolved) return NextResponse.json({ success: false, error: "Matter not found" }, { status: 404 });
     const body = await request.json().catch(() => ({}));
+    const source = body?.source === MATTER_SHARED_FILES_SOURCE
+      ? MATTER_SHARED_FILES_SOURCE
+      : "";
     const result = await reorderMatterResourceFolders({
       db,
       appId: resolved.appId,
       names: body?.names,
+      source,
       actor: session.role || "admin",
     });
     return NextResponse.json({ success: true, ...result });

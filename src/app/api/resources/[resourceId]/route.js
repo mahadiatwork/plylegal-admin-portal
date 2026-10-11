@@ -96,7 +96,7 @@ export async function PATCH(request, { params }) {
     if (Object.prototype.hasOwnProperty.call(body, "title")) {
       const title = cleanText(body.title);
 
-      if (!title) {
+      if (!title && String(currentResource.type || "").toLowerCase() !== "note") {
         return errorResponse("Title is required", 400);
       }
 
