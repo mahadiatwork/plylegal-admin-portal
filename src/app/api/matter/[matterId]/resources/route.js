@@ -25,6 +25,8 @@ const SHARED_FILES_SOURCE = MATTER_SHARED_FILES_SOURCE;
 const FINAL_FILE_FIELD = "Final_File_For_Visa_Submission";
 const DEFAULT_DOCUMENT_REVIEW_FOLDER_URL =
   "https://workdrive.zoho.com.au/darpt4bf78c59b8684d9bb6b479804432d247/teams/darpt4bf78c59b8684d9bb6b479804432d247/ws/hf3e609480d012c3c4244bc51956d41cb7925/folders/h8zdkeb46cf4752f14337b5b7508081031550";
+const DEFAULT_SHARED_FILES_FOLDER_URL =
+  "https://workdrive.zoho.com.au/darpt4bf78c59b8684d9bb6b479804432d247/teams/darpt4bf78c59b8684d9bb6b479804432d247/ws/bnrv2c0701a113d864574b9712d539d3ed28c/folders/files";
 const WORKDRIVE_FOLDER_FIELDS = [
   "Workdrive_Folder_ID",
   "WorkDrive_Folder_ID",
@@ -136,6 +138,14 @@ function getDocumentReviewRootFolderId() {
     process.env.DOCUMENT_REVIEW_WORKDRIVE_FOLDER_ID ||
       process.env.WORKDRIVE_DOCUMENT_REVIEW_FOLDER_ID ||
       DEFAULT_DOCUMENT_REVIEW_FOLDER_URL
+  );
+}
+
+function getSharedFilesRootFolderId() {
+  return normalizeFolderId(
+    process.env.SHARED_FILES_WORKDRIVE_FOLDER_ID ||
+      process.env.SHARED_FILES_WORKDRIVE_FOLDER_URL ||
+      DEFAULT_SHARED_FILES_FOLDER_URL
   );
 }
 
@@ -258,6 +268,23 @@ async function getDocumentReviewWorkDriveFolder(application, matterId) {
     rootFolderId,
     matterFolderName,
     matterFolderCreated: folder.created,
+  };
+}
+
+async function getSharedFilesWorkDriveFolder(application, matterId) {
+  const folderId = getSharedFilesRootFolderId();
+
+  if (!folderId) {
+    return {
+      error: "Shared Files WorkDrive folder is not configured",
+      status: 500,
+    };
+  }
+
+  return {
+    dealId: getDealId(application, matterId),
+    folderId,
+    rootFolderId: folderId,
   };
 }
 
@@ -466,7 +493,9 @@ export async function POST(request, { params }) {
     const workDriveFolder =
       source === DOCUMENT_SOURCE
         ? await getDocumentReviewWorkDriveFolder(resolved.application, matterId)
-        : await getWorkDriveFolder(resolved.application, matterId);
+        : source === SHARED_FILES_SOURCE
+          ? await getSharedFilesWorkDriveFolder(resolved.application, matterId)
+          : await getWorkDriveFolder(resolved.application, matterId);
 
     if (workDriveFolder.error) {
       return errorResponse(workDriveFolder.error, workDriveFolder.status);

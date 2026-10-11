@@ -400,15 +400,31 @@ test("non-review file creation stores only a verified view-only link", async () 
   assert.doesNotMatch(JSON.stringify(saved), /sentinel|raw-download|raw-permalink/);
 });
 
-function fileUploadRequest() {
+function fileUploadRequest(source = "") {
   const form = new FormData();
   form.set("type", "file");
   form.set("file", new File(["matter resource"], "guide.txt", { type: "text/plain" }));
+  if (source) form.set("source", source);
   return new Request("https://portal.test/api/matter/app/resources", {
     method: "POST",
     body: form,
   });
 }
+
+test("shared file uploads use the configured Shared Files WorkDrive folder", async () => {
+  resetFixture();
+  fixture.dealRecord = {};
+
+  const response = await POST(fileUploadRequest("sharedFiles"), context);
+  assert.equal(response.status, 201);
+  assert.deepEqual(fixture.dealLookups, []);
+  assert.equal(fixture.uploads[0].folderId, "bnrv2c0701a113d864574b9712d539d3ed28c");
+  assert.equal(fixture.sets[0].data.source, "sharedFiles");
+  assert.equal(
+    fixture.sets[0].data.workDriveRootFolderId,
+    "bnrv2c0701a113d864574b9712d539d3ed28c"
+  );
+});
 
 test("matter uploads resolve and persist the first usable WorkDrive folder across all Deal fields", async () => {
   const allFields = {

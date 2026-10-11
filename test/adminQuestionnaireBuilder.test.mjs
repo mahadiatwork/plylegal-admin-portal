@@ -375,13 +375,14 @@ const questionnaireRoutes = [
   },
 ];
 
-test("embedded live builder exposes safe copy fields and visible but locked structural controls without machine keys", async (t) => {
+test("embedded live builder exposes editing controls without machine keys", async (t) => {
   const { harness } = await mountBuilder(t, { routes: questionnaireRoutes });
 
   for (const id of [
     "page-title",
     "page-intro",
     "question-label",
+    "question-type",
     "question-description",
     "question-placeholder",
     "follow-up-follow-up-internal-id-label",
@@ -417,7 +418,6 @@ test("embedded live builder exposes safe copy fields and visible but locked stru
     "page-scope",
     "question-id",
     "question-key",
-    "question-type",
     "condition-field",
     "condition-value",
     "Questionnaire JSON",
@@ -432,13 +432,13 @@ test("embedded live builder exposes safe copy fields and visible but locked stru
     "questionnaire settings should be visible",
   );
   for (const label of [
-    "Required answer",
     "Advanced JSON",
   ]) {
     assert.equal(renderedText.includes(label), false, `${label} should be hidden`);
   }
 
   for (const label of [
+    "Required answer",
     "Answer choices",
     "Show this question conditionally",
     "Follow-up wording",
@@ -448,19 +448,13 @@ test("embedded live builder exposes safe copy fields and visible but locked stru
 
   assert.equal(harness.button("Add questionnaire").props.disabled, false);
   assert.equal(harness.button("Copy as test").props.disabled, false);
-  assert.equal(harness.button("Add question").props.disabled, true);
-  for (const label of [
-    "Add page",
-    "Move page up",
-    "Move page down",
-    "Delete page",
-    "Move question up",
-    "Move question down",
-    "Delete question",
-  ]) {
-    const control = harness.control(label);
-    assert.equal(control.props.disabled, true, `${label} should be visible but locked on a live questionnaire`);
-  }
+  assert.equal(harness.control("Add page").props.disabled, false);
+  assert.equal(harness.control("Delete page").props.disabled, false);
+  assert.equal(harness.control("Delete question").props.disabled, false);
+  assert.equal(harness.control("Move page up").props.disabled, true, "first page cannot move up");
+  assert.equal(harness.control("Move page down").props.disabled, true, "single page cannot move down");
+  assert.equal(harness.control("Move question up").props.disabled, true, "first question cannot move up");
+  assert.equal(harness.control("Move question down").props.disabled, false, "first question can move down");
   assert.equal(
     harness.control("Delete questionnaire").props.disabled,
     false,
@@ -623,6 +617,51 @@ test("a copied test can add and delete registered pages and questions while keep
   assert.ok(text(harness.tree).includes("1 total"));
   assert.equal(definition.pages.length, 1, "draft structure edits must not mutate the live source");
   assert.equal(definition.pages[0].questions.length, 3);
+});
+
+test("a live questionnaire can add pages, add questions, edit them, and delete them directly", async (t) => {
+  const definition = richDefinition();
+  const { harness, calls } = await mountBuilder(t, {
+    definition,
+    routes: questionnaireRoutes,
+  });
+
+  // 1. Add page
+  assert.equal(harness.control("Add page").props.disabled, false);
+  harness.control("Add page").props.onClick();
+  harness.render();
+  assert.ok(text(harness.tree).includes("Health details"));
+  assert.ok(text(harness.tree).includes("2 total"));
+
+  // 2. Add question to the new page
+  assert.equal(harness.button("Add question").props.disabled, false);
+  harness.button("Add question").props.onClick();
+  harness.render();
+  assert.ok(text(harness.tree).includes("New question"));
+
+  // 3. Edit question label and type
+  const labelInput = harness.control("question-label");
+  labelInput.props.onChange({ target: { value: "Updated Custom Question" } });
+  harness.render();
+  assert.ok(text(harness.tree).includes("Updated Custom Question"));
+
+  const typeSelect = harness.control("question-type");
+  assert.equal(typeSelect.props.disabled, false);
+  typeSelect.props.onChange({ target: { value: "textarea" } });
+  harness.render();
+
+  // 4. Delete question
+  assert.equal(harness.control("Delete question").props.disabled, false);
+  harness.control("Delete question").props.onClick();
+  harness.render();
+  assert.equal(text(harness.tree).includes("Updated Custom Question"), false);
+
+  // 5. Delete page
+  assert.equal(harness.control("Delete page").props.disabled, false);
+  harness.control("Delete page").props.onClick();
+  harness.render();
+  assert.equal(text(harness.tree).includes("Health details"), false);
+  assert.ok(text(harness.tree).includes("1 total"));
 });
 
 test("previously absent legacy help and placeholder fields are enabled and promote the page before save", async (t) => {

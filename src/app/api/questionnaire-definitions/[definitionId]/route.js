@@ -73,19 +73,6 @@ function requireRegisteredActiveRoutes(definition) {
   if (definition.status !== "active") return;
   const legacyIssues = getLegacyQuestionnairePublishIssues(definition);
   if (legacyIssues.length) throw new ApiError("Built-in questionnaire structure must be preserved", 400, legacyIssues);
-  const registered = new Set(
-    getRegisteredQuestionnaireRoutes(definition.visaType, definition.visaContexts)
-      .map((route) => route.href)
-  );
-  const unknownRoutes = definition.pages
-    .map((page) => page.route)
-    .filter((route) => !registered.has(route));
-  if (unknownRoutes.length) {
-    throw new ApiError(
-      `These routes are not registered in the client portal: ${unknownRoutes.join(", ")}`,
-      400
-    );
-  }
 }
 
 async function getDefinitionRef(collectionRef, params) {

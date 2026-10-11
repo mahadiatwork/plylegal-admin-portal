@@ -1321,23 +1321,24 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
   }
 
   function addPage() {
-    if (!nextAvailableRoute) {
-      setError("Every available client page is already included. A brand-new page URL still requires a client portal release.");
-      return;
-    }
-    const existingIds = new Set(definition.pages.map((page) => page.id));
-    const id = uniqueId(existingIds, `page-${definition.pages.length + 1}`);
+    const existingIds = new Set((definition?.pages || []).map((page) => page.id));
+    const pageNum = (definition?.pages?.length || 0) + 1;
+    const id = uniqueId(existingIds, `page-${pageNum}`);
     const registeredRoute = nextAvailableRoute;
+    const route = registeredRoute?.href || `/intake/${definition.visaType}/${id}`;
     const page = normalizePage({
       id,
-      title: registeredRoute?.title || `Page ${definition.pages.length + 1}`,
-      route: registeredRoute?.href || "",
+      title: registeredRoute?.title || `Page ${pageNum}`,
+      route,
       sectionKey: id.replace(/-/g, "_"),
-      completionKey: registeredRoute?.href?.replace(/^\/intake\//, "") || "",
-      scope: getRouteScope(registeredRoute?.href || ""),
-      order: (definition.pages.length + 1) * 10,
+      completionKey: route.replace(/^\/intake\//, ""),
+      scope: getRouteScope(route),
+      order: pageNum * 10,
       introBlocks: [],
       questions: [],
+      metadata: {
+        renderer: "dynamic",
+      },
     });
 
     setDefinition((current) => ({ ...current, pages: [...current.pages, page] }));
@@ -1348,11 +1349,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
 
   function deletePage() {
     if (!activePage) return;
-    const registeredPage = registeredRoutes.some((route) => route.href === activePage.route);
-    const fallbackNotice = registeredPage
-      ? "\n\nThis removes the custom version. The existing built-in client page remains in the client journey."
-      : "";
-    if (!window.confirm(`Delete the page “${activePage.title}” and all of its questions?${fallbackNotice}`)) return;
+    if (!window.confirm(`Delete the page “${activePage.title}” and all of its questions?`)) return;
     const remaining = definition.pages.filter((page) => page.id !== activePage.id);
     setDefinition((current) => ({ ...current, pages: remaining }));
     setActivePageId(remaining[0]?.id || "");
@@ -1933,10 +1930,10 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
 
       <div className="rounded-xl border border-[#d7e4de] bg-white px-4 py-4 text-sm leading-6 text-[#38564b]">
         {embeddedInMatter ? (
-          <p>Choose a live questionnaire to edit its visible copy, or create a <strong>Test</strong> copy before changing pages and questions.</p>
+          <p>Choose a questionnaire to add or edit pages and questions, then select <strong>Save</strong>.</p>
         ) : (
           <>
-            <p><strong>To edit a questionnaire:</strong> open it below, choose a page and question, make your changes, then select <strong>Save</strong>.</p>
+            <p><strong>To edit a questionnaire:</strong> open it below, choose or add pages and questions, make your changes, then select <strong>Save</strong>.</p>
             <p className="mt-2 text-[#60786f]">Live questionnaires are used by clients. Test questionnaires are private drafts that can be copied, changed, and saved without replacing the live version.</p>
           </>
         )}
@@ -2137,11 +2134,11 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                 </div>
               </div>
 
-              {machineKeysLocked ? (
-                <div className="mt-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
-                  <CircleAlert className="mt-1 h-4 w-4 shrink-0" />
+              {definition.status === "active" ? (
+                <div className="mt-5 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-800">
+                  <Check className="mt-1 h-4 w-4 shrink-0 text-emerald-600" />
                   <span>
-                    This questionnaire is live. You can edit visible wording directly; use <strong>Copy as test</strong> before adding, deleting, moving, or changing question structure.
+                    This questionnaire is live. Changes you save will apply directly to this questionnaire.
                   </span>
                 </div>
               ) : null}
@@ -2245,23 +2242,14 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                       type="button"
                       variant="ghost"
                       size="icon"
-                      disabled={machineKeysLocked || !nextAvailableRoute}
+                      disabled={isBusy}
                       onClick={addPage}
                       aria-label="Add page"
-                      title={machineKeysLocked
-                        ? "Copy this questionnaire as a test before changing its pages."
-                        : nextAvailableRoute
-                          ? "Add the next available client page"
-                          : "All existing client page routes are already used."}
+                      title="Add page"
                     >
                       <Plus />
                     </Button>
                   </div>
-                  {!machineKeysLocked && definition.pages.length > 0 && !nextAvailableRoute ? (
-                    <p className="border-b border-[#e1e9e5] px-4 py-3 text-xs leading-5 text-[#71857d]">
-                      All existing client page slots are already included. A brand-new page URL requires a client portal release.
-                    </p>
-                  ) : null}
                   <div className="flex gap-2 overflow-x-auto p-3 lg:block lg:max-h-[760px] lg:space-y-2 lg:overflow-y-auto">
                     {definition.pages.map((page, index) => (
                       <button
@@ -2305,7 +2293,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                       <Button
                         type="button"
                         className="mt-4 bg-[#4F726B] text-white"
-                        disabled={machineKeysLocked || !nextAvailableRoute}
+                        disabled={isBusy}
                         onClick={addPage}
                       >
                         <Plus />
@@ -2320,13 +2308,13 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                           <p className="text-xs text-[#71857d]">Order {activePageIndex + 1} of {definition.pages.length}</p>
                         </div>
                         <div className="flex gap-1">
-                          <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activePageIndex === 0} onClick={() => movePage(-1)} aria-label="Move page up">
+                          <Button type="button" variant="ghost" size="icon" disabled={isBusy || activePageIndex === 0} onClick={() => movePage(-1)} aria-label="Move page up">
                             <ArrowUp />
                           </Button>
-                          <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activePageIndex === definition.pages.length - 1} onClick={() => movePage(1)} aria-label="Move page down">
+                          <Button type="button" variant="ghost" size="icon" disabled={isBusy || activePageIndex === definition.pages.length - 1} onClick={() => movePage(1)} aria-label="Move page down">
                             <ArrowDown />
                           </Button>
-                          <Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" disabled={machineKeysLocked} onClick={deletePage} aria-label="Delete page">
+                          <Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" disabled={isBusy} onClick={deletePage} aria-label="Delete page">
                             <Trash2 />
                           </Button>
                         </div>
@@ -2405,7 +2393,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                               {embeddedInMatter ? "Choose a question to edit its wording, choices, and display rules." : "Choose a question to edit its text and behavior."}
                             </p>
                           </div>
-                          <Button type="button" variant="outline" className="border-[#d7e4de] bg-white text-[#38564b]" disabled={machineKeysLocked} onClick={addQuestion}>
+                          <Button type="button" variant="outline" className="border-[#d7e4de] bg-white text-[#38564b]" disabled={isBusy} onClick={addQuestion}>
                             <Plus />
                             Add question
                           </Button>
@@ -2459,9 +2447,9 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                   ) : null}
                                 </div>
                                 <div className="flex gap-1">
-                                  <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activeQuestionIndex === 0} onClick={() => moveQuestion(-1)} aria-label="Move question up"><ArrowUp /></Button>
-                                  <Button type="button" variant="ghost" size="icon" disabled={machineKeysLocked || activeQuestionIndex === activePage.questions.length - 1} onClick={() => moveQuestion(1)} aria-label="Move question down"><ArrowDown /></Button>
-                                  <Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" disabled={machineKeysLocked} onClick={deleteQuestion} aria-label="Delete question"><Trash2 /></Button>
+                                  <Button type="button" variant="ghost" size="icon" disabled={isBusy || activeQuestionIndex === 0} onClick={() => moveQuestion(-1)} aria-label="Move question up"><ArrowUp /></Button>
+                                  <Button type="button" variant="ghost" size="icon" disabled={isBusy || activeQuestionIndex === activePage.questions.length - 1} onClick={() => moveQuestion(1)} aria-label="Move question down"><ArrowDown /></Button>
+                                  <Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" disabled={isBusy} onClick={deleteQuestion} aria-label="Delete question"><Trash2 /></Button>
                                 </div>
                               </div>
 
@@ -2482,23 +2470,19 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                     </div>
                                   </>
                                 ) : null}
-                                {!embeddedInMatter || definition.status === "draft" ? (
-                                  <>
-                                    <div className="space-y-2">
-                                      <FieldLabel htmlFor="question-type">Question type</FieldLabel>
-                                      <select id="question-type" className={selectClassName} value={activeQuestion.type} disabled={machineKeysLocked} onChange={(event) => changeQuestionType(event.target.value)}>
-                                        {QUESTION_TYPES.map(([value, label]) => <option key={value} value={value} disabled={value === "repeater"}>{label}</option>)}
-                                      </select>
-                                      {activeQuestion.type === "repeater" ? (
-                                        <p className="text-xs text-[#71857d]">Records preserve their existing fields and saved values. Edit the wording of their fields below.</p>
-                                      ) : null}
-                                    </div>
-                                    <label className="flex h-10 items-center gap-3 self-end rounded-md border border-[#d7e4de] bg-[#f8fbf9] px-3 text-sm font-medium text-[#224238]">
-                                      <input type="checkbox" className="h-4 w-4 accent-[#4F726B]" checked={activeQuestion.required} disabled={machineKeysLocked} onChange={(event) => updateQuestionField("required", event.target.checked)} />
-                                      Required answer
-                                    </label>
-                                  </>
-                                ) : null}
+                                <div className="space-y-2">
+                                  <FieldLabel htmlFor="question-type">Question type</FieldLabel>
+                                  <select id="question-type" className={selectClassName} value={activeQuestion.type} disabled={isBusy} onChange={(event) => changeQuestionType(event.target.value)}>
+                                    {QUESTION_TYPES.map(([value, label]) => <option key={value} value={value} disabled={value === "repeater"}>{label}</option>)}
+                                  </select>
+                                  {activeQuestion.type === "repeater" ? (
+                                    <p className="text-xs text-[#71857d]">Records preserve their existing fields and saved values. Edit the wording of their fields below.</p>
+                                  ) : null}
+                                </div>
+                                <label className="flex h-10 items-center gap-3 self-end rounded-md border border-[#d7e4de] bg-[#f8fbf9] px-3 text-sm font-medium text-[#224238]">
+                                  <input type="checkbox" className="h-4 w-4 accent-[#4F726B]" checked={activeQuestion.required} disabled={isBusy} onChange={(event) => updateQuestionField("required", event.target.checked)} />
+                                  Required answer
+                                </label>
                                 <div className="space-y-2 md:col-span-2">
                                   <FieldLabel htmlFor="question-description">Help text</FieldLabel>
                                   <Textarea id="question-description" rows={2} className="border-[#d7e4de] bg-white" value={activeQuestion.description || ""} onChange={(event) => updateQuestionField("description", event.target.value)} />
@@ -2592,7 +2576,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                       type="button"
                                       variant="ghost"
                                       size="sm"
-                                      disabled={activeQuestion.type === "yesNo" || (!embeddedInMatter && machineKeysLocked)}
+                                      disabled={activeQuestion.type === "yesNo" || isBusy}
                                       onClick={addOption}
                                     >
                                       <Plus />
@@ -2608,7 +2592,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                           : "grid gap-2 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_36px]"}
                                       >
                                         {!embeddedInMatter ? (
-                                          <Input className={`${inputClassName} font-mono`} aria-label={`Option ${optionIndex + 1} value`} value={option.value} disabled={machineKeysLocked || activeQuestion.type === "yesNo"} onChange={(event) => updateOption(optionIndex, "value", event.target.value)} />
+                                          <Input className={`${inputClassName} font-mono`} aria-label={`Option ${optionIndex + 1} value`} value={option.value} disabled={isBusy || activeQuestion.type === "yesNo"} onChange={(event) => updateOption(optionIndex, "value", event.target.value)} />
                                         ) : null}
                                         <Input className={inputClassName} aria-label={`Option ${optionIndex + 1} label`} value={option.label} onChange={(event) => updateOption(optionIndex, "label", event.target.value)} />
                                         <Button
@@ -2616,7 +2600,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                           variant="ghost"
                                           size="icon"
                                           className="text-red-600 hover:bg-red-50"
-                                          disabled={activeQuestion.type === "yesNo" || activeQuestionOptions.length <= 1 || (!embeddedInMatter && machineKeysLocked)}
+                                          disabled={activeQuestion.type === "yesNo" || activeQuestionOptions.length <= 1 || isBusy}
                                           onClick={() => deleteOption(optionIndex)}
                                           aria-label={embeddedInMatter ? `Delete choice ${optionIndex + 1}` : `Delete option ${optionIndex + 1}`}
                                         >
@@ -2634,7 +2618,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                         type="checkbox"
                                         className="h-4 w-4 accent-[#4F726B]"
                                         checked={Boolean(firstCondition)}
-                                        disabled={(!embeddedInMatter && machineKeysLocked) || (!firstCondition && conditionSourceQuestions.length === 0)}
+                                        disabled={isBusy || (!firstCondition && conditionSourceQuestions.length === 0)}
                                         onChange={(event) => toggleCondition(event.target.checked)}
                                       />
                                       Show this question conditionally
@@ -2718,28 +2702,28 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                       <div className="grid gap-3 md:grid-cols-3">
                                         <div className="space-y-2">
                                           <FieldLabel htmlFor="condition-field">Answer key</FieldLabel>
-                                          <Input id="condition-field" list="question-answer-keys" className={`${inputClassName} font-mono`} value={firstCondition.field || ""} disabled={machineKeysLocked} onChange={(event) => updateCondition("field", event.target.value)} />
+                                          <Input id="condition-field" list="question-answer-keys" className={`${inputClassName} font-mono`} value={firstCondition.field || ""} disabled={isBusy} onChange={(event) => updateCondition("field", event.target.value)} />
                                           <datalist id="question-answer-keys">
                                             {conditionSourceQuestions.map((question) => <option key={question.id} value={question.answerKey} />)}
                                           </datalist>
                                         </div>
                                         <div className="space-y-2">
                                           <FieldLabel htmlFor="condition-operator">Rule</FieldLabel>
-                                          <select id="condition-operator" className={selectClassName} value={firstCondition.op || "equals"} disabled={machineKeysLocked} onChange={(event) => updateCondition("op", event.target.value)}>
+                                          <select id="condition-operator" className={selectClassName} value={firstCondition.op || "equals"} disabled={isBusy} onChange={(event) => updateCondition("op", event.target.value)}>
                                             {CONDITION_OPERATORS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                                           </select>
                                         </div>
                                         <div className="space-y-2">
                                           <FieldLabel htmlFor="condition-value" hint={conditionSourceQuestion?.type === "checkbox" ? "boolean" : ["in", "notIn"].includes(firstCondition.op) ? "comma separated" : ""}>Value</FieldLabel>
                                           {conditionSourceQuestion?.type === "checkbox" ? (
-                                            <select id="condition-value" className={selectClassName} value={checkboxConditionEditorValue} disabled={machineKeysLocked || ["exists", "notExists"].includes(firstCondition.op)} onChange={(event) => updateCondition("value", ["in", "notIn"].includes(firstCondition.op) ? event.target.value === "both" ? [true, false] : [event.target.value === "true"] : event.target.value === "true")}>
+                                            <select id="condition-value" className={selectClassName} value={checkboxConditionEditorValue} disabled={isBusy || ["exists", "notExists"].includes(firstCondition.op)} onChange={(event) => updateCondition("value", ["in", "notIn"].includes(firstCondition.op) ? event.target.value === "both" ? [true, false] : [event.target.value === "true"] : event.target.value === "true")}>
                                               <option value="" disabled>Select a boolean</option>
                                               <option value="true">True</option>
                                               <option value="false">False</option>
                                               {["in", "notIn"].includes(firstCondition.op) ? <option value="both">True or false</option> : null}
                                             </select>
                                           ) : (
-                                            <Input id="condition-value" className={inputClassName} value={conditionValue} disabled={machineKeysLocked || ["exists", "notExists"].includes(firstCondition.op)} onChange={(event) => updateCondition("value", ["in", "notIn"].includes(firstCondition.op) ? event.target.value.split(",").map((value) => value.trim()) : event.target.value)} />
+                                            <Input id="condition-value" className={inputClassName} value={conditionValue} disabled={isBusy || ["exists", "notExists"].includes(firstCondition.op)} onChange={(event) => updateCondition("value", ["in", "notIn"].includes(firstCondition.op) ? event.target.value.split(",").map((value) => value.trim()) : event.target.value)} />
                                           )}
                                         </div>
                                       </div>
