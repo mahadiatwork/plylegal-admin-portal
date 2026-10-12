@@ -36,6 +36,25 @@ function activeDefinition(page) {
   };
 }
 
+test("legacy publish contract ignores CRM mappings so they can be stored on built-in pages", () => {
+  const page = legacyPageWithChoices();
+  const question = page.questions.find((candidate) => candidate.answerKey === "family_name") || page.questions[0];
+  question.metadata = {
+    ...question.metadata,
+    crm: question.type === "text"
+      ? {
+          mode: "field",
+          target: "main_contact",
+          module: "Contacts",
+          fieldApiName: "Last_Name",
+          transform: "text",
+          clearPolicy: "preserve_when_empty",
+        }
+      : { mode: "portal_only" },
+  };
+  assert.deepEqual(getLegacyQuestionnairePublishIssues(activeDefinition(page)), []);
+});
+
 test("legacy protection still rejects structural changes while a page uses its legacy renderer", () => {
   const page = legacyPageWithChoices();
   const question = page.questions.find((candidate) => candidate.options?.length);

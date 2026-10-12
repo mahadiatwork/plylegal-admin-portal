@@ -79,6 +79,12 @@ function overlayQuestionCopy(baseline, savedById) {
     if (baseline.monthOptions) {
       question.monthOptions = copyVisibleOptionLabels(baseline.monthOptions, saved.monthOptions);
     }
+    if (saved.metadata?.crm) {
+      question.metadata = {
+        ...question.metadata,
+        crm: structuredClone(saved.metadata.crm),
+      };
+    }
   }
 
   if (baseline.followUps) {
@@ -191,6 +197,14 @@ function stable(value) {
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])]));
 }
+function stripCrmFromContractMetadata(metadata) {
+  const { crm, ...rest } = metadata;
+  return {
+    ...rest,
+    ...(metadata.fields ? { fields: metadata.fields.map(questionContract) } : {}),
+  };
+}
+
 function questionContract(question) {
   const { label, description, placeholder, options, followUps, metadata, ...contract } = question;
   return {
@@ -199,10 +213,7 @@ function questionContract(question) {
     ...(!Object.hasOwn(metadata || {}, 'originalPlaceholder') && placeholder !== undefined ? { placeholder } : {}),
     ...(options ? { options: options.map(({ value }) => ({ value })) } : {}),
     ...(followUps ? { followUps: followUps.map(questionContract) } : {}),
-    ...(metadata ? { metadata: {
-      ...metadata,
-      ...(metadata.fields ? { fields: metadata.fields.map(questionContract) } : {}),
-    } } : {}),
+    ...(metadata ? { metadata: stripCrmFromContractMetadata(metadata) } : {}),
   };
 }
 function pageContract(page) {

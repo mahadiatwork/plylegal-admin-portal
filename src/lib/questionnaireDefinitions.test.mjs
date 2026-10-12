@@ -458,3 +458,122 @@ test("condition values must exist in static source options", () => {
   ];
   assert.deepEqual(getQuestionnaireDefinitionIssues(valid), []);
 });
+
+test("normalizes and preserves a validated CRM mapping", () => {
+  const input = validDefinition();
+  input.pages[0].questions[0].metadata = { crm: { mode: "portal_only" } };
+  input.pages[0].questions.push({
+    id: "main_family_name",
+    answerKey: "family_name",
+    label: "Family Name",
+    type: "text",
+    metadata: {
+      crm: {
+        mode: "field",
+        target: "main_contact",
+        module: "Contacts",
+        fieldApiName: "Last_Name",
+        transform: "text",
+        clearPolicy: "preserve_when_empty",
+      },
+    },
+  });
+  input.pages.push({
+    id: "spouse-details",
+    route: "/intake/temporary-work/spouse-partner/details",
+    title: "Details",
+    sectionKey: "details",
+    scope: "profile",
+    order: 20,
+    metadata: { profileRole: "spouse" },
+    questions: [
+      {
+        id: "spouse_family_name",
+        answerKey: "family_name",
+        label: "Family Name",
+        type: "text",
+        metadata: {
+          crm: {
+            mode: "field",
+            target: "profile_record",
+            module: "Partner_Dependents",
+            fieldApiName: "Name",
+            transform: "text",
+            clearPolicy: "preserve_when_empty",
+          },
+        },
+      },
+    ],
+  });
+  const normalized = normalizeQuestionnaireDefinition(input);
+  assert.equal(normalized.pages[0].questions[1].metadata.crm.fieldApiName, "Last_Name");
+  assert.equal(normalized.pages[1].questions[0].metadata.crm.target, "profile_record");
+});
+
+test("rejects unknown CRM destinations, unsafe field names, and conflicts", () => {
+  const unknown = validDefinition();
+  unknown.pages[0].questions[0].metadata = {
+    crm: {
+      mode: "field",
+      target: "leads",
+      module: "Leads",
+      fieldApiName: "Last_Name",
+      transform: "text",
+      clearPolicy: "preserve_when_empty",
+    },
+  };
+  assert.ok(getQuestionnaireDefinitionIssues(unknown).some((issue) => issue.includes("crm.target")));
+
+  const unsafe = validDefinition();
+  unsafe.pages[0].questions[0].metadata = {
+    crm: {
+      mode: "field",
+      target: "main_contact",
+      module: "Contacts",
+      fieldApiName: "Last Name",
+      transform: "text",
+      clearPolicy: "preserve_when_empty",
+    },
+  };
+  assert.ok(getQuestionnaireDefinitionIssues(unsafe).some((issue) => issue.includes("safe Zoho API name")));
+
+  const conflict = validDefinition();
+  conflict.pages[0].questions[0].metadata = {
+    crm: {
+      mode: "portal_only",
+    },
+  };
+  conflict.pages[0].questions.push({
+    id: "char_q02",
+    answerKey: "char_q02",
+    label: "Second",
+    type: "text",
+    metadata: {
+      crm: {
+        mode: "field",
+        target: "main_contact",
+        module: "Contacts",
+        fieldApiName: "Last_Name",
+        transform: "text",
+        clearPolicy: "preserve_when_empty",
+      },
+    },
+  });
+  conflict.pages[0].questions.push({
+    id: "char_q03",
+    answerKey: "char_q03",
+    label: "Third",
+    type: "text",
+    metadata: {
+      crm: {
+        mode: "field",
+        target: "main_contact",
+        module: "Contacts",
+        fieldApiName: "Last_Name",
+        transform: "text",
+        clearPolicy: "preserve_when_empty",
+      },
+    },
+  });
+  assert.ok(getQuestionnaireDefinitionIssues(conflict).some((issue) => issue.includes("conflicts")));
+});

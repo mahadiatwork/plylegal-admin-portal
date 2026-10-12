@@ -4,6 +4,8 @@ import { createRequire, Module } from "node:module";
 import path from "node:path";
 import { test } from "node:test";
 import * as React from "react";
+import * as crmFieldCatalog from "../src/lib/crmFieldCatalog.js";
+import * as questionnaireCrmContract from "../src/lib/questionnaireCrmContract.js";
 
 const require = createRequire(import.meta.url);
 const { loadBindings, transform } = require("next/dist/build/swc");
@@ -106,6 +108,8 @@ async function loadComponent(relativePath) {
     if (specifier === "@/lib/questionnaireLegacyProtection") {
       return { hydrateLegacyQuestionnaireDefinition: (definition) => definition };
     }
+    if (specifier === "@/lib/crmFieldCatalog") return crmFieldCatalog;
+    if (specifier === "@/lib/questionnaireCrmContract") return questionnaireCrmContract;
     return require(specifier);
   };
   componentModule._compile(code, filename);
@@ -427,6 +431,11 @@ test("embedded live builder exposes editing controls without machine keys", asyn
   }
 
   const renderedText = text(harness.tree);
+  assert.equal(
+    renderedText.includes("Choose a questionnaire to add or edit pages and questions"),
+    false,
+    "the questionnaire builder instruction banner should not be rendered",
+  );
   assert.ok(
     renderedText.includes("Questionnaire settings · title, visa type and version"),
     "questionnaire settings should be visible",
@@ -768,6 +777,11 @@ test("embedded edits serialize hidden choice and condition values while preservi
 
   await harness.button("Save").props.onClick();
   harness.render();
+  assert.equal(
+    text(harness.tree).includes("Questionnaire saved. Changes are now available to clients."),
+    false,
+    "saving should not render the questionnaire success banner",
+  );
 
   const saveCall = calls.find(({ url, options }) =>
     url === `/api/questionnaire-definitions/${definition.id}` && options.method === "PUT"
@@ -1015,4 +1029,27 @@ test("editing an existing choice label promotes the page so that field-specific 
   assert.equal(savedPage.metadata.renderer, "dynamic");
   assert.equal(savedPage.questions[0].options[0].value, "yes_internal");
   assert.equal(savedPage.questions[0].options[0].label, "Updated first choice");
+});
+
+test("CRM synchronization panel writes metadata.crm without dropping other metadata", async (t) => {
+  const definition = richDefinition();
+  definition.status = "draft";
+  const { harness, calls } = await mountBuilder(t, { definition, embeddedInMatter: false });
+
+  await harness.button("Edit questions").props.onClick();
+  harness.render();
+  harness.button("Edit").props.onClick();
+  harness.render();
+  assert.ok(harness.control("crm-mode"), "Expected the CRM synchronization control");
+  harness.control("crm-mode").props.onChange({ target: { value: "portal_only" } });
+  harness.render();
+  await harness.button("Save changes").props.onClick();
+
+  const saveCall = calls.find(({ url, options }) =>
+    url === "/api/questionnaire-definitions/rich-questionnaire" && options.method === "PUT"
+  );
+  assert.ok(saveCall, "Expected CRM mapping to be saved");
+  const savedQuestion = JSON.parse(saveCall.options.body).pages[0].questions[0];
+  assert.equal(savedQuestion.metadata.crm.mode, "portal_only");
+  assert.equal(savedQuestion.metadata.analyticsName, "identity_question");
 });

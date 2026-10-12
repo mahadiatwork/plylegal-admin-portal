@@ -159,6 +159,60 @@ function ReviewPage({ active, applicantOptions }) {
   </article>;
 }
 
+function MatterCrmSyncControls({ matterId }) {
+  const [changes, setChanges] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function run(mode) {
+    if (!matterId) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/matter/${encodeURIComponent(matterId)}/crm-sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.success === false) {
+        setError(payload.error || "CRM synchronization failed");
+        return;
+      }
+      setChanges(payload.changes || []);
+    } catch {
+      setError("CRM synchronization failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 print:hidden">
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={busy || !matterId} className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium" onClick={() => run("preview")}>
+          Preview CRM changes
+        </button>
+        <button type="button" disabled={busy || !matterId} className="rounded-md bg-[#244D42] px-3 py-1.5 text-xs font-medium text-white" onClick={() => run("full")}>
+          Synchronize now
+        </button>
+      </div>
+      {error ? <p className="text-xs text-red-700">{error}</p> : null}
+      {changes ? (
+        <ul className="max-h-48 space-y-1 overflow-auto text-xs text-slate-700">
+          {changes.map((change, index) => (
+            <li key={`${change.questionId}-${change.fieldApiName || "none"}-${index}`}>
+              {change.module || "portal"} {change.fieldApiName || change.questionId}: {change.action}
+              {change.reason ? ` (${change.reason})` : ""}
+              {change.value ? ` ${change.value}` : ""}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 export default function ClientQuestionnaireReview({ questionnaire = {}, definition, completion = {}, application = {} }) {
   const groups = useMemo(() => buildQuestionnaireAnswerGroups(definition, questionnaire), [definition, questionnaire]);
   const items = useMemo(() => groups.flatMap((group) => group.items.map((item) => ({ group, item }))), [groups]);
@@ -227,6 +281,9 @@ export default function ClientQuestionnaireReview({ questionnaire = {}, definiti
                   <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Questionnaire</span>
                   <p className="text-sm font-medium text-slate-700">{progress.completedSections} of {progress.totalSections} sections complete</p>
                   <Progress value={progress.percentage} className="mt-2.5 h-1.5 rounded-full bg-slate-100 [&>div]:bg-[#244D42]" />
+                  <div className="mt-4">
+                    <MatterCrmSyncControls matterId={application.zohoId || application.id} />
+                  </div>
                 </div>
                 <button type="button" aria-label="Close steps" onClick={() => setSidebarOpen(false)} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 lg:hidden"><X className="h-4 w-4" /></button>
               </div>

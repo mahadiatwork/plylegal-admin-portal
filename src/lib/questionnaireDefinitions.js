@@ -1,3 +1,5 @@
+import { validateDefinitionCrmMappings } from "./questionnaireCrmContract.js";
+
 export const QUESTIONNAIRE_DEFINITIONS_COLLECTION = "questionnaireDefinitions";
 export const QUESTIONNAIRE_DEFINITION_REVISIONS_COLLECTION = "questionnaireDefinitionRevisions";
 export const QUESTIONNAIRE_DEFINITION_SCHEMA_VERSION = 1;
@@ -912,6 +914,8 @@ export function getQuestionnaireDefinitionIssues(input, options = {}) {
       }
     });
   }
+
+  validateDefinitionCrmMappings(definition, issues);
 
   const size = getQuestionnaireDefinitionSizeBytes(definition);
   if (size > QUESTIONNAIRE_DEFINITION_LIMITS.maxBytes) {

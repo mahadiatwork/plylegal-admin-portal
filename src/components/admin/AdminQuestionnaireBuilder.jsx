@@ -2,21 +2,29 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowLeft,
   ArrowDown,
   ArrowUp,
   Braces,
   Check,
+  ChevronDown,
   ChevronRight,
   CircleAlert,
   Copy,
+  Eye,
+  FileText,
   FileJson,
+  GripVertical,
   Layers3,
   Loader2,
+  LockKeyhole,
+  Pencil,
   Plus,
   RefreshCw,
   Save,
   Search,
   Send,
+  Settings2,
   Trash2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +37,14 @@ import { getRegisteredQuestionnaireRoutes } from "@/lib/routes";
 import { temporaryWork482Definition } from "@/lib/questionnaireStarterTemplates";
 import { questionnaireBuiltInTemplates } from "@/lib/questionnaireBuiltIns";
 import { hydrateLegacyQuestionnaireDefinition } from "@/lib/questionnaireLegacyProtection";
+import {
+  CRM_CLEAR_POLICIES,
+  CRM_MAPPING_MODES,
+  compatibleTransformsFor,
+  listCrmCatalogFields,
+  moduleForCrmTarget,
+} from "@/lib/crmFieldCatalog";
+import { getCrmCoverageSummary, normalizeCrmMapping } from "@/lib/questionnaireCrmContract";
 
 const QUESTION_TYPES = [
   ["text", "Short text"],
@@ -563,6 +579,177 @@ function FieldLabel({ children, htmlFor, hint }) {
   );
 }
 
+function questionTypeLabel(type) {
+  return QUESTION_TYPES.find(([value]) => value === type)?.[1] || type || "Question";
+}
+
+function QuestionPreview({ question }) {
+  if (!question) return null;
+  const options = getQuestionOptions(question);
+
+  return (
+    <div className="rounded-xl border border-[#dbe6e0] bg-white p-5 shadow-[0_1px_2px_rgba(23,55,46,0.04)]">
+      <p className="text-lg font-semibold leading-7 text-[#17372e]">
+        {question.label}
+        {question.required ? <span className="ml-1 text-[#c04438]">*</span> : null}
+      </p>
+      {question.description ? (
+        <p className="mt-2 text-sm leading-6 text-[#6c8078]">{question.description}</p>
+      ) : null}
+
+      {options.length ? (
+        <div className="mt-5 space-y-3">
+          {options.map((option) => (
+            <div key={option.value} className="flex items-center gap-3 text-sm text-[#38564b]">
+              <span className={`h-5 w-5 shrink-0 border border-[#9eb6ac] bg-white ${question.type === "select" ? "rounded-md" : "rounded-full"}`} />
+              <span>{option.label}</span>
+            </div>
+          ))}
+        </div>
+      ) : question.type === "textarea" ? (
+        <div className="mt-5 h-24 rounded-lg border border-[#cddbd5] bg-[#fbfcfb] px-3 py-2 text-sm text-[#91a29b]">
+          {question.placeholder || "Enter your answer"}
+        </div>
+      ) : question.type === "dateParts" ? (
+        <div className="mt-5 grid grid-cols-3 gap-2">
+          {["DD", "MM", "YYYY"].map((part) => (
+            <div key={part} className="rounded-lg border border-[#cddbd5] bg-[#fbfcfb] px-3 py-3 text-center text-sm text-[#91a29b]">{part}</div>
+          ))}
+        </div>
+      ) : question.type === "checkbox" ? (
+        <div className="mt-5 flex items-center gap-3 text-sm text-[#38564b]">
+          <span className="h-5 w-5 rounded border border-[#9eb6ac] bg-white" />
+          <span>{question.placeholder || "Yes"}</span>
+        </div>
+      ) : question.type === "repeater" ? (
+        <div className="mt-5 rounded-lg border border-dashed border-[#bdd0c7] bg-[#f8fbf9] px-4 py-5 text-sm text-[#6c8078]">
+          Clients can add one or more records here.
+        </div>
+      ) : (
+        <div className="mt-5 rounded-lg border border-[#cddbd5] bg-[#fbfcfb] px-3 py-3 text-sm text-[#91a29b]">
+          {question.placeholder || (question.type === "select" ? "Choose an option" : "Enter your answer")}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function QuestionCrmSyncPanel({ question, disabled, onChange }) {
+  const mapping = normalizeCrmMapping(question?.metadata?.crm) || { mode: CRM_MAPPING_MODES.unconfigured };
+  const mode = mapping.mode || CRM_MAPPING_MODES.unconfigured;
+  const moduleName = mapping.module || moduleForCrmTarget(mapping.target);
+  const fields = moduleName ? listCrmCatalogFields(moduleName) : [];
+  const selectedField = fields.find((field) => field.apiName === mapping.fieldApiName);
+  const transforms = selectedField ? compatibleTransformsFor(question.type, selectedField.type) : [];
+  const optionValues = Array.isArray(question.options) ? question.options : [];
+
+  function emit(patch) {
+    if (patch.mode === CRM_MAPPING_MODES.unconfigured) {
+      onChange(null);
+      return;
+    }
+    if (patch.mode === CRM_MAPPING_MODES.portal_only) {
+      onChange({ mode: CRM_MAPPING_MODES.portal_only });
+      return;
+    }
+    const next = {
+      mode: CRM_MAPPING_MODES.field,
+      target: patch.target || mapping.target || "",
+      module: "",
+      fieldApiName: patch.fieldApiName || mapping.fieldApiName || "",
+      transform: patch.transform || mapping.transform || "",
+      clearPolicy: patch.clearPolicy || mapping.clearPolicy || CRM_CLEAR_POLICIES.preserve_when_empty,
+      optionMap: patch.optionMap || mapping.optionMap || {},
+    };
+    next.module = moduleForCrmTarget(next.target) || "";
+    if (patch.target && patch.target !== mapping.target) {
+      next.fieldApiName = "";
+      next.transform = "";
+      next.optionMap = {};
+    }
+    onChange(next);
+  }
+
+  return (
+    <div className="space-y-3 rounded-xl border border-[#e1e9e5] bg-[#f8fbf9] p-4">
+      <div>
+        <h4 className="text-sm font-semibold text-[#24453b]">CRM synchronization</h4>
+        <p className="text-xs text-[#71857d]">Map this answer to a verified Zoho field. Module and field names cannot be typed freely.</p>
+      </div>
+      <div className="space-y-2">
+        <FieldLabel htmlFor="crm-mode">CRM handling</FieldLabel>
+        <select id="crm-mode" className={selectClassName} value={mode} disabled={disabled} onChange={(event) => emit({ mode: event.target.value })}>
+          <option value="unconfigured">Not configured</option>
+          <option value="portal_only">Portal only</option>
+          <option value="field">Sync to a CRM field</option>
+        </select>
+      </div>
+      {mode === CRM_MAPPING_MODES.field ? (
+        <>
+          <div className="space-y-2">
+            <FieldLabel htmlFor="crm-target">Target record</FieldLabel>
+            <select id="crm-target" className={selectClassName} value={mapping.target || ""} disabled={disabled} onChange={(event) => emit({ mode: "field", target: event.target.value })}>
+              <option value="">Select a target</option>
+              <option value="matter">Matter (Deals)</option>
+              <option value="main_contact">Main applicant contact</option>
+              <option value="profile_record">This profile&apos;s dependant record</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <FieldLabel htmlFor="crm-field">Zoho field</FieldLabel>
+            <select id="crm-field" className={selectClassName} value={mapping.fieldApiName || ""} disabled={disabled || !moduleName} onChange={(event) => emit({ mode: "field", fieldApiName: event.target.value })}>
+              <option value="">Select an approved field</option>
+              {fields.map((field) => (
+                <option key={field.apiName} value={field.apiName}>{field.label} ({field.apiName})</option>
+              ))}
+            </select>
+            {selectedField ? (
+              <p className="text-xs text-[#71857d]">{selectedField.label} · {selectedField.apiName} · {moduleName} · {selectedField.type}</p>
+            ) : null}
+          </div>
+          <div className="space-y-2">
+            <FieldLabel htmlFor="crm-transform">Transform</FieldLabel>
+            <select id="crm-transform" className={selectClassName} value={mapping.transform || ""} disabled={disabled || !transforms.length} onChange={(event) => emit({ mode: "field", transform: event.target.value })}>
+              <option value="">Select a transform</option>
+              {transforms.map((transform) => <option key={transform} value={transform}>{transform}</option>)}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <FieldLabel htmlFor="crm-clear-policy">Empty value policy</FieldLabel>
+            <select id="crm-clear-policy" className={selectClassName} value={mapping.clearPolicy || CRM_CLEAR_POLICIES.preserve_when_empty} disabled={disabled} onChange={(event) => emit({ mode: "field", clearPolicy: event.target.value })}>
+              <option value="preserve_when_empty">Preserve CRM value when empty</option>
+              <option value="clear_when_empty">Clear CRM value when empty</option>
+            </select>
+          </div>
+          {selectedField?.type === "picklist" && optionValues.length ? (
+            <div className="space-y-2">
+              <FieldLabel hint="portal value → Zoho value">Option mapping</FieldLabel>
+              {optionValues.map((option) => (
+                <div key={option.value} className="grid gap-2 md:grid-cols-[1fr_1fr]">
+                  <p className="flex h-10 items-center font-mono text-xs text-[#60786f]">{option.value}</p>
+                  <select
+                    aria-label={`Map ${option.value}`}
+                    className={selectClassName}
+                    value={mapping.optionMap?.[option.value] || ""}
+                    disabled={disabled}
+                    onChange={(event) => emit({
+                      mode: "field",
+                      optionMap: { ...mapping.optionMap, [option.value]: event.target.value },
+                    })}
+                  >
+                    <option value="">Not mapped</option>
+                    {(selectedField.picklistValues || []).map((value) => <option key={value} value={value}>{value}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function RecordFieldWording({ fields, onChange, legacy, depth = 0 }) {
   return <div className="space-y-4">
     {fields.map((field) => <div key={field.id} className="space-y-3 border-l-2 border-[#b9d6ca] pl-4" style={{ marginLeft: `${Math.min(depth, 3) * 10}px` }}>
@@ -970,6 +1157,17 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
   const [isDeleting, setIsDeleting] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [definitionSearch, setDefinitionSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [adminView, setAdminView] = useState("library");
+  const [pageSearch, setPageSearch] = useState("");
+  const [questionEditorOpen, setQuestionEditorOpen] = useState(false);
+  const [sectionSettingsOpen, setSectionSettingsOpen] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createMode, setCreateMode] = useState("copy");
+  const [createName, setCreateName] = useState("");
+  const [createVisaType, setCreateVisaType] = useState("temporary-work");
+  const [createSourceKey, setCreateSourceKey] = useState("");
+  const adminContentRef = useRef(null);
   const selectionRequestId = useRef(0);
   const listRequestId = useRef(0);
 
@@ -1027,6 +1225,46 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
       )
     );
   }, [availableDefinitionEntries, definitionSearch]);
+  const adminLibraryEntries = useMemo(() => {
+    const savedEntries = definitions.map((item) => ({
+      definition: item,
+      source: "saved",
+      key: `saved:${item.id}`,
+    }));
+    const savedIds = new Set(savedEntries.map((entry) => String(entry.definition.id)));
+    const builtInEntries = [...questionnaireBuiltInTemplates, temporaryWork482Definition]
+      .filter((item, index, items) =>
+        !savedIds.has(String(item.id))
+        && items.findIndex((candidate) => String(candidate.id) === String(item.id)) === index
+      )
+      .map((item) => ({
+        definition: item,
+        source: "builtIn",
+        key: `builtIn:${item.id}`,
+      }));
+    return [...savedEntries, ...builtInEntries];
+  }, [definitions]);
+  const filteredAdminLibraryEntries = useMemo(() => {
+    const search = definitionSearch.trim().toLowerCase();
+    return adminLibraryEntries.filter(({ definition: item, source }) => {
+      const status = source === "builtIn" ? "active" : item.status;
+      const matchesStatus = statusFilter === "all" || status === statusFilter;
+      const matchesSearch = !search || [item.title, item.id, audienceLabel(item)].some((value) =>
+        String(value || "").toLowerCase().includes(search)
+      );
+      return matchesStatus && matchesSearch;
+    });
+  }, [adminLibraryEntries, definitionSearch, statusFilter]);
+  const createSourceEntries = useMemo(
+    () => adminLibraryEntries,
+    [adminLibraryEntries]
+  );
+  const filteredPages = useMemo(() => {
+    const search = pageSearch.trim().toLowerCase();
+    return (definition?.pages || []).filter((page) =>
+      !search || [page.title, page.id].some((value) => String(value || "").toLowerCase().includes(search))
+    );
+  }, [definition?.pages, pageSearch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1125,6 +1363,14 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
     window.addEventListener("beforeunload", warnBeforeUnload);
     return () => window.removeEventListener("beforeunload", warnBeforeUnload);
   }, [isDirty]);
+
+  useEffect(() => {
+    if (embeddedInMatter || adminView !== "editor" || !activePageId) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      adminContentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activePageId, adminView, embeddedInMatter, questionEditorOpen]);
 
   function confirmDiscard() {
     return !isDirty || window.confirm("Discard your unsaved questionnaire changes?");
@@ -1301,6 +1547,109 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
     createDefinitionFrom(savedDefinition || definition, { asTestCopy: true });
   }
 
+  function openCreateQuestionnaireDialog() {
+    const firstSource = createSourceEntries[0];
+    setCreateMode(firstSource ? "copy" : "blank");
+    setCreateSourceKey(firstSource?.key || "");
+    setCreateName(firstSource ? `${firstSource.definition.title} — working copy` : "New questionnaire");
+    setCreateVisaType(firstSource?.definition.visaType || "temporary-work");
+    setCreateDialogOpen(true);
+  }
+
+  async function createQuestionnaireFromDialog() {
+    const title = createName.trim();
+    if (!title) {
+      setError("Questionnaire name is required.");
+      return;
+    }
+
+    try {
+      setIsLoadingDefinition(true);
+      setError("");
+      let nextDefinition;
+
+      if (createMode === "copy") {
+        const sourceEntry = createSourceEntries.find((entry) => entry.key === createSourceKey);
+        if (!sourceEntry) throw new Error("Choose a questionnaire to copy.");
+        const source = sourceEntry.source === "saved"
+          ? await fetchDefinition(sourceEntry.definition.id)
+          : sourceEntry.definition;
+        nextDefinition = normalizeDefinition({
+          ...clone(source),
+          id: `questionnaire-${crypto.randomUUID()}`,
+          title,
+          status: "draft",
+          revision: 0,
+        });
+      } else {
+        nextDefinition = normalizeDefinition({
+          ...makeNewDefinition(),
+          title,
+          visaType: createVisaType,
+          visaContexts: createVisaType === "temporary-work" ? ["482"] : [],
+        });
+      }
+
+      selectionRequestId.current += 1;
+      setDefinition(nextDefinition);
+      setSavedDefinition(null);
+      setSelectedId(nextDefinition.id);
+      setActivePageId(nextDefinition.pages[0]?.id || "");
+      setActiveQuestionId(nextDefinition.pages[0]?.questions?.[0]?.id || "");
+      setJsonText(JSON.stringify(nextDefinition, null, 2));
+      setJsonHasPendingEdits(false);
+      setJsonError("");
+      setIsCreating(true);
+      setNotice(createMode === "copy"
+        ? "Working copy created. The original questionnaire has not been changed."
+        : "Blank questionnaire created. Add sections and questions, then save when you are finished.");
+      setQuestionEditorOpen(false);
+      setSectionSettingsOpen(nextDefinition.pages.length === 0);
+      setAdminView("editor");
+      setCreateDialogOpen(false);
+    } catch (createError) {
+      setError(createError.message || "Could not create the questionnaire.");
+    } finally {
+      setIsLoadingDefinition(false);
+    }
+  }
+
+  async function openAdminDefinition(entry) {
+    setQuestionEditorOpen(false);
+    setSectionSettingsOpen(false);
+    if (entry.source === "builtIn") {
+      createDefinitionFrom(entry.definition, { starter: true });
+      setAdminView("editor");
+      return;
+    }
+    await selectDefinition(entry.definition.id);
+    setAdminView("editor");
+  }
+
+  function returnToQuestionnaireLibrary() {
+    if (!confirmDiscard()) return;
+    if (builderIsDirty && savedDefinition) {
+      const restored = clone(savedDefinition);
+      setDefinition(restored);
+      setSelectedId(restored.id);
+      setActivePageId(restored.pages[0]?.id || "");
+      setActiveQuestionId(restored.pages[0]?.questions?.[0]?.id || "");
+      setJsonText(JSON.stringify(restored, null, 2));
+    } else if (builderIsDirty && !savedDefinition) {
+      setDefinition(null);
+      setSelectedId("");
+      setActivePageId("");
+      setActiveQuestionId("");
+      setJsonText("");
+      setIsCreating(false);
+    }
+    setJsonHasPendingEdits(false);
+    setJsonError("");
+    setQuestionEditorOpen(false);
+    setSectionSettingsOpen(false);
+    setAdminView("library");
+  }
+
   function updateDefinitionField(field, value) {
     setDefinition((current) => ({ ...current, [field]: value }));
   }
@@ -1407,6 +1756,15 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
       : updateActiveQuestion;
     updateQuestion((question) => ({ ...question, [field]: value }));
     if (field === "id") setActiveQuestionId(value);
+  }
+
+  function updateQuestionCrm(nextCrm) {
+    updateActiveQuestion((question) => {
+      const metadata = { ...(question.metadata || {}) };
+      if (!nextCrm) delete metadata.crm;
+      else metadata.crm = nextCrm;
+      return { ...question, metadata };
+    });
   }
 
   function updateFollowUpText(questionId, field, value) {
@@ -1814,11 +2172,6 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
         // The saved definition is already reflected locally; Refresh can
         // reconcile any hidden legacy records.
       }
-      setNotice(statusOverride === "active"
-        ? "Questionnaire is now live. The previous live version was archived."
-        : persisted.status === "draft"
-          ? "Test questionnaire saved. Clients will continue using the live questionnaire."
-          : "Questionnaire saved. Changes are now available to clients.");
     } catch (saveError) {
       setError(saveError.message);
     } finally {
@@ -1886,6 +2239,516 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
   const showOptions = ["select", "radio", "yesNo"].includes(activeQuestion?.type)
     && !activeQuestion?.optionsSource;
 
+  if (!embeddedInMatter && adminView === "library") {
+    return (
+      <div className="-mx-4 -my-8 min-h-[calc(100vh-105px)] bg-[#f4f7f5] px-4 py-8 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+        <div className="mx-auto max-w-[1450px] space-y-6">
+          <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h1 className="text-3xl font-semibold tracking-tight text-[#17372e]">Questionnaires</h1>
+              <p className="mt-2 text-sm text-[#687d75]">Choose what clients will be asked for each visa type.</p>
+            </div>
+            <Button type="button" className="bg-[#1f6654] text-white hover:bg-[#174f42]" disabled={isSaving || isDeleting} onClick={openCreateQuestionnaireDialog}>
+              <Plus />
+              New questionnaire
+            </Button>
+          </header>
+
+          {savedQuestionnairesError ? (
+            <div role="alert" className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p>{savedQuestionnairesError}</p>
+                <p className="mt-1">The complete built-in questionnaires are still available below. Saving requires the server connection.</p>
+              </div>
+            </div>
+          ) : null}
+          {error ? (
+            <div role="alert" className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              <span className="whitespace-pre-wrap">{error}</span>
+            </div>
+          ) : null}
+          {notice ? (
+            <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+              <Check className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{notice}</span>
+            </div>
+          ) : null}
+
+          <div className="flex items-center gap-3 rounded-xl border border-[#dce8e2] bg-[#eaf1ed] px-4 py-3 text-sm text-[#5e746b]">
+            <Layers3 className="h-5 w-5 shrink-0 text-[#477063]" />
+            <span className="font-semibold text-[#31564a]">Shared templates</span>
+            <span className="hidden sm:inline">Use these to manage the questions shown in the Client Portal. Client answers are not changed here.</span>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex w-full flex-col gap-3 sm:max-w-2xl sm:flex-row">
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-[#71857d]" />
+                <Input value={definitionSearch} onChange={(event) => setDefinitionSearch(event.target.value)} placeholder="Find a questionnaire…" aria-label="Search questionnaires" className={`${inputClassName} h-11 pl-9`} />
+              </div>
+              <div className="relative sm:w-44">
+                <select className={`${selectClassName} h-11 appearance-none pr-9`} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter by status">
+                  <option value="all">All statuses</option>
+                  <option value="active">Live</option>
+                  <option value="draft">Drafts</option>
+                  <option value="archived">Archived</option>
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-3.5 h-4 w-4 text-[#60786f]" />
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-3 text-xs text-[#6e827a] sm:justify-end">
+              <span>{filteredAdminLibraryEntries.length} questionnaire{filteredAdminLibraryEntries.length === 1 ? "" : "s"}</span>
+              <Button type="button" variant="ghost" size="sm" className="text-[#45685d]" disabled={isBusy} onClick={() => loadList()}>
+                <RefreshCw className={isLoading ? "animate-spin" : ""} />
+                Refresh
+              </Button>
+            </div>
+          </div>
+
+          <section className="overflow-hidden rounded-xl border border-[#dce6e1] bg-white shadow-[0_1px_2px_rgba(23,55,46,0.04)]">
+            <div className="hidden grid-cols-[minmax(0,1.45fr)_minmax(150px,.55fr)_minmax(130px,.42fr)_180px] gap-5 border-b border-[#e2e9e5] bg-[#fafcfb] px-6 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#72867e] md:grid">
+              <span>Questionnaire</span>
+              <span>Contents</span>
+              <span>Status</span>
+              <span className="sr-only">Actions</span>
+            </div>
+            {isLoading ? (
+              <div className="flex min-h-64 items-center justify-center text-sm text-[#647a72]"><Loader2 className="mr-3 h-5 w-5 animate-spin text-[#1f6654]" />Loading questionnaires…</div>
+            ) : filteredAdminLibraryEntries.length ? filteredAdminLibraryEntries.map((entry) => {
+              const item = entry.definition;
+              const counts = definitionCounts(item);
+              const displayStatus = entry.source === "builtIn" ? "active" : item.status;
+              return (
+                <article key={entry.key} className="grid gap-4 border-b border-[#e8eeeb] px-5 py-5 last:border-b-0 md:grid-cols-[minmax(0,1.45fr)_minmax(150px,.55fr)_minmax(130px,.42fr)_180px] md:items-center md:px-6">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[#dce8e2] bg-[#f0f5f2] text-[#4f7569]"><FileText className="h-5 w-5" /></span>
+                    <div className="min-w-0">
+                      <h2 className="truncate text-sm font-semibold text-[#24453b]">{item.title || item.id}</h2>
+                      <p className="mt-1 truncate text-xs text-[#73877f]">{entry.source === "builtIn" ? "Built-in starter template" : audienceLabel(item)}</p>
+                    </div>
+                  </div>
+                  <div className="text-sm text-[#526b62]">
+                    <p>{counts.pageCount} section{counts.pageCount === 1 ? "" : "s"}</p>
+                    <p className="mt-1 text-xs text-[#81928c]">{counts.questionCount} questions</p>
+                  </div>
+                  <div><StatusBadge status={displayStatus} /></div>
+                  <div className="flex items-center justify-end">
+                    <Button type="button" variant="outline" className="w-full border-[#cedbd5] bg-white text-[#31564a] md:w-auto" disabled={isBusy} onClick={() => openAdminDefinition(entry)}>
+                      {entry.source === "builtIn" ? "Use template" : "Edit questions"}
+                    </Button>
+                  </div>
+                </article>
+              );
+            }) : (
+              <div className="px-6 py-16 text-center">
+                <FileText className="mx-auto h-9 w-9 text-[#9cafA7]" />
+                <p className="mt-3 text-sm font-semibold text-[#31564a]">No matching questionnaires</p>
+                <p className="mt-1 text-xs text-[#7a8d86]">Try another search or status.</p>
+              </div>
+            )}
+          </section>
+
+          <p className="flex items-center gap-2 text-xs text-[#758981]"><Copy className="h-4 w-4" />Need a similar questionnaire? Create a new questionnaire and choose an existing one as the starting point.</p>
+        </div>
+
+        {createDialogOpen ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#18352d]/35 p-4 backdrop-blur-[1px]" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreateDialogOpen(false); }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="new-questionnaire-title" aria-describedby="new-questionnaire-description" className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-[#dce6e1] bg-white p-0 text-[#17372e] shadow-2xl">
+            <div className="relative px-6 pt-6 sm:px-8 sm:pt-8">
+              <h2 id="new-questionnaire-title" className="text-2xl font-semibold text-[#17372e]">New questionnaire</h2>
+              <p id="new-questionnaire-description" className="mt-2 text-sm text-[#6d8179]">Choose a starting point. You can change the content before saving.</p>
+              <button type="button" className="absolute right-5 top-5 rounded-md px-2 py-1 text-sm font-medium text-[#5d776d] hover:bg-[#f0f5f2] hover:text-[#24453b]" onClick={() => setCreateDialogOpen(false)}>Close</button>
+            </div>
+            <div className="space-y-5 px-6 py-3 sm:px-8">
+              <div className="space-y-2">
+                <FieldLabel htmlFor="new-questionnaire-name">Questionnaire name</FieldLabel>
+                <Input id="new-questionnaire-name" className={`${inputClassName} h-11`} value={createName} onChange={(event) => setCreateName(event.target.value)} />
+              </div>
+              <fieldset className="space-y-3">
+                <legend className="mb-3 text-sm font-semibold text-[#24453b]">How would you like to start?</legend>
+                <label className={`block cursor-pointer rounded-xl border p-4 transition ${createMode === "copy" ? "border-[#79ae97] bg-[#f0f7f3] ring-1 ring-[#79ae97]/25" : "border-[#dce6e1] bg-white hover:bg-[#f8fbf9]"}`}>
+                  <span className="flex items-start gap-3">
+                    <input type="radio" name="create-mode" className="mt-1 h-4 w-4 accent-[#1f6654]" checked={createMode === "copy"} disabled={!createSourceEntries.length} onChange={() => setCreateMode("copy")} />
+                    <span className="min-w-0 flex-1">
+                      <span className="font-semibold text-[#24453b]">Copy an existing questionnaire</span>
+                      <span className="ml-2 rounded bg-[#dcefe5] px-2 py-1 text-[10px] font-semibold text-[#2d6a55]">Recommended</span>
+                      <span className="mt-1 block text-xs leading-5 text-[#71857d]">Keep its sections and questions, then make your changes.</span>
+                    </span>
+                  </span>
+                  {createMode === "copy" ? (
+                    <select className={`${selectClassName} mt-4 h-11`} value={createSourceKey} onChange={(event) => {
+                      const key = event.target.value;
+                      const source = createSourceEntries.find((entry) => entry.key === key)?.definition;
+                      setCreateSourceKey(key);
+                      if (source) {
+                        setCreateName(`${source.title} — working copy`);
+                        setCreateVisaType(source.visaType || "temporary-work");
+                      }
+                    }}>
+                      {createSourceEntries.map((entry) => {
+                        const counts = definitionCounts(entry.definition);
+                        return <option key={entry.key} value={entry.key}>{entry.definition.title} · {counts.pageCount} sections</option>;
+                      })}
+                    </select>
+                  ) : null}
+                </label>
+                <label className={`block cursor-pointer rounded-xl border p-4 transition ${createMode === "blank" ? "border-[#79ae97] bg-[#f0f7f3] ring-1 ring-[#79ae97]/25" : "border-[#dce6e1] bg-white hover:bg-[#f8fbf9]"}`}>
+                  <span className="flex items-start gap-3">
+                    <input type="radio" name="create-mode" className="mt-1 h-4 w-4 accent-[#1f6654]" checked={createMode === "blank"} onChange={() => setCreateMode("blank")} />
+                    <span>
+                      <span className="font-semibold text-[#24453b]">Start with a blank questionnaire</span>
+                      <span className="mt-1 block text-xs leading-5 text-[#71857d]">Add your own sections and questions.</span>
+                    </span>
+                  </span>
+                  {createMode === "blank" ? (
+                    <div className="mt-4">
+                      <FieldLabel htmlFor="new-questionnaire-visa-type">Visa type</FieldLabel>
+                      <select id="new-questionnaire-visa-type" className={`${selectClassName} mt-2 h-11`} value={createVisaType} onChange={(event) => setCreateVisaType(event.target.value)}>
+                        <option value="temporary-work">Temporary work (482 / 186)</option>
+                        <option value="partner">Partner Visa (Subclass 820)</option>
+                        <option value="protection">Protection Visa (Subclass 866)</option>
+                      </select>
+                    </div>
+                  ) : null}
+                </label>
+              </fieldset>
+              <div className="flex items-center gap-3 rounded-lg bg-[#f3f6f4] px-4 py-3 text-xs text-[#647a72]"><LockKeyhole className="h-4 w-4" />This starts as a private draft. Clients will not see it until you make it live.</div>
+            </div>
+            <div className="flex flex-col-reverse gap-2 border-t border-[#e3eae6] px-6 py-5 sm:flex-row sm:justify-end sm:px-8">
+              <Button type="button" variant="outline" className="border-[#d1ddd7] bg-white text-[#38564b]" onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
+              <Button type="button" className="bg-[#1f6654] text-white hover:bg-[#174f42]" disabled={isLoadingDefinition || (createMode === "copy" && !createSourceKey)} onClick={createQuestionnaireFromDialog}>
+                {isLoadingDefinition ? <Loader2 className="animate-spin" /> : <Plus />}
+                Create questionnaire
+              </Button>
+            </div>
+          </section>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (!embeddedInMatter) {
+    return (
+      <div className="-mx-4 -my-8 min-h-[calc(100vh-105px)] bg-[#f4f7f5] px-4 py-7 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+        <div className="mx-auto max-w-[1450px] space-y-5">
+          <header className="flex flex-col gap-5">
+            <button type="button" className="inline-flex w-fit items-center gap-2 text-sm font-medium text-[#5d776d] hover:text-[#1f6654]" onClick={returnToQuestionnaireLibrary}>
+              <ArrowLeft className="h-4 w-4" />
+              All questionnaires
+            </button>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-3">
+                  <h1 className="truncate text-3xl font-semibold tracking-tight text-[#17372e]">{definition?.title || "Questionnaire"}</h1>
+                  {definition ? <StatusBadge status={definition.status} /> : null}
+                  {isDirty ? <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">Draft changes</Badge> : null}
+                </div>
+                {definition ? (
+                  <p className="mt-2 flex items-center gap-2 text-sm text-[#6b8078]"><LockKeyhole className="h-4 w-4" />{definition.status === "active" ? "Live questionnaire. Saved changes apply to the Client Portal." : "Private draft. Clients cannot see it until you make it live."}</p>
+                ) : null}
+              </div>
+              {definition ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" className="border-[#cfddd6] bg-white text-[#38564b]" disabled={isBusy} onClick={copyDefinitionAsTest}><Copy />Copy as test</Button>
+                  <Button type="button" className="bg-[#1f6654] text-white hover:bg-[#174f42]" disabled={isBusy || !isDirty} onClick={() => saveDefinition()}>{isSaving ? <Loader2 className="animate-spin" /> : <Save />}Save changes</Button>
+                  {definition.status === "draft" ? <Button type="button" className="bg-[#173f35] text-white hover:bg-[#102f28]" disabled={isBusy} onClick={() => saveDefinition("active")}><Send />Make live</Button> : null}
+                </div>
+              ) : null}
+            </div>
+          </header>
+
+          {savedQuestionnairesError ? (
+            <div role="alert" className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" /><span>{savedQuestionnairesError}</span></div>
+          ) : null}
+          {error ? (
+            <div role="alert" className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" /><span className="whitespace-pre-wrap">{error}</span></div>
+          ) : null}
+          {notice ? (
+            <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><Check className="mt-0.5 h-4 w-4 shrink-0" /><span>{notice}</span></div>
+          ) : null}
+
+          {isLoading || isLoadingDefinition ? (
+            <section className="flex min-h-[560px] items-center justify-center rounded-xl border border-[#dce6e1] bg-white"><p role="status" className="flex items-center gap-3 text-sm text-[#60786f]"><Loader2 className="h-6 w-6 animate-spin text-[#1f6654]" />Loading questionnaire…</p></section>
+          ) : !definition ? (
+            <EmptyPane onCreate={openCreateQuestionnaireDialog} />
+          ) : (
+            <fieldset disabled={isSaving || isDeleting} className="m-0 min-w-0 border-0 p-0 disabled:cursor-wait">
+              <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
+                <aside className="self-start overflow-hidden rounded-xl border border-[#dce6e1] bg-white shadow-[0_1px_2px_rgba(23,55,46,0.04)] lg:sticky lg:top-6">
+                  <div className="flex items-center justify-between px-4 pb-3 pt-4">
+                    <div>
+                      <h2 className="font-semibold text-[#17372e]">Sections</h2>
+                      <p className="mt-1 text-xs text-[#7a8e86]">{definition.pages.length} total</p>
+                    </div>
+                  </div>
+                  <div className="px-3 pb-3">
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-[#71857d]" />
+                      <Input value={pageSearch} onChange={(event) => setPageSearch(event.target.value)} placeholder="Find a section…" aria-label="Search sections" className={`${inputClassName} pl-9`} />
+                    </div>
+                  </div>
+                  <div className="border-y border-[#e5ebe8] px-3 py-3">
+                    <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7b8e87]">Questionnaire sections</p>
+                    <div className="max-h-[calc(100vh-390px)] space-y-1 overflow-y-auto">
+                      {filteredPages.map((page) => (
+                        <button key={page.id} type="button" onClick={() => {
+                          setActivePageId(page.id);
+                          setActiveQuestionId(page.questions?.[0]?.id || "");
+                          setQuestionEditorOpen(false);
+                          setSectionSettingsOpen(false);
+                        }} className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left text-sm transition ${page.id === activePageId ? "bg-[#e5f1ea] font-semibold text-[#2b5f4d] ring-1 ring-[#add0bf]" : "text-[#587067] hover:bg-[#f2f7f4]"}`}>
+                          <span className="truncate">{page.title}</span>
+                          <span className="flex shrink-0 items-center gap-2 text-xs text-[#789087]"><span>{countQuestions(page.questions)}</span><ChevronRight className="h-4 w-4" /></span>
+                        </button>
+                      ))}
+                      {!filteredPages.length ? <p className="px-3 py-8 text-center text-xs leading-5 text-[#7a8e86]">{pageSearch ? "No matching sections." : "No sections yet."}</p> : null}
+                    </div>
+                  </div>
+                  <div className="p-3">
+                    <Button type="button" variant="outline" className="w-full border-[#d2dfd8] bg-white text-[#38564b]" disabled={isBusy} onClick={() => { addPage(); setSectionSettingsOpen(true); setQuestionEditorOpen(false); }}><Plus />Add section</Button>
+                  </div>
+                </aside>
+
+                <main ref={adminContentRef} className="min-w-0 scroll-mt-6">
+                  {!activePage ? (
+                    <section className="flex min-h-[500px] flex-col items-center justify-center rounded-xl border border-[#dce6e1] bg-white px-6 text-center">
+                      <FileText className="h-10 w-10 text-[#9fb4ac]" />
+                      <h2 className="mt-4 text-lg font-semibold text-[#17372e]">Add your first section</h2>
+                      <p className="mt-2 max-w-md text-sm text-[#71857d]">Sections group related questions and preserve the existing Client Portal routes and answer storage.</p>
+                      <Button type="button" className="mt-5 bg-[#1f6654] text-white hover:bg-[#174f42]" onClick={() => { addPage(); setSectionSettingsOpen(true); }}><Plus />Add section</Button>
+                    </section>
+                  ) : questionEditorOpen && activeQuestion ? (
+                    <section className="space-y-5">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-xs text-[#6c8179]">{definition.title} <ChevronRight className="mx-1 inline h-3 w-3" /> {activePage.title}</p>
+                          <h2 className="mt-2 text-2xl font-semibold text-[#17372e]">Edit question</h2>
+                          <p className="mt-1 text-sm text-[#70837c]">Use everyday language. The preview updates as you edit.</p>
+                        </div>
+                        <Button type="button" variant="outline" className="border-[#cfddd6] bg-white text-[#38564b]" onClick={() => setQuestionEditorOpen(false)}><ArrowLeft />Back to questions</Button>
+                      </div>
+
+                      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,.85fr)]">
+                        <div className="space-y-5 rounded-xl border border-[#dce6e1] bg-white p-5 shadow-[0_1px_2px_rgba(23,55,46,0.04)] sm:p-6">
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                              <FieldLabel htmlFor="question-label">Question</FieldLabel>
+                              <Textarea id="question-label" rows={2} className="border-[#d7e4de] bg-white" value={activeQuestion.label} onChange={(event) => updateQuestionField("label", event.target.value)} />
+                            </div>
+                            <div className="space-y-2">
+                              <FieldLabel htmlFor="question-type">How should clients answer?</FieldLabel>
+                              <select id="question-type" className={selectClassName} value={activeQuestion.type} disabled={isBusy} onChange={(event) => changeQuestionType(event.target.value)}>
+                                {QUESTION_TYPES.map(([value, label]) => <option key={value} value={value} disabled={value === "repeater"}>{label}</option>)}
+                              </select>
+                            </div>
+                          </div>
+
+                          {showOptions ? (
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between gap-3">
+                                <div><h3 className="text-sm font-semibold text-[#24453b]">Answer options</h3><p className="mt-1 text-xs text-[#71857d]">Labels can change without changing saved answer values.</p></div>
+                                <Button type="button" variant="outline" size="sm" className="border-[#d2dfd8] bg-white text-[#38564b]" disabled={activeQuestion.type === "yesNo" || isBusy} onClick={addOption}><Plus />Add option</Button>
+                              </div>
+                              <div className="space-y-2">
+                                {activeQuestionOptions.map((option, optionIndex) => (
+                                  <div key={`${option.value}-${optionIndex}`} className="grid items-center gap-2 sm:grid-cols-[24px_minmax(0,1fr)_auto]">
+                                    <GripVertical className="hidden h-4 w-4 text-[#8ba098] sm:block" />
+                                    <Input className={inputClassName} aria-label={`Option ${optionIndex + 1} label`} value={option.label} onChange={(event) => updateOption(optionIndex, "label", event.target.value)} />
+                                    <Button type="button" variant="ghost" size="sm" className="text-red-600 hover:bg-red-50" disabled={activeQuestion.type === "yesNo" || activeQuestionOptions.length <= 1 || isBusy} onClick={() => deleteOption(optionIndex)}><Trash2 />Remove</Button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          <div className="grid gap-4 border-t border-[#e6ece9] pt-5 md:grid-cols-2">
+                            <div className="space-y-2">
+                              <FieldLabel htmlFor="question-description">Help text</FieldLabel>
+                              <Textarea id="question-description" rows={2} className="border-[#d7e4de] bg-white" value={activeQuestion.description || ""} onChange={(event) => updateQuestionField("description", event.target.value)} />
+                            </div>
+                            <div className="space-y-2">
+                              <FieldLabel htmlFor="question-placeholder">Placeholder</FieldLabel>
+                              <Input id="question-placeholder" className={inputClassName} value={activeQuestion.placeholder || ""} onChange={(event) => updateQuestionField("placeholder", event.target.value)} />
+                            </div>
+                          </div>
+
+                          <label className="flex items-start gap-3 border-t border-[#e6ece9] pt-5 text-sm text-[#38564b]">
+                            <input type="checkbox" className="mt-0.5 h-5 w-5 accent-[#1f6654]" checked={activeQuestion.required} disabled={isBusy} onChange={(event) => updateQuestionField("required", event.target.checked)} />
+                            <span><span className="block font-semibold text-[#24453b]">Answer is required</span><span className="mt-1 block text-xs text-[#71857d]">Clients must answer before they can continue.</span></span>
+                          </label>
+
+                          <div className="space-y-3 border-t border-[#e6ece9] pt-5">
+                            <h3 className="text-sm font-semibold text-[#24453b]">When should clients see this question?</h3>
+                            <label className="flex items-center gap-3 text-sm font-medium text-[#38564b]">
+                              <input type="checkbox" className="h-4 w-4 accent-[#1f6654]" checked={Boolean(firstCondition)} disabled={isBusy || (!firstCondition && conditionSourceQuestions.length === 0)} onChange={(event) => toggleCondition(event.target.checked)} />
+                              Only after a certain answer
+                            </label>
+                            {firstCondition ? (
+                              <div className="rounded-xl border border-[#b9d9c8] bg-[#f0f7f3] p-4">
+                                <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#356352]"><ChevronRight className="h-4 w-4" />Show this question when</p>
+                                <div className="grid gap-3 md:grid-cols-3">
+                                  <div className="space-y-2">
+                                    <FieldLabel htmlFor="condition-question">Earlier question</FieldLabel>
+                                    <select id="condition-question" className={selectClassName} value={firstCondition.field || ""} onChange={(event) => updateConditionSource(event.target.value)}>
+                                      <option value="" disabled>Select a question</option>
+                                      {conditionSourceQuestions.map((question) => <option key={question.id} value={question.answerKey}>{question.label}</option>)}
+                                    </select>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <FieldLabel htmlFor="condition-operator">Rule</FieldLabel>
+                                    <select id="condition-operator" className={selectClassName} value={firstCondition.op || "equals"} onChange={(event) => updateCondition("op", event.target.value)}>
+                                      {CONDITION_OPERATORS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                                    </select>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <FieldLabel htmlFor="condition-answer">Answer</FieldLabel>
+                                    {["exists", "notExists"].includes(firstCondition.op) ? <p id="condition-answer" className="flex h-10 items-center text-sm text-[#60786f]">No answer needed</p> : conditionSourceOptions.length ? (
+                                      <select id="condition-answer" className={selectClassName} multiple={["in", "notIn"].includes(firstCondition.op)} value={["in", "notIn"].includes(firstCondition.op) ? Array.isArray(firstCondition.value) ? firstCondition.value : [firstCondition.value].filter(Boolean) : firstCondition.value ?? ""} onChange={(event) => updateCondition("value", ["in", "notIn"].includes(firstCondition.op) ? Array.from(event.target.selectedOptions || []).map((option) => option.value) : event.target.value)}>
+                                        <option value="" disabled>Select an answer</option>
+                                        {conditionSourceOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                                      </select>
+                                    ) : conditionSourceQuestion?.type === "checkbox" ? (
+                                      <select id="condition-answer" className={selectClassName} value={checkboxConditionEditorValue} onChange={(event) => updateCondition("value", ["in", "notIn"].includes(firstCondition.op) ? event.target.value === "both" ? [true, false] : [event.target.value === "true"] : event.target.value === "true")}>
+                                        <option value="true">Checked</option><option value="false">Not checked</option>{["in", "notIn"].includes(firstCondition.op) ? <option value="both">Either answer</option> : null}
+                                      </select>
+                                    ) : <Input id="condition-answer" className={inputClassName} value={conditionValue} onChange={(event) => updateCondition("value", ["in", "notIn"].includes(firstCondition.op) ? event.target.value.split(",").map((value) => value.trim()) : event.target.value)} />}
+                                  </div>
+                                </div>
+                                {activeQuestion.visibleIf?.length > 1 ? <p className="mt-3 text-xs text-amber-700">Additional display rules are preserved and can be reviewed in Advanced JSON.</p> : null}
+                              </div>
+                            ) : null}
+                          </div>
+
+                          {activeQuestion.metadata?.fields?.length ? (
+                            <div className="space-y-4 border-t border-[#e6ece9] pt-5">
+                              <div><h3 className="text-sm font-semibold text-[#24453b]">Record fields</h3><p className="mt-1 text-xs text-[#71857d]">Edit the wording shown inside each record. Saved keys stay unchanged.</p></div>
+                              {activeQuestion.metadata.fields.map((field) => <EmbeddedNestedQuestionEditor key={field.id} question={field} kind="record" legacy={legacyPage} sourceQuestions={flattenQuestions(activeQuestion.metadata.fields)} onUpdate={updateNestedQuestion} onDeleteOption={deleteNestedOption} />)}
+                            </div>
+                          ) : null}
+
+                          {activeQuestion.followUps?.length ? (
+                            <div className="space-y-4 border-t border-[#e6ece9] pt-5">
+                              <div><h3 className="text-sm font-semibold text-[#24453b]">Follow-up questions</h3><p className="mt-1 text-xs text-[#71857d]">These appear only when their existing rules are met.</p></div>
+                              {activeQuestion.followUps.map((question) => <EmbeddedNestedQuestionEditor key={question.id} question={question} kind="follow-up" legacy={legacyPage} sourceQuestions={pageQuestions} onUpdate={updateNestedQuestion} onDeleteOption={deleteNestedOption} />)}
+                            </div>
+                          ) : null}
+
+                          <details className="group rounded-xl border border-[#e1e9e5] bg-[#f8fbf9]">
+                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-[#38564b]"><span className="flex items-center gap-2"><Settings2 className="h-4 w-4" />Advanced question settings</span><ChevronRight className="h-4 w-4 transition group-open:rotate-90" /></summary>
+                            <div className="space-y-4 border-t border-[#e1e9e5] p-4">
+                              <div className="grid gap-4 md:grid-cols-2">
+                                <div className="space-y-2"><FieldLabel htmlFor="question-id" hint="machine key">Question ID</FieldLabel><Input id="question-id" className={`${inputClassName} font-mono`} value={activeQuestion.id} disabled={machineKeysLocked} onChange={(event) => updateQuestionField("id", event.target.value)} /></div>
+                                <div className="space-y-2"><FieldLabel htmlFor="question-key" hint="saved answer key">Answer key</FieldLabel><Input id="question-key" className={`${inputClassName} font-mono`} value={activeQuestion.answerKey} disabled={machineKeysLocked} onChange={(event) => updateQuestionField("answerKey", event.target.value)} /></div>
+                              </div>
+                              {showOptions ? activeQuestionOptions.map((option, optionIndex) => <div key={`stored-${option.value}-${optionIndex}`} className="grid gap-2 sm:grid-cols-[140px_minmax(0,1fr)]"><span className="flex items-center text-xs text-[#71857d]">Stored value {optionIndex + 1}</span><Input className={`${inputClassName} font-mono`} value={option.value} disabled={isBusy || activeQuestion.type === "yesNo"} onChange={(event) => updateOption(optionIndex, "value", event.target.value)} /></div>) : null}
+                              <QuestionCrmSyncPanel question={activeQuestion} disabled={isBusy} onChange={updateQuestionCrm} />
+                            </div>
+                          </details>
+
+                          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#e6ece9] pt-5">
+                            <Button type="button" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" disabled={isBusy} onClick={deleteQuestion}><Trash2 />Remove question</Button>
+                            <div className="flex gap-2">
+                              <Button type="button" variant="outline" className="border-[#d2dfd8] bg-white text-[#38564b]" disabled={isBusy || activeQuestionIndex === 0} onClick={() => moveQuestion(-1)}><ArrowUp />Move up</Button>
+                              <Button type="button" variant="outline" className="border-[#d2dfd8] bg-white text-[#38564b]" disabled={isBusy || activeQuestionIndex === activePage.questions.length - 1} onClick={() => moveQuestion(1)}><ArrowDown />Move down</Button>
+                              <Button type="button" className="bg-[#1f6654] text-white hover:bg-[#174f42]" onClick={() => setQuestionEditorOpen(false)}><Check />Done</Button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <aside className="self-start rounded-xl border border-[#dce6e1] bg-[#eef4f0] p-5 xl:sticky xl:top-6">
+                          <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-[#5d776d]"><Eye className="h-4 w-4" />Client preview</p>
+                          <div className="mt-4"><QuestionPreview question={activeQuestion} /></div>
+                          <p className="mt-4 flex items-start gap-2 text-xs leading-5 text-[#71857d]"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />This is a layout preview. Existing Client Portal data and saved answers remain unchanged until you save the questionnaire.</p>
+                          {firstCondition ? <div className="mt-8 rounded-lg bg-[#e2eee7] px-4 py-3 text-xs leading-5 text-[#4d6d61]"><p className="font-semibold">Shown conditionally</p><p className="mt-1">This question appears only when its earlier answer rule is met.</p></div> : null}
+                        </aside>
+                      </div>
+                    </section>
+                  ) : (
+                    <section className="overflow-hidden rounded-xl border border-[#dce6e1] bg-white shadow-[0_1px_2px_rgba(23,55,46,0.04)]">
+                      <div className="p-5 sm:p-6">
+                        <div className="flex flex-col gap-4 border-b border-[#e5ebe8] pb-5 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <h2 className="text-2xl font-semibold text-[#17372e]">{activePage.title}</h2>
+                            {getIntroText(activePage) ? <p className="mt-2 max-w-3xl text-sm leading-6 text-[#70837c]">{getIntroText(activePage)}</p> : <p className="mt-2 text-sm text-[#8a9b95]">No section introduction.</p>}
+                          </div>
+                          <Button type="button" variant="ghost" className="text-[#45685d]" onClick={() => setSectionSettingsOpen((current) => !current)}><Pencil />Edit section</Button>
+                        </div>
+
+                        {sectionSettingsOpen ? (
+                          <div className="mt-5 rounded-xl border border-[#dce6e1] bg-[#f8fbf9] p-4 sm:p-5">
+                            <div className="mb-4 flex items-center justify-between"><div><h3 className="font-semibold text-[#24453b]">Section details</h3><p className="mt-1 text-xs text-[#71857d]">Order {activePageIndex + 1} of {definition.pages.length}</p></div><div className="flex gap-1"><Button type="button" variant="ghost" size="icon" disabled={isBusy || activePageIndex === 0} onClick={() => movePage(-1)} aria-label="Move section up"><ArrowUp /></Button><Button type="button" variant="ghost" size="icon" disabled={isBusy || activePageIndex === definition.pages.length - 1} onClick={() => movePage(1)} aria-label="Move section down"><ArrowDown /></Button><Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" disabled={isBusy} onClick={deletePage} aria-label="Delete section"><Trash2 /></Button></div></div>
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <div className="space-y-2 md:col-span-2"><FieldLabel htmlFor="page-title">Section title</FieldLabel><Input id="page-title" className={inputClassName} value={activePage.title} onChange={(event) => updatePageField("title", event.target.value)} /></div>
+                              <div className="space-y-2 md:col-span-2"><FieldLabel htmlFor="page-intro">Intro text</FieldLabel><Textarea id="page-intro" rows={3} className="border-[#d7e4de] bg-white" disabled={legacyPage && !activePage.metadata?.originalIntroBlocks?.length} value={getIntroText(activePage)} onChange={(event) => updateActivePage((page) => setIntroText(page, event.target.value))} /></div>
+                              <details className="group md:col-span-2">
+                                <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-[#45685d]"><Settings2 className="h-4 w-4" />Route and storage settings<ChevronRight className="h-4 w-4 transition group-open:rotate-90" /></summary>
+                                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                                  <div className="space-y-2"><FieldLabel htmlFor="page-id" hint="machine key">Section ID</FieldLabel><Input id="page-id" className={`${inputClassName} font-mono`} value={activePage.id} disabled={machineKeysLocked} onChange={(event) => updatePageField("id", event.target.value)} /></div>
+                                  <div className="space-y-2"><FieldLabel htmlFor="page-section" hint="answer storage key">Section key</FieldLabel><Input id="page-section" className={`${inputClassName} font-mono`} value={activePage.sectionKey} disabled={machineKeysLocked} onChange={(event) => updatePageField("sectionKey", event.target.value)} /></div>
+                                  <div className="space-y-2 md:col-span-2"><FieldLabel htmlFor="page-route" hint="existing Client Portal route">Client route</FieldLabel><Input id="page-route" list="registered-questionnaire-routes-admin" className={`${inputClassName} font-mono`} value={activePage.route} disabled={machineKeysLocked} onChange={(event) => { const route = event.target.value; updateActivePage((page) => ({ ...page, route, completionKey: route.replace(/^\/intake\//, ""), scope: getRouteScope(route) })); }} /><datalist id="registered-questionnaire-routes-admin">{registeredRoutes.map((route) => <option key={route.href} value={route.href}>{route.title}</option>)}</datalist></div>
+                                  <div className="space-y-2"><FieldLabel htmlFor="page-completion" hint="progress key">Completion key</FieldLabel><Input id="page-completion" className={`${inputClassName} font-mono`} value={activePage.completionKey} disabled /></div>
+                                  <div className="space-y-2"><FieldLabel htmlFor="page-scope">Answer scope</FieldLabel><select id="page-scope" className={selectClassName} value={activePage.scope} disabled={machineKeysLocked} onChange={(event) => updatePageField("scope", event.target.value)}><option value="shared">Shared / application</option><option value="profile">Per applicant profile</option></select></div>
+                                </div>
+                              </details>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                          <div><h3 className="font-semibold text-[#24453b]">{activePage.questions.length} question{activePage.questions.length === 1 ? "" : "s"}</h3><p className="mt-1 text-xs text-[#7a8d86]">Select a question to edit its wording, choices, and display rules.</p></div>
+                          <Button type="button" className="bg-[#1f6654] text-white hover:bg-[#174f42]" disabled={isBusy} onClick={() => { addQuestion(); setQuestionEditorOpen(true); }}><Plus />Add question</Button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 bg-[#fbfcfb] px-5 pb-5 sm:px-6 sm:pb-6">
+                        {activePage.questions.map((question, index) => (
+                          <article key={`${question.id}-${index}`} className="flex flex-col gap-3 rounded-xl border border-[#dce6e1] bg-white px-4 py-4 transition hover:border-[#b9d3c7] hover:shadow-[0_2px_8px_rgba(23,55,46,0.05)] sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex min-w-0 items-center gap-4">
+                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#f0f5f2] text-xs font-semibold text-[#547368]">{index + 1}</span>
+                              <div className="min-w-0"><h4 className="truncate text-sm font-semibold text-[#24453b]">{question.label}</h4><p className="mt-1 text-xs text-[#7a8d86]">{questionTypeLabel(question.type)}{question.required ? " · Required" : ""}{question.followUps?.length ? ` · ${question.followUps.length} follow-up` : ""}</p></div>
+                            </div>
+                            <Button type="button" variant="ghost" className="justify-start text-[#45685d] sm:justify-center" onClick={() => { setActiveQuestionId(question.id); setQuestionEditorOpen(true); }}><Pencil />Edit</Button>
+                          </article>
+                        ))}
+                        {!activePage.questions.length ? <div className="rounded-xl border border-dashed border-[#cbdad3] bg-white px-6 py-14 text-center text-sm text-[#71857d]">No questions in this section yet.</div> : null}
+                        <div className="flex items-center justify-between pt-2 text-xs text-[#748880]"><span>{isDirty ? "Draft changes not saved" : "All changes saved"}</span>{!isDirty ? <span className="flex items-center gap-1"><Check className="h-3.5 w-3.5" />Saved</span> : null}</div>
+                      </div>
+                    </section>
+                  )}
+
+                  <details className="group mt-5 overflow-hidden rounded-xl border border-[#dce6e1] bg-white shadow-[0_1px_2px_rgba(23,55,46,0.04)]" onToggle={(event) => { if (event.currentTarget.open && !jsonHasPendingEdits) { setJsonText(JSON.stringify(definition, null, 2)); setJsonError(""); } }}>
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 sm:px-6"><div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e8f4ee] text-[#4F726B]"><Braces className="h-4 w-4" /></span><div><h3 className="font-semibold text-[#17372e]">Advanced questionnaire tools</h3><p className="mt-1 text-xs text-[#71857d]">Settings, deletion, and complete JSON.</p></div></div><ChevronRight className="h-5 w-5 text-[#71857d] transition-transform group-open:rotate-90" /></summary>
+                    <div className="space-y-5 border-t border-[#e1e9e5] p-5 sm:p-6">
+                      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        <div className="space-y-2 md:col-span-2"><FieldLabel htmlFor="questionnaire-title">Title</FieldLabel><Input id="questionnaire-title" className={inputClassName} value={definition.title} onChange={(event) => updateDefinitionField("title", event.target.value)} /></div>
+                        <div className="space-y-2"><FieldLabel htmlFor="questionnaire-version">Version</FieldLabel><Input id="questionnaire-version" className={inputClassName} value={definition.version} onChange={(event) => updateDefinitionField("version", event.target.value)} /></div>
+                        <div className="space-y-2 md:col-span-2"><FieldLabel htmlFor="questionnaire-id" hint="machine key">ID</FieldLabel><Input id="questionnaire-id" className={`${inputClassName} font-mono`} value={definition.id} disabled={!isCreating || machineKeysLocked} onChange={(event) => { updateDefinitionField("id", event.target.value); setSelectedId(event.target.value); }} /></div>
+                        <div className="space-y-2"><FieldLabel htmlFor="questionnaire-visa-type">Visa type</FieldLabel><select id="questionnaire-visa-type" className={selectClassName} value={definition.visaType} disabled={machineKeysLocked} onChange={(event) => { const visaType = event.target.value; setDefinition((current) => { const next = { ...current, visaType }; if (visaType !== "temporary-work") { next.visaContexts = []; delete next.visaContext; } return next; }); }}><option value="temporary-work">Temporary work (482 / 186)</option><option value="partner">Partner Visa (Subclass 820)</option><option value="protection">Protection Visa (Subclass 866)</option></select></div>
+                        <div className="space-y-2 md:col-span-2 xl:col-span-3"><FieldLabel htmlFor="questionnaire-contexts" hint="comma separated">Visa contexts</FieldLabel><Input id="questionnaire-contexts" className={inputClassName} value={definition.visaContexts.join(", ")} disabled={machineKeysLocked || definition.visaType !== "temporary-work"} placeholder="482, 186" onChange={(event) => updateDefinitionField("visaContexts", event.target.value.split(",").map((value) => value.trim()).filter(Boolean))} /></div>
+                      </div>
+                      {machineKeysLocked ? <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Advanced JSON is read-only for this live questionnaire. Use the visual fields above for supported changes.</p> : null}
+                      <Textarea value={jsonText} onChange={(event) => { setJsonText(event.target.value); setJsonHasPendingEdits(true); setJsonError(""); }} readOnly={machineKeysLocked} spellCheck={false} aria-label="Questionnaire JSON" className="min-h-[360px] border-[#d7e4de] bg-[#11221d] font-mono text-xs leading-5 text-[#d8eee5]" />
+                      {jsonError ? <p role="alert" className="text-sm text-red-600">{jsonError}</p> : null}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button type="button" variant="outline" className="border-[#d7e4de] bg-white" disabled={machineKeysLocked || !jsonHasPendingEdits} onClick={applyJson}><Check />Apply JSON</Button>
+                        {jsonHasPendingEdits ? <Button type="button" variant="ghost" onClick={() => { setJsonText(JSON.stringify(definition, null, 2)); setJsonHasPendingEdits(false); setJsonError(""); }}>Discard JSON edits</Button> : null}
+                        <label className={`inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-[#d7e4de] bg-white px-4 py-2 text-sm font-medium text-[#38564b] ${machineKeysLocked ? "cursor-not-allowed opacity-50" : "hover:bg-[#f8fbf9]"}`}><FileJson className="h-4 w-4" />Import file<input type="file" accept="application/json,.json" className="sr-only" disabled={machineKeysLocked} onChange={(event) => { importJson(event.target.files?.[0]); event.target.value = ""; }} /></label>
+                        <Button type="button" variant="ghost" className="ml-auto text-red-600 hover:bg-red-50 hover:text-red-700" disabled={isBusy || isCreating} onClick={deleteDefinition}>{isDeleting ? <Loader2 className="animate-spin" /> : <Trash2 />}Delete questionnaire</Button>
+                      </div>
+                    </div>
+                  </details>
+                </main>
+              </div>
+            </fieldset>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (embeddedInMatter && isLoading) {
     return (
       <MatterTabLoadingState label="Loading questionnaire builder data…" />
@@ -1927,17 +2790,6 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
           </Button>
         </div>
       </header>
-
-      <div className="rounded-xl border border-[#d7e4de] bg-white px-4 py-4 text-sm leading-6 text-[#38564b]">
-        {embeddedInMatter ? (
-          <p>Choose a questionnaire to add or edit pages and questions, then select <strong>Save</strong>.</p>
-        ) : (
-          <>
-            <p><strong>To edit a questionnaire:</strong> open it below, choose or add pages and questions, make your changes, then select <strong>Save</strong>.</p>
-            <p className="mt-2 text-[#60786f]">Live questionnaires are used by clients. Test questionnaires are private drafts that can be copied, changed, and saved without replacing the live version.</p>
-          </>
-        )}
-      </div>
 
       {savedQuestionnairesError ? (
         <div role="alert" className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -2088,6 +2940,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                     {embeddedInMatter
                       ? `${definitionCounts(definition).pageCount} pages · ${definitionCounts(definition).questionCount} questions`
                       : audienceLabel(definition)}
+                    {` · ${getCrmCoverageSummary(definition).mapped} mapped · ${getCrmCoverageSummary(definition).portalOnly} portal-only · ${getCrmCoverageSummary(definition).unconfigured} unconfigured`}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -2732,6 +3585,11 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                                       <p className="text-xs text-amber-700">This question has additional display rules. They remain unchanged while you edit the first rule.</p>
                                     ) : null}
                                   </div>
+                                  <QuestionCrmSyncPanel
+                                    question={activeQuestion}
+                                    disabled={isBusy}
+                                    onChange={updateQuestionCrm}
+                                  />
                                 </>
                             </div>
                           )}
