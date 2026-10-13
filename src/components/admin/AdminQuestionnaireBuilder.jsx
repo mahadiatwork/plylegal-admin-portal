@@ -26,6 +26,7 @@ import {
   Send,
   Settings2,
   Trash2,
+  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -562,7 +563,7 @@ function makeNewDefinition() {
 }
 
 function StatusBadge({ status }) {
-  const label = status === "active" ? "Live" : status === "draft" ? "Test" : "Archived";
+  const label = status === "active" ? "Live" : status === "draft" ? "Not published" : "Archived";
   return (
     <Badge variant="outline" className={STATUS_STYLES[status] || STATUS_STYLES.draft}>
       {label}
@@ -2239,10 +2240,10 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
   const showOptions = ["select", "radio", "yesNo"].includes(activeQuestion?.type)
     && !activeQuestion?.optionsSource;
 
-  if (!embeddedInMatter && adminView === "library") {
+  if (adminView === "library") {
     return (
       <div className="-mx-4 -my-8 min-h-[calc(100vh-105px)] bg-[#f4f7f5] px-4 py-8 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
-        <div className="mx-auto max-w-[1450px] space-y-6">
+        <div className="mx-auto max-w-[1600px] space-y-6">
           <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h1 className="text-3xl font-semibold tracking-tight text-[#17372e]">Questionnaires</h1>
@@ -2308,7 +2309,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
           </div>
 
           <section className="overflow-hidden rounded-xl border border-[#dce6e1] bg-white shadow-[0_1px_2px_rgba(23,55,46,0.04)]">
-            <div className="hidden grid-cols-[minmax(0,1.45fr)_minmax(150px,.55fr)_minmax(130px,.42fr)_180px] gap-5 border-b border-[#e2e9e5] bg-[#fafcfb] px-6 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#72867e] md:grid">
+            <div className="hidden grid-cols-[minmax(0,1.45fr)_minmax(150px,.55fr)_minmax(130px,.42fr)_220px] gap-5 border-b border-[#e2e9e5] bg-[#fafcfb] px-6 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#72867e] md:grid">
               <span>Questionnaire</span>
               <span>Contents</span>
               <span>Status</span>
@@ -2321,7 +2322,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
               const counts = definitionCounts(item);
               const displayStatus = entry.source === "builtIn" ? "active" : item.status;
               return (
-                <article key={entry.key} className="grid gap-4 border-b border-[#e8eeeb] px-5 py-5 last:border-b-0 md:grid-cols-[minmax(0,1.45fr)_minmax(150px,.55fr)_minmax(130px,.42fr)_180px] md:items-center md:px-6">
+                <article key={entry.key} className="grid gap-4 border-b border-[#e8eeeb] px-5 py-5 last:border-b-0 md:grid-cols-[minmax(0,1.45fr)_minmax(150px,.55fr)_minmax(130px,.42fr)_220px] md:items-center md:px-6">
                   <div className="flex min-w-0 items-center gap-3">
                     <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[#dce8e2] bg-[#f0f5f2] text-[#4f7569]"><FileText className="h-5 w-5" /></span>
                     <div className="min-w-0">
@@ -2334,10 +2335,21 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                     <p className="mt-1 text-xs text-[#81928c]">{counts.questionCount} questions</p>
                   </div>
                   <div><StatusBadge status={displayStatus} /></div>
-                  <div className="flex items-center justify-end">
+                  <div className="flex items-center justify-end gap-3">
                     <Button type="button" variant="outline" className="w-full border-[#cedbd5] bg-white text-[#31564a] md:w-auto" disabled={isBusy} onClick={() => openAdminDefinition(entry)}>
                       {entry.source === "builtIn" ? "Use template" : "Edit questions"}
                     </Button>
+                    <details className="relative">
+                      <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-md px-2 py-2 text-sm font-medium text-[#45685d] transition hover:bg-[#f0f5f2] hover:text-[#24453b] [&::-webkit-details-marker]:hidden">
+                        More
+                        <ChevronDown className="h-4 w-4" />
+                      </summary>
+                      <div className="absolute right-0 z-10 mt-1 w-36 rounded-lg border border-[#d9e5df] bg-white p-1 shadow-lg">
+                        <button type="button" className="w-full rounded-md px-3 py-2 text-left text-sm font-medium text-[#31564a] hover:bg-[#f0f5f2]" disabled={isBusy} onClick={() => openAdminDefinition(entry)}>
+                          Open editor
+                        </button>
+                      </div>
+                    </details>
                   </div>
                 </article>
               );
@@ -2355,16 +2367,26 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
 
         {createDialogOpen ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#18352d]/35 p-4 backdrop-blur-[1px]" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreateDialogOpen(false); }}>
-          <section role="dialog" aria-modal="true" aria-labelledby="new-questionnaire-title" aria-describedby="new-questionnaire-description" className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-[#dce6e1] bg-white p-0 text-[#17372e] shadow-2xl">
+          <section role="dialog" aria-modal="true" aria-labelledby="new-questionnaire-title" aria-describedby="new-questionnaire-description" className="max-h-[90vh] w-full max-w-[880px] overflow-y-auto rounded-2xl border border-[#dce6e1] bg-white p-0 text-[#17372e] shadow-2xl">
             <div className="relative px-6 pt-6 sm:px-8 sm:pt-8">
               <h2 id="new-questionnaire-title" className="text-2xl font-semibold text-[#17372e]">New questionnaire</h2>
-              <p id="new-questionnaire-description" className="mt-2 text-sm text-[#6d8179]">Choose a starting point. You can change the content before saving.</p>
-              <button type="button" className="absolute right-5 top-5 rounded-md px-2 py-1 text-sm font-medium text-[#5d776d] hover:bg-[#f0f5f2] hover:text-[#24453b]" onClick={() => setCreateDialogOpen(false)}>Close</button>
+              <p id="new-questionnaire-description" className="mt-2 text-sm text-[#6d8179]">Choose a starting point. You can change everything later.</p>
+              <button type="button" className="absolute right-5 top-5 inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm font-medium text-[#5d776d] hover:bg-[#f0f5f2] hover:text-[#24453b]" onClick={() => setCreateDialogOpen(false)}>Close <X className="h-4 w-4" /></button>
             </div>
             <div className="space-y-5 px-6 py-3 sm:px-8">
-              <div className="space-y-2">
-                <FieldLabel htmlFor="new-questionnaire-name">Questionnaire name</FieldLabel>
-                <Input id="new-questionnaire-name" className={`${inputClassName} h-11`} value={createName} onChange={(event) => setCreateName(event.target.value)} />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <FieldLabel htmlFor="new-questionnaire-name">Questionnaire name</FieldLabel>
+                  <Input id="new-questionnaire-name" className={`${inputClassName} h-12`} value={createName} onChange={(event) => setCreateName(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <FieldLabel htmlFor="new-questionnaire-visa-type">Visa type</FieldLabel>
+                  <select id="new-questionnaire-visa-type" className={`${selectClassName} h-12`} value={createVisaType} onChange={(event) => setCreateVisaType(event.target.value)}>
+                    <option value="temporary-work">Skills in Demand Visa</option>
+                    <option value="partner">Partner Visa</option>
+                    <option value="protection">Protection Visa</option>
+                  </select>
+                </div>
               </div>
               <fieldset className="space-y-3">
                 <legend className="mb-3 text-sm font-semibold text-[#24453b]">How would you like to start?</legend>
@@ -2373,7 +2395,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                     <input type="radio" name="create-mode" className="mt-1 h-4 w-4 accent-[#1f6654]" checked={createMode === "copy"} disabled={!createSourceEntries.length} onChange={() => setCreateMode("copy")} />
                     <span className="min-w-0 flex-1">
                       <span className="font-semibold text-[#24453b]">Copy an existing questionnaire</span>
-                      <span className="ml-2 rounded bg-[#dcefe5] px-2 py-1 text-[10px] font-semibold text-[#2d6a55]">Recommended</span>
+                      <span className="ml-2 rounded border border-[#bee2cf] bg-[#edf9f2] px-2 py-1 text-[10px] font-semibold text-[#2d6a55]">Recommended</span>
                       <span className="mt-1 block text-xs leading-5 text-[#71857d]">Keep its sections and questions, then make your changes.</span>
                     </span>
                   </span>
@@ -2402,16 +2424,6 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                       <span className="mt-1 block text-xs leading-5 text-[#71857d]">Add your own sections and questions.</span>
                     </span>
                   </span>
-                  {createMode === "blank" ? (
-                    <div className="mt-4">
-                      <FieldLabel htmlFor="new-questionnaire-visa-type">Visa type</FieldLabel>
-                      <select id="new-questionnaire-visa-type" className={`${selectClassName} mt-2 h-11`} value={createVisaType} onChange={(event) => setCreateVisaType(event.target.value)}>
-                        <option value="temporary-work">Temporary work (482 / 186)</option>
-                        <option value="partner">Partner Visa (Subclass 820)</option>
-                        <option value="protection">Protection Visa (Subclass 866)</option>
-                      </select>
-                    </div>
-                  ) : null}
                 </label>
               </fieldset>
               <div className="flex items-center gap-3 rounded-lg bg-[#f3f6f4] px-4 py-3 text-xs text-[#647a72]"><LockKeyhole className="h-4 w-4" />This starts as a private draft. Clients will not see it until you make it live.</div>
@@ -2430,7 +2442,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
     );
   }
 
-  if (!embeddedInMatter) {
+  if (adminView === "editor") {
     return (
       <div className="-mx-4 -my-8 min-h-[calc(100vh-105px)] bg-[#f4f7f5] px-4 py-7 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
         <div className="mx-auto max-w-[1450px] space-y-5">
