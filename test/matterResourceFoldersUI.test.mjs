@@ -125,7 +125,6 @@ async function loadComponent(relativePath, overrides = {}) {
 
 const sidebarModule = await loadComponent("src/components/admin/ResourceFoldersSidebar.jsx");
 const Sidebar = sidebarModule.default;
-const FolderGrid = sidebarModule.ResourceFolderGrid;
 const templatesModule = await loadComponent("src/components/admin/AdminResourceTemplatesManager.jsx", {
   "@/components/admin/ResourceFoldersSidebar": sidebarModule,
 });
@@ -306,8 +305,6 @@ const reorderButtons = (harness) => [...walk(harness.tree)].filter((node) =>
   node.type === "button" && node.props["aria-label"]?.startsWith("Reorder "));
 const displayedResourceNames = (harness) => reorderButtons(harness).map((node) =>
   node.props["aria-label"].slice("Reorder ".length));
-const folderGrid = (harness) => [...walk(harness.tree)].find((node) =>
-  node.type === FolderGrid);
 const folderCardLabels = (harness) => [...walk(harness.tree)]
   .filter((node) => node.type === "button" && node.props["aria-label"]?.startsWith("Open folder "))
   .map((node) => node.props["aria-label"]);
@@ -569,47 +566,26 @@ test("a standalone catalog without global selects and mutates the first availabl
   assert.match(text(harness.tree), /1 resource scope could not be loaded\./);
 });
 
-test("template root shows folders before files and folder cards open the selected folder", async (t) => {
+test("template folders stay in the sidebar without duplicate folder cards", async (t) => {
   const { harness } = await mountTemplates(t);
   change(harness, "Resource scope", "visa-alpha");
 
-  assert.deepEqual(folderCardLabels(harness), [
-    "Open folder Guides, 1 resource",
-    "Open folder Empty folder, 0 resources",
-  ]);
+  assert.deepEqual(folderCardLabels(harness), []);
+  assert.deepEqual(folderNames(harness), ["Uncategorized", "Guides", "Empty folder"]);
   assert.equal(text(harness.find((node) => node.type === "h2" && text(node) === "Files")), "Files");
-
-  const renderedNodes = [...walk(harness.tree)];
-  const folderGridIndex = renderedNodes.findIndex((node) => node.type === FolderGrid);
-  const firstFileIndex = renderedNodes.findIndex((node) =>
-    node.props?.["aria-label"] === "Reorder Alpha first");
-  assert.ok(folderGridIndex >= 0 && folderGridIndex < firstFileIndex);
   assert.deepEqual(displayedResourceNames(harness), ["Alpha first", "Alpha second", "Alpha third"]);
-
-  harness.control("Open folder Guides, 1 resource").props.onClick();
-  harness.render();
-  assert.equal(folderGrid(harness), undefined);
+  selectFolder(harness, "Guides");
   assert.deepEqual(displayedResourceNames(harness), ["Alpha guide"]);
   const selectedHeading = harness.find((node) => node.type === "h2" && text(node) === "Guides");
   assert.equal(selectedHeading.props.tabIndex, -1);
 });
 
-test("matter root shows folder cards before its uncategorized files", async (t) => {
+test("matter folders stay in the sidebar without duplicate folder cards", async (t) => {
   const { harness } = await mountMatter(t);
 
-  assert.deepEqual(folderCardLabels(harness), [
-    "Open folder Guides, 2 resources",
-    "Open folder Empty folder, 0 resources",
-  ]);
-  const renderedNodes = [...walk(harness.tree)];
-  const folderGridIndex = renderedNodes.findIndex((node) => node.type === FolderGrid);
-  const firstFileIndex = renderedNodes.findIndex((node) =>
-    node.props?.["aria-label"] === "Reorder General note");
-  assert.ok(folderGridIndex >= 0 && folderGridIndex < firstFileIndex);
-
-  harness.control("Open folder Guides, 2 resources").props.onClick();
-  harness.render();
-  assert.equal(folderGrid(harness), undefined);
+  assert.deepEqual(folderCardLabels(harness), []);
+  assert.deepEqual(folderNames(harness), ["Uncategorized", "Guides", "Empty folder"]);
+  selectFolder(harness, "Guides");
   assert.deepEqual(displayedResourceNames(harness), ["Guide alpha", "Guide beta"]);
 });
 

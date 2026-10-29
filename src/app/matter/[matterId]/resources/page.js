@@ -26,9 +26,7 @@ import { Input } from "@/components/ui/input";
 import { RichTextContent, RichTextEditor } from "@/components/ui/rich-text";
 import { Textarea } from "@/components/ui/textarea";
 import AdminResourceTemplatesManager from "@/components/admin/AdminResourceTemplatesManager";
-import ResourceFoldersSidebar, {
-  ResourceFolderGrid,
-} from "@/components/admin/ResourceFoldersSidebar";
+import ResourceFoldersSidebar from "@/components/admin/ResourceFoldersSidebar";
 import MatterTabLoadingState from "@/components/matter/MatterTabLoadingState";
 import { getWorkDrivePreviewUrl } from "@/lib/workDrivePreviewUrl.mjs";
 
@@ -1062,15 +1060,6 @@ export function MatterResourcesManager({ matterId, resourceSource = "", pageTitl
             />
 
             <div className="min-w-0 space-y-5">
-              {isRootCategory ? (
-                <ResourceFolderGrid
-                  categories={visibleCategories}
-                  categoryCounts={categoryCounts}
-                  onSelectCategory={handleSelectCategory}
-                  disabled={interactionPending || isReorderingFolders}
-                />
-              ) : null}
-
               {showResourceForm ? (
                 <section className="rounded-lg border border-[#dbe7e1] bg-white p-5 shadow-sm">
                   <div className="mb-4 flex flex-wrap items-start justify-between gap-3">

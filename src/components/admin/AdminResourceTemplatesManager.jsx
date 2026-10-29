@@ -28,7 +28,6 @@ import {
 import MatterTabLoadingState from "@/components/matter/MatterTabLoadingState";
 import ResourceFoldersSidebar, {
   categoryIconOptions,
-  ResourceFolderGrid,
 } from "@/components/admin/ResourceFoldersSidebar";
 
 const GLOBAL_SCOPE = "global";
@@ -1313,15 +1312,6 @@ export default function AdminResourceTemplatesManager({
         />
 
         <div className="min-w-0 space-y-5">
-          {isRootCategory ? (
-            <ResourceFolderGrid
-              categories={visibleCategories}
-              categoryCounts={categoryCounts}
-              onSelectCategory={handleSelectCategory}
-              disabled={categoryMutationActive || isReordering || isReorderingFolders}
-            />
-          ) : null}
-
           {showResourceForm ? (
             <section className="rounded-lg border border-[#dbe7e1] bg-white p-5 shadow-sm">
               <div className="flex flex-wrap items-start justify-between gap-3">

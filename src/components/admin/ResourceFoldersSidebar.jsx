@@ -3,7 +3,6 @@
 import { useState } from "react";
 import {
   BookOpen,
-  ChevronRight,
   FileText,
   Folder,
   GripVertical,
@@ -44,71 +43,6 @@ export function CategoryIcon({ icon, className }) {
 
 function categoryKey(value) {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
-}
-
-export function ResourceFolderGrid({
-  categories = [],
-  categoryCounts = {},
-  onSelectCategory,
-  disabled = false,
-}) {
-  const folders = categories.filter(
-    (category) => categoryKey(category.name) !== "uncategorized",
-  );
-
-  if (!folders.length) return null;
-
-  return (
-    <section
-      aria-labelledby="resource-folder-grid-heading"
-      className="rounded-lg border border-[#dbe7e1] bg-white p-5 shadow-sm"
-    >
-      <div>
-        <h2
-          id="resource-folder-grid-heading"
-          className="text-base font-semibold text-[#17372e]"
-        >
-          Folders
-        </h2>
-        <p className="mt-1 text-xs text-[#71857d]">
-          Open a folder to view its files and resources.
-        </p>
-      </div>
-
-      <div
-        className="mt-4 grid gap-3 sm:grid-cols-2 2xl:grid-cols-3"
-        role="list"
-      >
-        {folders.map((category) => {
-          const count = categoryCounts[categoryKey(category.name)] || 0;
-          return (
-            <div key={category.name} role="listitem">
-              <button
-                type="button"
-                aria-label={`Open folder ${category.name}, ${count} ${count === 1 ? "resource" : "resources"}`}
-                disabled={disabled}
-                onClick={() => onSelectCategory(category)}
-                className="group flex min-h-20 w-full items-center gap-3 rounded-lg border border-[#dbe7e1] bg-[#fbfdfc] px-4 py-3 text-left transition-colors hover:border-[#8ac6ad] hover:bg-[#f0f8f4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#e8f4ee] text-[#4F726B] transition-colors group-hover:bg-white">
-                  <CategoryIcon icon={category.icon} className="h-5 w-5" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold text-[#17372e]">
-                    {category.name}
-                  </span>
-                  <span className="mt-1 block text-xs text-[#71857d]">
-                    {count} {count === 1 ? "resource" : "resources"}
-                  </span>
-                </span>
-                <ChevronRight className="h-4 w-4 shrink-0 text-[#8aa099] transition-transform group-hover:translate-x-0.5 group-hover:text-[#4F726B]" />
-              </button>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
 }
 
 export default function ResourceFoldersSidebar({
