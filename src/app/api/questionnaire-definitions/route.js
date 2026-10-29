@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAdminSession } from "@/lib/adminSession";
+import { canAccessQuestionnaireBuilder } from "@/lib/adminRoles";
 import { isSameOriginRequest } from "@/lib/adminLoginProtection";
 import { db, initResult } from "@/lib/firebase-admin";
 import { getRegisteredQuestionnaireRoutes } from "@/lib/routes";
@@ -49,7 +50,8 @@ function requireDatabase() {
 async function requireAdmin() {
   const session = await getAdminSession();
   if (!session) throw new ApiError("Admin session is required", 401);
-  return session.role || "admin";
+  if (!canAccessQuestionnaireBuilder(session.role)) throw new ApiError("Super admin access is required", 403);
+  return session.email || session.name || session.sub;
 }
 
 function requireSafeMutationRequest(request, { expectsJson = false } = {}) {

@@ -71,6 +71,7 @@ const STATUS_STYLES = {
   active: "border-emerald-200 bg-emerald-50 text-emerald-700",
   draft: "border-amber-200 bg-amber-50 text-amber-700",
   archived: "border-slate-200 bg-slate-100 text-slate-600",
+  template: "border-sky-200 bg-sky-50 text-sky-700",
 };
 
 const inputClassName = "h-10 border-[#d7e4de] bg-white text-[#17372e]";
@@ -527,6 +528,23 @@ function audienceLabel(definition) {
   return [definition?.visaType || "No visa type", contexts.length ? contexts.join(", ") : "All contexts"].join(" · ");
 }
 
+function pageGroupLabel(page) {
+  const metadataRole = page?.metadata?.profileRole;
+  const role = metadataRole
+    ? (metadataRole === "main" ? "main_applicant" : metadataRole)
+    : null;
+  const route = String(page?.route || "");
+  const routeRole = role
+    || (route.includes("/main-applicant/") ? "main_applicant" : null)
+    || (route.includes("/spouse-partner/") ? "spouse" : null)
+    || (route.includes("/children/") && !route.endsWith("/children/start") ? "child" : null)
+    || (/\/non-migrating\/[^/]+\//.test(route) ? "non_migrating" : null);
+  if (routeRole === "main_applicant") return "Main applicant";
+  if (["spouse", "child", "other"].includes(routeRole)) return "Dependents";
+  if (routeRole === "non_migrating") return "Non-migrating";
+  return "Shared";
+}
+
 function getIntroText(page) {
   return page?.introBlocks?.find((block) => block?.type === "paragraph")?.text || "";
 }
@@ -563,7 +581,13 @@ function makeNewDefinition() {
 }
 
 function StatusBadge({ status }) {
-  const label = status === "active" ? "Live" : status === "draft" ? "Not published" : "Archived";
+  const label = status === "active"
+    ? "Live"
+    : status === "draft"
+      ? "Not published"
+      : status === "template"
+        ? "Template"
+        : "Archived";
   return (
     <Badge variant="outline" className={STATUS_STYLES[status] || STATUS_STYLES.draft}>
       {label}
@@ -1232,6 +1256,43 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
       source: "saved",
       key: `saved:${item.id}`,
     }));
+    const savedAudiences = new Set(
+      savedEntries.map((entry) => questionnaireAudienceKey(entry.definition))
+    );
+    const includedBuiltInAudiences = new Set();
+    const builtInEntries = [...questionnaireBuiltInTemplates, temporaryWork482Definition]
+      .filter((item) => {
+        const audienceKey = questionnaireAudienceKey(item);
+        if (savedAudiences.has(audienceKey) || includedBuiltInAudiences.has(audienceKey)) {
+          return false;
+        }
+        includedBuiltInAudiences.add(audienceKey);
+        return true;
+      })
+      .map((item) => ({
+        definition: item,
+        source: "builtIn",
+        key: `builtIn:${item.id}`,
+      }));
+    return [...savedEntries, ...builtInEntries];
+  }, [definitions]);
+  const filteredAdminLibraryEntries = useMemo(() => {
+    const search = definitionSearch.trim().toLowerCase();
+    return adminLibraryEntries.filter(({ definition: item, source }) => {
+      const status = source === "builtIn" ? "template" : item.status;
+      const matchesStatus = statusFilter === "all" || status === statusFilter;
+      const matchesSearch = !search || [item.title, item.id, audienceLabel(item)].some((value) =>
+        String(value || "").toLowerCase().includes(search)
+      );
+      return matchesStatus && matchesSearch;
+    });
+  }, [adminLibraryEntries, definitionSearch, statusFilter]);
+  const createSourceEntries = useMemo(() => {
+    const savedEntries = definitions.map((item) => ({
+      definition: item,
+      source: "saved",
+      key: `saved:${item.id}`,
+    }));
     const savedIds = new Set(savedEntries.map((entry) => String(entry.definition.id)));
     const builtInEntries = [...questionnaireBuiltInTemplates, temporaryWork482Definition]
       .filter((item, index, items) =>
@@ -1245,27 +1306,26 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
       }));
     return [...savedEntries, ...builtInEntries];
   }, [definitions]);
-  const filteredAdminLibraryEntries = useMemo(() => {
-    const search = definitionSearch.trim().toLowerCase();
-    return adminLibraryEntries.filter(({ definition: item, source }) => {
-      const status = source === "builtIn" ? "active" : item.status;
-      const matchesStatus = statusFilter === "all" || status === statusFilter;
-      const matchesSearch = !search || [item.title, item.id, audienceLabel(item)].some((value) =>
-        String(value || "").toLowerCase().includes(search)
-      );
-      return matchesStatus && matchesSearch;
-    });
-  }, [adminLibraryEntries, definitionSearch, statusFilter]);
-  const createSourceEntries = useMemo(
-    () => adminLibraryEntries,
-    [adminLibraryEntries]
-  );
   const filteredPages = useMemo(() => {
     const search = pageSearch.trim().toLowerCase();
     return (definition?.pages || []).filter((page) =>
       !search || [page.title, page.id].some((value) => String(value || "").toLowerCase().includes(search))
     );
   }, [definition?.pages, pageSearch]);
+
+  const groupedPages = useMemo(() => {
+    const groups = [];
+    let current = null;
+    for (const page of filteredPages) {
+      const label = pageGroupLabel(page);
+      if (!current || current.label !== label) {
+        current = { label, pages: [] };
+        groups.push(current);
+      }
+      current.pages.push(page);
+    }
+    return groups;
+  }, [filteredPages]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2225,6 +2285,45 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
     }
   }
 
+  async function deleteLibraryDefinition(entry) {
+    if (entry?.source !== "saved" || !entry.definition?.id) return;
+
+    const target = entry.definition;
+    const liveWarning = target.status === "active"
+      ? "\n\nThis questionnaire is currently live. Its built-in starter template will become available until another questionnaire is published."
+      : "";
+    const description = "This permanently deletes the questionnaire definition and all of its pages. Saved client answers are not deleted.";
+    if (!window.confirm(`Delete “${target.title || target.id}”?\n\n${description}${liveWarning}`)) return;
+
+    try {
+      setIsDeleting(true);
+      setError("");
+      setNotice("");
+      const revision = Number(target.revision ?? 0);
+      await apiRequest(
+        `/api/questionnaire-definitions/${encodeURIComponent(target.id)}?revision=${revision}`,
+        {
+          method: "DELETE",
+          body: JSON.stringify({ revision }),
+        }
+      );
+      setDefinitions((current) => current.filter((item) => String(item.id) !== String(target.id)));
+      if (String(definition?.id || "") === String(target.id)) {
+        setDefinition(null);
+        setSavedDefinition(null);
+        setSelectedId("");
+        setActivePageId("");
+        setActiveQuestionId("");
+        setIsCreating(false);
+      }
+      setNotice("Questionnaire deleted. Saved client answers were left untouched.");
+    } catch (deleteError) {
+      setError(deleteError.message);
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   const firstCondition = activeQuestion?.visibleIf?.[0] || null;
   const conditionValue = Array.isArray(firstCondition?.value)
     ? firstCondition.value.join(", ")
@@ -2242,128 +2341,183 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
 
   if (adminView === "library") {
     return (
-      <div className="-mx-4 -my-8 min-h-[calc(100vh-105px)] bg-[#f4f7f5] px-4 py-8 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
-        <div className="mx-auto max-w-[1600px] space-y-6">
-          <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="space-y-6">
+        <section className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+            Questionnaires
+          </h1>
+          <Button
+            type="button"
+            className="bg-[#4F726B] text-white hover:bg-[#3d625a]"
+            disabled={isSaving || isDeleting}
+            onClick={openCreateQuestionnaireDialog}
+          >
+            <Plus className="h-4 w-4" />
+            New questionnaire
+          </Button>
+        </section>
+
+        {savedQuestionnairesError ? (
+          <div role="alert" className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 shadow-sm">
+            <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
             <div>
-              <h1 className="text-3xl font-semibold tracking-tight text-[#17372e]">Questionnaires</h1>
-              <p className="mt-2 text-sm text-[#687d75]">Choose what clients will be asked for each visa type.</p>
+              <p>{savedQuestionnairesError}</p>
+              <p className="mt-1">The complete built-in questionnaires are still available below. Saving requires the server connection.</p>
             </div>
-            <Button type="button" className="bg-[#1f6654] text-white hover:bg-[#174f42]" disabled={isSaving || isDeleting} onClick={openCreateQuestionnaireDialog}>
-              <Plus />
-              New questionnaire
+          </div>
+        ) : null}
+        {error ? (
+          <div role="alert" className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
+            <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+            <span className="whitespace-pre-wrap">{error}</span>
+          </div>
+        ) : null}
+        {notice ? (
+          <div className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 shadow-sm">
+            <Check className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{notice}</span>
+          </div>
+        ) : null}
+
+        <section className="rounded-lg border border-gray-200 bg-white px-5 py-4 shadow-sm">
+          <p className="text-sm font-medium text-gray-600">
+            Choose what clients will be asked for each visa type. Manage shared templates used across the Client Portal. Client answers are not changed here.
+          </p>
+        </section>
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex w-full flex-col gap-3 sm:max-w-2xl sm:flex-row">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8aa099]" />
+              <Input
+                value={definitionSearch}
+                onChange={(event) => setDefinitionSearch(event.target.value)}
+                placeholder="Find a questionnaire…"
+                aria-label="Search questionnaires"
+                className="h-10 border-[#d7e4de] bg-white pl-9 text-sm text-[#17372e] placeholder:text-gray-400 focus-visible:ring-[#4F726B]"
+              />
+            </div>
+            <div className="relative sm:w-44">
+              <select
+                className="flex h-10 w-full appearance-none rounded-md border border-[#cfded7] bg-white px-3 py-2 pr-9 text-sm text-[#17372e] focus:outline-none focus:ring-2 focus:ring-[#8ac6ad]"
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value)}
+                aria-label="Filter by status"
+              >
+                <option value="all">All statuses</option>
+                <option value="active">Live</option>
+                <option value="draft">Drafts</option>
+                <option value="archived">Archived</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#60786f]" />
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-3 text-xs text-[#71857d] sm:justify-end">
+            <span>{filteredAdminLibraryEntries.length} questionnaire{filteredAdminLibraryEntries.length === 1 ? "" : "s"}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-[#4F726B] hover:bg-[#e8f4ee] hover:text-[#3d625a]"
+              disabled={isBusy}
+              onClick={() => loadList()}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
+              Refresh
             </Button>
-          </header>
-
-          {savedQuestionnairesError ? (
-            <div role="alert" className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-              <div>
-                <p>{savedQuestionnairesError}</p>
-                <p className="mt-1">The complete built-in questionnaires are still available below. Saving requires the server connection.</p>
-              </div>
-            </div>
-          ) : null}
-          {error ? (
-            <div role="alert" className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-              <span className="whitespace-pre-wrap">{error}</span>
-            </div>
-          ) : null}
-          {notice ? (
-            <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-              <Check className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{notice}</span>
-            </div>
-          ) : null}
-
-          <div className="flex items-center gap-3 rounded-xl border border-[#dce8e2] bg-[#eaf1ed] px-4 py-3 text-sm text-[#5e746b]">
-            <Layers3 className="h-5 w-5 shrink-0 text-[#477063]" />
-            <span className="font-semibold text-[#31564a]">Shared templates</span>
-            <span className="hidden sm:inline">Use these to manage the questions shown in the Client Portal. Client answers are not changed here.</span>
           </div>
-
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex w-full flex-col gap-3 sm:max-w-2xl sm:flex-row">
-              <div className="relative flex-1">
-                <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-[#71857d]" />
-                <Input value={definitionSearch} onChange={(event) => setDefinitionSearch(event.target.value)} placeholder="Find a questionnaire…" aria-label="Search questionnaires" className={`${inputClassName} h-11 pl-9`} />
-              </div>
-              <div className="relative sm:w-44">
-                <select className={`${selectClassName} h-11 appearance-none pr-9`} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter by status">
-                  <option value="all">All statuses</option>
-                  <option value="active">Live</option>
-                  <option value="draft">Drafts</option>
-                  <option value="archived">Archived</option>
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-3 top-3.5 h-4 w-4 text-[#60786f]" />
-              </div>
-            </div>
-            <div className="flex items-center justify-between gap-3 text-xs text-[#6e827a] sm:justify-end">
-              <span>{filteredAdminLibraryEntries.length} questionnaire{filteredAdminLibraryEntries.length === 1 ? "" : "s"}</span>
-              <Button type="button" variant="ghost" size="sm" className="text-[#45685d]" disabled={isBusy} onClick={() => loadList()}>
-                <RefreshCw className={isLoading ? "animate-spin" : ""} />
-                Refresh
-              </Button>
-            </div>
-          </div>
-
-          <section className="overflow-hidden rounded-xl border border-[#dce6e1] bg-white shadow-[0_1px_2px_rgba(23,55,46,0.04)]">
-            <div className="hidden grid-cols-[minmax(0,1.45fr)_minmax(150px,.55fr)_minmax(130px,.42fr)_220px] gap-5 border-b border-[#e2e9e5] bg-[#fafcfb] px-6 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#72867e] md:grid">
-              <span>Questionnaire</span>
-              <span>Contents</span>
-              <span>Status</span>
-              <span className="sr-only">Actions</span>
-            </div>
-            {isLoading ? (
-              <div className="flex min-h-64 items-center justify-center text-sm text-[#647a72]"><Loader2 className="mr-3 h-5 w-5 animate-spin text-[#1f6654]" />Loading questionnaires…</div>
-            ) : filteredAdminLibraryEntries.length ? filteredAdminLibraryEntries.map((entry) => {
-              const item = entry.definition;
-              const counts = definitionCounts(item);
-              const displayStatus = entry.source === "builtIn" ? "active" : item.status;
-              return (
-                <article key={entry.key} className="grid gap-4 border-b border-[#e8eeeb] px-5 py-5 last:border-b-0 md:grid-cols-[minmax(0,1.45fr)_minmax(150px,.55fr)_minmax(130px,.42fr)_220px] md:items-center md:px-6">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[#dce8e2] bg-[#f0f5f2] text-[#4f7569]"><FileText className="h-5 w-5" /></span>
-                    <div className="min-w-0">
-                      <h2 className="truncate text-sm font-semibold text-[#24453b]">{item.title || item.id}</h2>
-                      <p className="mt-1 truncate text-xs text-[#73877f]">{entry.source === "builtIn" ? "Built-in starter template" : audienceLabel(item)}</p>
-                    </div>
-                  </div>
-                  <div className="text-sm text-[#526b62]">
-                    <p>{counts.pageCount} section{counts.pageCount === 1 ? "" : "s"}</p>
-                    <p className="mt-1 text-xs text-[#81928c]">{counts.questionCount} questions</p>
-                  </div>
-                  <div><StatusBadge status={displayStatus} /></div>
-                  <div className="flex items-center justify-end gap-3">
-                    <Button type="button" variant="outline" className="w-full border-[#cedbd5] bg-white text-[#31564a] md:w-auto" disabled={isBusy} onClick={() => openAdminDefinition(entry)}>
-                      {entry.source === "builtIn" ? "Use template" : "Edit questions"}
-                    </Button>
-                    <details className="relative">
-                      <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-md px-2 py-2 text-sm font-medium text-[#45685d] transition hover:bg-[#f0f5f2] hover:text-[#24453b] [&::-webkit-details-marker]:hidden">
-                        More
-                        <ChevronDown className="h-4 w-4" />
-                      </summary>
-                      <div className="absolute right-0 z-10 mt-1 w-36 rounded-lg border border-[#d9e5df] bg-white p-1 shadow-lg">
-                        <button type="button" className="w-full rounded-md px-3 py-2 text-left text-sm font-medium text-[#31564a] hover:bg-[#f0f5f2]" disabled={isBusy} onClick={() => openAdminDefinition(entry)}>
-                          Open editor
-                        </button>
-                      </div>
-                    </details>
-                  </div>
-                </article>
-              );
-            }) : (
-              <div className="px-6 py-16 text-center">
-                <FileText className="mx-auto h-9 w-9 text-[#9cafA7]" />
-                <p className="mt-3 text-sm font-semibold text-[#31564a]">No matching questionnaires</p>
-                <p className="mt-1 text-xs text-[#7a8d86]">Try another search or status.</p>
-              </div>
-            )}
-          </section>
-
-          <p className="flex items-center gap-2 text-xs text-[#758981]"><Copy className="h-4 w-4" />Need a similar questionnaire? Create a new questionnaire and choose an existing one as the starting point.</p>
         </div>
+
+        <section className="rounded-lg border border-[#dbe7e1] bg-white shadow-sm">
+          <div className="hidden grid-cols-[minmax(0,1.45fr)_minmax(150px,.55fr)_minmax(130px,.42fr)_220px] gap-5 rounded-t-lg border-b border-[#dbe7e1] bg-[#fafcfb] px-6 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#72867e] md:grid">
+            <span>Questionnaire</span>
+            <span>Contents</span>
+            <span>Status</span>
+            <span className="sr-only">Actions</span>
+          </div>
+          {isLoading ? (
+            <div className="flex min-h-64 items-center justify-center text-sm text-[#647a72]">
+              <Loader2 className="mr-3 h-5 w-5 animate-spin text-[#4F726B]" />
+              Loading questionnaires…
+            </div>
+          ) : filteredAdminLibraryEntries.length ? filteredAdminLibraryEntries.map((entry) => {
+            const item = entry.definition;
+            const counts = definitionCounts(item);
+            const displayStatus = entry.source === "builtIn" ? "template" : item.status;
+            return (
+              <article
+                key={entry.key}
+                className="grid gap-4 border-b border-[#e8eeeb] px-5 py-4 last:rounded-b-lg last:border-b-0 hover:bg-[#fafcfb]/60 transition-colors md:grid-cols-[minmax(0,1.45fr)_minmax(150px,.55fr)_minmax(130px,.42fr)_220px] md:items-center md:px-6"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#e8f4ee] text-[#4F726B]">
+                    <FileText className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <h2 className="truncate text-sm font-semibold text-[#17372e]">{item.title || item.id}</h2>
+                    <p className="mt-1 truncate text-xs text-[#71857d]">
+                      {entry.source === "builtIn" ? "Built-in starter template" : audienceLabel(item)}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-sm text-[#526b62]">
+                  <p className="font-medium text-[#17372e]">{counts.pageCount} section{counts.pageCount === 1 ? "" : "s"}</p>
+                  <p className="mt-0.5 text-xs text-[#71857d]">{counts.questionCount} questions</p>
+                </div>
+                <div><StatusBadge status={displayStatus} /></div>
+                <div className="flex items-center justify-end gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full border-[#cedbd5] bg-white text-[#31564a] hover:border-[#8ac6ad] hover:text-[#17372e] hover:bg-[#fafcfb] md:w-auto"
+                    disabled={isBusy}
+                    onClick={() => openAdminDefinition(entry)}
+                  >
+                    {entry.source === "builtIn" ? "Use template" : "Edit questions"}
+                  </Button>
+                  <details className="relative">
+                    <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-md px-2 py-2 text-sm font-medium text-[#45685d] transition hover:bg-[#edf7f2] hover:text-[#17372e] [&::-webkit-details-marker]:hidden">
+                      More
+                      <ChevronDown className="h-4 w-4" />
+                    </summary>
+                    <div className="absolute right-0 z-10 mt-1 w-48 rounded-lg border border-[#dbe7e1] bg-white p-1 shadow-lg">
+                      <button
+                        type="button"
+                        className="w-full rounded-md px-3 py-2 text-left text-sm font-medium text-[#31564a] hover:bg-[#edf7f2]"
+                        disabled={isBusy}
+                        onClick={() => openAdminDefinition(entry)}
+                      >
+                        Open editor
+                      </button>
+                      {entry.source === "saved" ? (
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-red-600 hover:bg-red-50 hover:text-red-700 disabled:cursor-wait disabled:opacity-60"
+                          disabled={isBusy}
+                          onClick={() => deleteLibraryDefinition(entry)}
+                        >
+                          {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                          Delete questionnaire
+                        </button>
+                      ) : null}
+                    </div>
+                  </details>
+                </div>
+              </article>
+            );
+          }) : (
+            <div className="px-6 py-16 text-center">
+              <FileText className="mx-auto h-9 w-9 text-[#8aa099]" />
+              <p className="mt-3 text-sm font-semibold text-[#17372e]">No matching questionnaires</p>
+              <p className="mt-1 text-xs text-[#71857d]">Try another search or status.</p>
+            </div>
+          )}
+        </section>
+
+        <p className="flex items-center gap-2 text-xs text-[#71857d]">
+          <Copy className="h-4 w-4" />
+          Need a similar questionnaire? Create a new questionnaire and choose an existing one as the starting point.
+        </p>
 
         {createDialogOpen ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#18352d]/35 p-4 backdrop-blur-[1px]" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreateDialogOpen(false); }}>
@@ -2430,7 +2584,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
             </div>
             <div className="flex flex-col-reverse gap-2 border-t border-[#e3eae6] px-6 py-5 sm:flex-row sm:justify-end sm:px-8">
               <Button type="button" variant="outline" className="border-[#d1ddd7] bg-white text-[#38564b]" onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
-              <Button type="button" className="bg-[#1f6654] text-white hover:bg-[#174f42]" disabled={isLoadingDefinition || (createMode === "copy" && !createSourceKey)} onClick={createQuestionnaireFromDialog}>
+              <Button type="button" className="bg-[#4F726B] text-white hover:bg-[#3d625a]" disabled={isLoadingDefinition || (createMode === "copy" && !createSourceKey)} onClick={createQuestionnaireFromDialog}>
                 {isLoadingDefinition ? <Loader2 className="animate-spin" /> : <Plus />}
                 Create questionnaire
               </Button>
@@ -2444,33 +2598,38 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
 
   if (adminView === "editor") {
     return (
-      <div className="-mx-4 -my-8 min-h-[calc(100vh-105px)] bg-[#f4f7f5] px-4 py-7 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
-        <div className="mx-auto max-w-[1450px] space-y-5">
-          <header className="flex flex-col gap-5">
-            <button type="button" className="inline-flex w-fit items-center gap-2 text-sm font-medium text-[#5d776d] hover:text-[#1f6654]" onClick={returnToQuestionnaireLibrary}>
-              <ArrowLeft className="h-4 w-4" />
-              All questionnaires
-            </button>
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-3">
-                  <h1 className="truncate text-3xl font-semibold tracking-tight text-[#17372e]">{definition?.title || "Questionnaire"}</h1>
-                  {definition ? <StatusBadge status={definition.status} /> : null}
-                  {isDirty ? <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">Draft changes</Badge> : null}
-                </div>
-                {definition ? (
-                  <p className="mt-2 flex items-center gap-2 text-sm text-[#6b8078]"><LockKeyhole className="h-4 w-4" />{definition.status === "active" ? "Live questionnaire. Saved changes apply to the Client Portal." : "Private draft. Clients cannot see it until you make it live."}</p>
-                ) : null}
+      <div className="space-y-6">
+        <header className="flex flex-col gap-5">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-fit cursor-pointer border-[#c7d8d0] bg-white text-[#38564b] shadow-sm transition-all hover:-translate-y-0.5 hover:border-[#7ea698] hover:bg-[#edf7f2] hover:text-[#17372e] hover:shadow-md"
+            onClick={returnToQuestionnaireLibrary}
+          >
+            <ArrowLeft className="h-4 w-4" />
+            All questionnaires
+          </Button>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="truncate text-2xl font-bold tracking-tight text-gray-900">{definition?.title || "Questionnaire"}</h1>
+                {definition ? <StatusBadge status={definition.status} /> : null}
+                {isDirty ? <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">Draft changes</Badge> : null}
               </div>
               {definition ? (
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" className="border-[#cfddd6] bg-white text-[#38564b]" disabled={isBusy} onClick={copyDefinitionAsTest}><Copy />Copy as test</Button>
-                  <Button type="button" className="bg-[#1f6654] text-white hover:bg-[#174f42]" disabled={isBusy || !isDirty} onClick={() => saveDefinition()}>{isSaving ? <Loader2 className="animate-spin" /> : <Save />}Save changes</Button>
-                  {definition.status === "draft" ? <Button type="button" className="bg-[#173f35] text-white hover:bg-[#102f28]" disabled={isBusy} onClick={() => saveDefinition("active")}><Send />Make live</Button> : null}
-                </div>
+                <p className="mt-2 flex items-center gap-2 text-sm text-[#71857d]"><LockKeyhole className="h-4 w-4" />{definition.status === "active" ? "Live questionnaire. Saved changes apply to the Client Portal." : "Private draft. Clients cannot see it until you make it live."}</p>
               ) : null}
             </div>
-          </header>
+            {definition ? (
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" className="border-[#cfddd6] bg-white text-[#38564b]" disabled={isBusy} onClick={copyDefinitionAsTest}><Copy />Copy as test</Button>
+                <Button type="button" className="bg-[#4F726B] text-white hover:bg-[#3d625a]" disabled={isBusy || !isDirty} onClick={() => saveDefinition()}>{isSaving ? <Loader2 className="animate-spin" /> : <Save />}Save changes</Button>
+                {definition.status === "draft" ? <Button type="button" className="bg-[#173f35] text-white hover:bg-[#102f28]" disabled={isBusy} onClick={() => saveDefinition("active")}><Send />Make live</Button> : null}
+              </div>
+            ) : null}
+          </div>
+        </header>
 
           {savedQuestionnairesError ? (
             <div role="alert" className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" /><span>{savedQuestionnairesError}</span></div>
@@ -2504,19 +2663,24 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                   </div>
                   <div className="border-y border-[#e5ebe8] px-3 py-3">
                     <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7b8e87]">Questionnaire sections</p>
-                    <div className="max-h-[calc(100vh-390px)] space-y-1 overflow-y-auto">
-                      {filteredPages.map((page) => (
-                        <button key={page.id} type="button" onClick={() => {
-                          setActivePageId(page.id);
-                          setActiveQuestionId(page.questions?.[0]?.id || "");
-                          setQuestionEditorOpen(false);
-                          setSectionSettingsOpen(false);
-                        }} className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left text-sm transition ${page.id === activePageId ? "bg-[#e5f1ea] font-semibold text-[#2b5f4d] ring-1 ring-[#add0bf]" : "text-[#587067] hover:bg-[#f2f7f4]"}`}>
-                          <span className="truncate">{page.title}</span>
-                          <span className="flex shrink-0 items-center gap-2 text-xs text-[#789087]"><span>{countQuestions(page.questions)}</span><ChevronRight className="h-4 w-4" /></span>
-                        </button>
+                    <div className="max-h-[calc(100vh-390px)] space-y-3 overflow-y-auto">
+                      {groupedPages.map((group) => (
+                        <div key={group.label} className="space-y-1">
+                          <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7b8e87]">{group.label}</p>
+                          {group.pages.map((page) => (
+                            <button key={page.id} type="button" onClick={() => {
+                              setActivePageId(page.id);
+                              setActiveQuestionId(page.questions?.[0]?.id || "");
+                              setQuestionEditorOpen(false);
+                              setSectionSettingsOpen(false);
+                            }} className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left text-sm transition ${page.id === activePageId ? "bg-[#e5f1ea] font-semibold text-[#2b5f4d] ring-1 ring-[#add0bf]" : "text-[#587067] hover:bg-[#f2f7f4]"}`}>
+                              <span className="truncate">{page.title}</span>
+                              <span className="flex shrink-0 items-center gap-2 text-xs text-[#789087]"><span>{countQuestions(page.questions)}</span><ChevronRight className="h-4 w-4" /></span>
+                            </button>
+                          ))}
+                        </div>
                       ))}
-                      {!filteredPages.length ? <p className="px-3 py-8 text-center text-xs leading-5 text-[#7a8e86]">{pageSearch ? "No matching sections." : "No sections yet."}</p> : null}
+                      {!groupedPages.length ? <p className="px-3 py-8 text-center text-xs leading-5 text-[#7a8e86]">{pageSearch ? "No matching sections." : "No sections yet."}</p> : null}
                     </div>
                   </div>
                   <div className="p-3">
@@ -2648,18 +2812,6 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                             </div>
                           ) : null}
 
-                          <details className="group rounded-xl border border-[#e1e9e5] bg-[#f8fbf9]">
-                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-[#38564b]"><span className="flex items-center gap-2"><Settings2 className="h-4 w-4" />Advanced question settings</span><ChevronRight className="h-4 w-4 transition group-open:rotate-90" /></summary>
-                            <div className="space-y-4 border-t border-[#e1e9e5] p-4">
-                              <div className="grid gap-4 md:grid-cols-2">
-                                <div className="space-y-2"><FieldLabel htmlFor="question-id" hint="machine key">Question ID</FieldLabel><Input id="question-id" className={`${inputClassName} font-mono`} value={activeQuestion.id} disabled={machineKeysLocked} onChange={(event) => updateQuestionField("id", event.target.value)} /></div>
-                                <div className="space-y-2"><FieldLabel htmlFor="question-key" hint="saved answer key">Answer key</FieldLabel><Input id="question-key" className={`${inputClassName} font-mono`} value={activeQuestion.answerKey} disabled={machineKeysLocked} onChange={(event) => updateQuestionField("answerKey", event.target.value)} /></div>
-                              </div>
-                              {showOptions ? activeQuestionOptions.map((option, optionIndex) => <div key={`stored-${option.value}-${optionIndex}`} className="grid gap-2 sm:grid-cols-[140px_minmax(0,1fr)]"><span className="flex items-center text-xs text-[#71857d]">Stored value {optionIndex + 1}</span><Input className={`${inputClassName} font-mono`} value={option.value} disabled={isBusy || activeQuestion.type === "yesNo"} onChange={(event) => updateOption(optionIndex, "value", event.target.value)} /></div>) : null}
-                              <QuestionCrmSyncPanel question={activeQuestion} disabled={isBusy} onChange={updateQuestionCrm} />
-                            </div>
-                          </details>
-
                           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#e6ece9] pt-5">
                             <Button type="button" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" disabled={isBusy} onClick={deleteQuestion}><Trash2 />Remove question</Button>
                             <div className="flex gap-2">
@@ -2757,7 +2909,6 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
             </fieldset>
           )}
         </div>
-      </div>
     );
   }
 

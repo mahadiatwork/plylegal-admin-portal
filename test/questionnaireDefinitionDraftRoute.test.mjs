@@ -89,7 +89,7 @@ const db = {
 globalThis.__questionnaireDraftRouteDependencies = {
   db,
   async getAdminSession() {
-    return { role: "admin" };
+    return { role: "super_admin", email: "admin@example.com" };
   },
 };
 

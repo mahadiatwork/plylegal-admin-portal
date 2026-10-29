@@ -6,25 +6,22 @@ import {
   createAdminSessionToken,
   getAdminSessionCookieOptions,
   sanitizeNextPath,
-  verifyAdminKey,
-  verifyAdminCredentials,
   isAdminLoginConfigured,
   verifyAdminSessionToken,
 } from "./adminSessionCore";
+import { isAdminRole } from "./adminRoles";
 
 export {
   ADMIN_SESSION_COOKIE,
   createAdminSessionToken,
   getAdminSessionCookieOptions,
   sanitizeNextPath,
-  verifyAdminKey,
-  verifyAdminCredentials,
   isAdminLoginConfigured,
   verifyAdminSessionToken,
 };
 
-export function setAdminSessionCookie(cookieStore) {
-  const token = createAdminSessionToken();
+export function setAdminSessionCookie(cookieStore, identity) {
+  const token = createAdminSessionToken(identity);
   cookieStore.set(ADMIN_SESSION_COOKIE, token, getAdminSessionCookieOptions());
   return token;
 }
@@ -49,4 +46,25 @@ export async function requireAdminSession(nextPath = DEFAULT_ADMIN_PATH) {
     redirect(`/login?next=${encodeURIComponent(sanitizeNextPath(nextPath))}`);
   }
   return session;
+}
+
+export async function requireAdminRole(allowedRoles, nextPath = DEFAULT_ADMIN_PATH) {
+  const session = await requireAdminSession(nextPath);
+  const roles = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
+  if (!roles.every(isAdminRole) || !roles.includes(session.role)) {
+    redirect("/");
+  }
+  return session;
+}
+
+export function publicAdminSession(session) {
+  if (!session) return null;
+  return {
+    uid: session.sub,
+    name: session.name,
+    email: session.email,
+    role: session.role,
+    provider: session.provider,
+    mustChangePassword: session.mustChangePassword,
+  };
 }

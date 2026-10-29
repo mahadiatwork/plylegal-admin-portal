@@ -137,12 +137,16 @@ export async function POST(request, { params }) {
 
     if (kind === "note") {
       const noteHtmlWasProvided = formData.has("noteHtml");
+      const noteTextWasProvided = formData.has("noteText");
+      const contentWasProvided = formData.has("content");
       const noteContent = buildNoteFields(
         noteHtmlWasProvided
           ? formData.get("noteHtml")
-          : formData.get("noteText") ||
-            formData.get("content") ||
-            formData.get("description"),
+          : noteTextWasProvided
+            ? formData.get("noteText")
+            : contentWasProvided
+              ? formData.get("content")
+              : formData.get("description"),
         { format: noteHtmlWasProvided ? "html" : "plain" }
       );
 
@@ -151,6 +155,7 @@ export async function POST(request, { params }) {
       }
 
       Object.assign(itemData, noteContent.fields);
+      itemData.description = description;
     }
 
     if (kind === "file") {

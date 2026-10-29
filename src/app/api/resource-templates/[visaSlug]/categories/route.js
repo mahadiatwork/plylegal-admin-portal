@@ -56,6 +56,11 @@ export async function PATCH(request, { params }) {
       visaSlugs: context.visaSlugs,
       name: typeof body?.name === "string" ? body.name : "",
       nextName: typeof body?.nextName === "string" ? body.nextName : "",
+      description: body?.description === undefined
+        ? undefined
+        : typeof body.description === "string"
+          ? body.description
+          : "",
       actor: context.actor,
       defaultCategories: DEFAULT_RESOURCE_TEMPLATE_CATEGORIES,
     });

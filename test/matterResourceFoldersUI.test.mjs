@@ -125,7 +125,6 @@ async function loadComponent(relativePath, overrides = {}) {
 
 const sidebarModule = await loadComponent("src/components/admin/ResourceFoldersSidebar.jsx");
 const Sidebar = sidebarModule.default;
-const FolderGrid = sidebarModule.ResourceFolderGrid;
 const templatesModule = await loadComponent("src/components/admin/AdminResourceTemplatesManager.jsx", {
   "@/components/admin/ResourceFoldersSidebar": sidebarModule,
 });
@@ -205,7 +204,10 @@ async function mountMatter(
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
   const calls = [];
-  globalThis.window = { prompt: () => "Renamed Guides", confirm: () => true };
+  globalThis.window = {
+    prompt: (message) => message.includes("description") ? "Folder guidance" : "Renamed Guides",
+    confirm: () => true,
+  };
   globalThis.fetch = async (url, options = {}) => {
     calls.push({ url, options });
     if (!options.method) {
@@ -306,8 +308,6 @@ const reorderButtons = (harness) => [...walk(harness.tree)].filter((node) =>
   node.type === "button" && node.props["aria-label"]?.startsWith("Reorder "));
 const displayedResourceNames = (harness) => reorderButtons(harness).map((node) =>
   node.props["aria-label"].slice("Reorder ".length));
-const folderGrid = (harness) => [...walk(harness.tree)].find((node) =>
-  node.type === FolderGrid);
 const folderCardLabels = (harness) => [...walk(harness.tree)]
   .filter((node) => node.type === "button" && node.props["aria-label"]?.startsWith("Open folder "))
   .map((node) => node.props["aria-label"]);
@@ -441,6 +441,12 @@ test("a new template folder is appended after an existing saved order", async (t
       assert.deepEqual(categories.map((category) => category.name),
         ["Guides", "Uncategorized", "Empty folder", "New folder"]);
       assert.deepEqual(categories.map((category) => category.order), [10, 20, 30, 40]);
+      assert.deepEqual(categories.at(-1), {
+        name: "New folder",
+        icon: "education",
+        description: "Training and qualification resources",
+        order: 40,
+      });
       const slug = url.split("/").at(-1);
       return response({ success: true, template: { ...definitions.find((item) => item.visaSlug === slug), categories } });
     },
@@ -448,7 +454,12 @@ test("a new template folder is appended after an existing saved order", async (t
   harness.button("New").props.onClick();
   harness.render();
   change(harness, "Folder name", "New folder");
+  change(harness, "new-folder-description", "Training and qualification resources");
+  harness.control("Education icon").props.onClick();
+  harness.render();
   await settleInteraction(harness, harness.button("Add").props.onClick());
+  assert.deepEqual(folderNames(harness), ["Guides", "Uncategorized", "Empty folder", "New folder"]);
+  change(harness, "Resource scope", "visa-alpha");
   assert.deepEqual(folderNames(harness), ["Guides", "Uncategorized", "Empty folder", "New folder"]);
   assert.equal(mutationCalls(calls).length, 1);
 });
@@ -569,47 +580,26 @@ test("a standalone catalog without global selects and mutates the first availabl
   assert.match(text(harness.tree), /1 resource scope could not be loaded\./);
 });
 
-test("template root shows folders before files and folder cards open the selected folder", async (t) => {
+test("template folders stay in the sidebar without duplicate folder cards", async (t) => {
   const { harness } = await mountTemplates(t);
   change(harness, "Resource scope", "visa-alpha");
 
-  assert.deepEqual(folderCardLabels(harness), [
-    "Open folder Guides, 1 resource",
-    "Open folder Empty folder, 0 resources",
-  ]);
+  assert.deepEqual(folderCardLabels(harness), []);
+  assert.deepEqual(folderNames(harness), ["Uncategorized", "Guides", "Empty folder"]);
   assert.equal(text(harness.find((node) => node.type === "h2" && text(node) === "Files")), "Files");
-
-  const renderedNodes = [...walk(harness.tree)];
-  const folderGridIndex = renderedNodes.findIndex((node) => node.type === FolderGrid);
-  const firstFileIndex = renderedNodes.findIndex((node) =>
-    node.props?.["aria-label"] === "Reorder Alpha first");
-  assert.ok(folderGridIndex >= 0 && folderGridIndex < firstFileIndex);
   assert.deepEqual(displayedResourceNames(harness), ["Alpha first", "Alpha second", "Alpha third"]);
-
-  harness.control("Open folder Guides, 1 resource").props.onClick();
-  harness.render();
-  assert.equal(folderGrid(harness), undefined);
+  selectFolder(harness, "Guides");
   assert.deepEqual(displayedResourceNames(harness), ["Alpha guide"]);
   const selectedHeading = harness.find((node) => node.type === "h2" && text(node) === "Guides");
   assert.equal(selectedHeading.props.tabIndex, -1);
 });
 
-test("matter root shows folder cards before its uncategorized files", async (t) => {
+test("matter folders stay in the sidebar without duplicate folder cards", async (t) => {
   const { harness } = await mountMatter(t);
 
-  assert.deepEqual(folderCardLabels(harness), [
-    "Open folder Guides, 2 resources",
-    "Open folder Empty folder, 0 resources",
-  ]);
-  const renderedNodes = [...walk(harness.tree)];
-  const folderGridIndex = renderedNodes.findIndex((node) => node.type === FolderGrid);
-  const firstFileIndex = renderedNodes.findIndex((node) =>
-    node.props?.["aria-label"] === "Reorder General note");
-  assert.ok(folderGridIndex >= 0 && folderGridIndex < firstFileIndex);
-
-  harness.control("Open folder Guides, 2 resources").props.onClick();
-  harness.render();
-  assert.equal(folderGrid(harness), undefined);
+  assert.deepEqual(folderCardLabels(harness), []);
+  assert.deepEqual(folderNames(harness), ["Uncategorized", "Guides", "Empty folder"]);
+  selectFolder(harness, "Guides");
   assert.deepEqual(displayedResourceNames(harness), ["Guide alpha", "Guide beta"]);
 });
 
@@ -630,12 +620,20 @@ test("empty matter folders remain visible, with their icon and zero count, and f
   assert.deepEqual(harness.sidebar().props.categories.map((item) => item.name), ["Empty folder"]);
 });
 
-test("creating a matter folder sends scoped name/icon metadata without discarding a resource draft", async (t) => {
+test("creating a matter folder sends scoped name, icon and optional description without discarding a resource draft", async (t) => {
   const { harness, calls } = await mountMatter(t, (url, options) => {
     assert.equal(url, "/api/matter/matter-123/resources/categories");
     assert.equal(options.method, "POST");
-    assert.deepEqual(JSON.parse(options.body), { name: "New guidance", icon: "scale" });
-    return response({ success: true, categories: [...categories, { name: "New guidance", icon: "scale" }], items: [] });
+    assert.deepEqual(JSON.parse(options.body), {
+      name: "New guidance",
+      icon: "government",
+      description: "Official information for your application",
+    });
+    return response({ success: true, categories: [...categories, {
+      name: "New guidance",
+      icon: "government",
+      description: "Official information for your application",
+    }], items: [] });
   });
   harness.button("Add resource").props.onClick();
   harness.render();
@@ -647,7 +645,8 @@ test("creating a matter folder sends scoped name/icon metadata without discardin
   harness.button("New folder").props.onClick();
   harness.render();
   change(harness, "Folder name", " New guidance ");
-  harness.control("Legal icon").props.onClick();
+  change(harness, "new-folder-description", " Official information for your application ");
+  harness.control("Government icon").props.onClick();
   harness.render();
   await harness.button("Add").props.onClick();
   harness.render();
@@ -668,6 +667,7 @@ for (const type of ["file", "note", "link"]) {
       assert.equal(options.body.get("type"), type);
       if (type === "file") assert.equal(options.body.get("file").name, "guide.pdf");
       if (type === "note") {
+        assert.equal(options.body.get("description"), "Short summary");
         assert.equal(options.body.get("noteText"), "Client note");
         assert.equal(options.body.get("noteHtml"), "<p>Client note</p>");
       }
@@ -685,7 +685,10 @@ for (const type of ["file", "note", "link"]) {
     if (type === "file") {
       harness.control("resource-file").props.onChange({ target: { files: [new File(["PDF"], "guide.pdf")] } });
       harness.render();
-    } else if (type === "note") change(harness, "resource-description", "Client note");
+    } else if (type === "note") {
+      change(harness, "resource-description", "Short summary");
+      change(harness, "resource-note", "Client note");
+    }
     else change(harness, "resource-url", "https://example.test/guide");
     await harness.control("Add matter resource").props.onSubmit({ preventDefault() {} });
     harness.render();
@@ -700,11 +703,11 @@ test("renaming and deleting a folder updates its resources without removing them
     assert.equal(url, "/api/matter/matter-123/resources/categories");
     const renaming = options.method === "PATCH";
     assert.deepEqual(JSON.parse(options.body), renaming
-      ? { name: "Guides", nextName: "Renamed Guides" }
+      ? { name: "Guides", nextName: "Renamed Guides", description: "Folder guidance" }
       : { name: "Renamed Guides" });
     return response({
       success: true,
-      categories: renaming ? [{ name: "Renamed Guides", icon: "guide" }, categories[1]] : [categories[1]],
+      categories: renaming ? [{ name: "Renamed Guides", icon: "guide", description: "Folder guidance" }, categories[1]] : [categories[1]],
       items: resources.slice(0, 2).map(({ id }) => ({ id, category: renaming ? "Renamed Guides" : "Uncategorized" })),
       updatedAt: "2026-09-16T00:00:00Z", updatedBy: "admin",
     });
@@ -776,6 +779,7 @@ test("adding a titleless note uses the selected visa scope without a second visa
       assert.equal(options.method, "POST");
       assert.equal(options.body.get("kind"), "note");
       assert.equal(options.body.get("name"), "");
+      assert.equal(options.body.get("description"), "Short summary");
       assert.equal(options.body.get("noteText"), "A note for this visa.");
       assert.equal(options.body.get("noteHtml"), "<p>A note for this visa.</p>");
       return response({ success: true, item: { id: "beta-note" } });
@@ -796,6 +800,7 @@ test("adding a titleless note uses the selected visa scope without a second visa
   kind.props.onChange({ target: { value: "note" } });
   harness.render();
   assert.ok(text(harness.tree).includes("Title (optional)"));
+  change(harness, "resource-description", "Short summary");
   change(harness, "resource-note", "A note for this visa.");
   await settleInteraction(harness, harness.find((node) => node.type === "form").props.onSubmit({ preventDefault() {} }));
   assert.equal(mutationCalls(calls).length, 1);

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 export default function AdminLoginForm({ nextPath }) {
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -21,7 +21,7 @@ export default function AdminLoginForm({ nextPath }) {
       const response = await fetch("/api/admin/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password, next: nextPath }),
+        body: JSON.stringify({ email, password, next: nextPath }),
       });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || "Unable to sign in.");
@@ -58,9 +58,9 @@ export default function AdminLoginForm({ nextPath }) {
         <p className="mt-3 text-sm leading-6 text-gray-600">Sign in to manage questionnaires, client resources and matters.</p>
         <form onSubmit={handleSubmit} className="mt-8 space-y-5">
           <div className="space-y-2">
-            <label htmlFor="username" className="text-sm font-medium text-gray-800">Username</label>
-            <Input id="username" name="username" autoComplete="username" required maxLength={200}
-              value={username} onChange={(event) => setUsername(event.target.value)} className="h-12" />
+            <label htmlFor="email" className="text-sm font-medium text-gray-800">Email</label>
+            <Input id="email" name="email" type="email" autoComplete="email" required maxLength={254}
+              value={email} onChange={(event) => setEmail(event.target.value)} className="h-12" />
           </div>
           <div className="space-y-2">
             <label htmlFor="password" className="text-sm font-medium text-gray-800">Password</label>

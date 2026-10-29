@@ -41,6 +41,11 @@ async function mutateCategory(request, params, mutate, fallback) {
       name: typeof body?.name === "string" ? body.name : "",
       nextName: typeof body?.nextName === "string" ? body.nextName : "",
       icon: body?.icon === undefined ? "folder" : body.icon,
+      description: body?.description === undefined
+        ? undefined
+        : typeof body.description === "string"
+          ? body.description
+          : "",
       source,
       actor: session.role || "admin",
     });

@@ -3,20 +3,27 @@ import crypto from "node:crypto";
 import test from "node:test";
 
 process.env.SESSION_SECRET = "test-session-secret-with-sufficient-entropy";
-process.env.PORTAL_ADMIN_KEY = "test-admin-key";
-delete process.env.PORTAL_ADMIN_PASSWORD;
-delete process.env.PORTAL_ADMIN_USERNAME;
+process.env.NEXT_PUBLIC_FIREBASE_API_KEY = "test-firebase-api-key";
+process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID = "test-firebase-project";
 
 const {
   ADMIN_SESSION_COOKIE,
   createAdminSessionToken,
   getAdminSessionCookieOptions,
   sanitizeNextPath,
-  verifyAdminKey,
-  verifyAdminCredentials,
   isAdminLoginConfigured,
   verifyAdminSessionToken,
 } = await import("./adminSessionCore.js");
+const { ADMIN_ROLES, canAccessQuestionnaireBuilder, canManageAdminUsers } = await import("./adminRoles.js");
+
+const superAdminIdentity = {
+  uid: "firebase-super-admin",
+  name: "Super Admin",
+  email: "admin@example.com",
+  role: ADMIN_ROLES.SUPER_ADMIN,
+  provider: "firebase",
+  mustChangePassword: false,
+};
 
 function signedToken(payload) {
   const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
@@ -28,15 +35,39 @@ function signedToken(payload) {
 }
 
 test("creates and verifies a signed admin session", () => {
-  const token = createAdminSessionToken();
+  const token = createAdminSessionToken(superAdminIdentity);
   const session = verifyAdminSessionToken(token);
-  assert.equal(session.role, "admin");
+  assert.equal(session.role, ADMIN_ROLES.SUPER_ADMIN);
+  assert.equal(session.sub, "firebase-super-admin");
+  assert.equal(session.name, "Super Admin");
+  assert.equal(session.email, "admin@example.com");
+  assert.equal(session.provider, "firebase");
+  assert.equal(session.mustChangePassword, false);
   assert.ok(session.exp > session.iat);
   assert.equal(ADMIN_SESSION_COOKIE, "vp_admin_session");
 });
 
+test("creates role-aware Firebase staff sessions", () => {
+  const session = verifyAdminSessionToken(createAdminSessionToken({
+    uid: "firebase-user-1",
+    name: "Sam Support",
+    email: "SAM@example.com",
+    role: ADMIN_ROLES.SALES_SUPPORT,
+    provider: "firebase",
+    mustChangePassword: true,
+  }));
+  assert.equal(session.sub, "firebase-user-1");
+  assert.equal(session.email, "sam@example.com");
+  assert.equal(session.role, ADMIN_ROLES.SALES_SUPPORT);
+  assert.equal(session.mustChangePassword, true);
+  assert.equal(canAccessQuestionnaireBuilder(session.role), false);
+  assert.equal(canManageAdminUsers(session.role), false);
+  assert.equal(canAccessQuestionnaireBuilder(ADMIN_ROLES.SUPER_ADMIN), true);
+  assert.equal(canManageAdminUsers(ADMIN_ROLES.SUPER_ADMIN), true);
+});
+
 test("rejects tampered, expired, malformed, and extra-part tokens", () => {
-  const token = createAdminSessionToken();
+  const token = createAdminSessionToken(superAdminIdentity);
   const [payload, signature] = token.split(".");
   const replacement = signature.endsWith("a") ? "b" : "a";
   assert.equal(verifyAdminSessionToken(`${payload}.${signature.slice(0, -1)}${replacement}`), null);
@@ -44,22 +75,22 @@ test("rejects tampered, expired, malformed, and extra-part tokens", () => {
   assert.equal(verifyAdminSessionToken("not-a-token"), null);
   assert.equal(
     verifyAdminSessionToken(
-      signedToken({ role: "admin", sub: "admin", iat: 1, exp: Math.floor(Date.now() / 1000) - 1 })
+      signedToken({ role: "admin", sub: "firebase-user", name: "Admin", email: "admin@example.com", provider: "firebase", mustChangePassword: false, iat: 1, exp: Math.floor(Date.now() / 1000) - 1 })
     ),
     null
   );
   assert.equal(
     verifyAdminSessionToken(
-      signedToken({ role: "viewer", sub: "admin", iat: 1, exp: Math.floor(Date.now() / 1000) + 60 })
+      signedToken({ role: "viewer", sub: "firebase-user", name: "Viewer", email: "viewer@example.com", provider: "firebase", mustChangePassword: false, iat: 1, exp: Math.floor(Date.now() / 1000) + 60 })
     ),
     null
   );
 });
 
-test("validates admin keys using exact values after outer whitespace", () => {
-  assert.equal(verifyAdminKey(" test-admin-key "), true);
-  assert.equal(verifyAdminKey("test-admin-key-wrong"), false);
-  assert.equal(verifyAdminKey(null), false);
+test("rejects non-Firebase and incomplete identities", () => {
+  assert.throws(() => createAdminSessionToken(), /valid admin identity/);
+  assert.throws(() => createAdminSessionToken({ ...superAdminIdentity, provider: "legacy" }), /valid admin identity/);
+  assert.throws(() => createAdminSessionToken({ ...superAdminIdentity, uid: "" }), /valid admin identity/);
 });
 
 test("sanitizes redirect targets and emits secure cookie options", () => {
@@ -78,19 +109,21 @@ test("sanitizes redirect targets and emits secure cookie options", () => {
   assert.equal(options.maxAge, 43_200);
 });
 
-test("username and password are both required, and configured password supersedes the old key", () => {
-  assert.equal(verifyAdminCredentials("admin", "test-admin-key"), true);
-  assert.equal(verifyAdminCredentials("wrong", "test-admin-key"), false);
-  assert.equal(verifyAdminCredentials("admin", " test-admin-key "), false);
-  process.env.PORTAL_ADMIN_USERNAME = "demo.admin";
-  process.env.PORTAL_ADMIN_PASSWORD = "test-password";
+test("login configuration requires Firebase and ignores legacy account variables", () => {
+  assert.equal(isAdminLoginConfigured(), true);
+  const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+  process.env.PORTAL_ADMIN_USERNAME = "legacy-admin";
+  process.env.PORTAL_ADMIN_PASSWORD = "legacy-password";
   try {
-    assert.equal(isAdminLoginConfigured(), true);
-    assert.equal(verifyAdminCredentials("demo.admin", "test-password"), true);
-    assert.equal(verifyAdminCredentials("admin", "test-password"), false);
-    assert.equal(verifyAdminCredentials("demo.admin", "test-admin-key"), false);
-    assert.equal(verifyAdminSessionToken(createAdminSessionToken()).sub, "demo.admin");
+    delete process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+    assert.equal(isAdminLoginConfigured(), false);
+    process.env.NEXT_PUBLIC_FIREBASE_API_KEY = apiKey;
+    delete process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+    assert.equal(isAdminLoginConfigured(), false);
   } finally {
+    process.env.NEXT_PUBLIC_FIREBASE_API_KEY = apiKey;
+    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID = projectId;
     delete process.env.PORTAL_ADMIN_USERNAME;
     delete process.env.PORTAL_ADMIN_PASSWORD;
   }
@@ -102,7 +135,7 @@ test("missing configuration cannot create demo or forged sessions", () => {
   try {
     assert.equal(isAdminLoginConfigured(), false);
     assert.equal(verifyAdminSessionToken("payload.signature"), null);
-    assert.throws(() => createAdminSessionToken(), /SESSION_SECRET/);
+    assert.throws(() => createAdminSessionToken(superAdminIdentity), /SESSION_SECRET/);
   } finally {
     process.env.SESSION_SECRET = secret;
   }

@@ -442,10 +442,16 @@ export async function POST(request, { params }) {
     }
 
     if (type === "note") {
+      const noteTextWasProvided = formData.has("noteText");
+      const contentWasProvided = formData.has("content");
       const noteContent = buildNoteFields(
         noteHtmlWasProvided
           ? formData.get("noteHtml")
-          : formData.get("noteText") || formData.get("content") || descriptionInput,
+          : noteTextWasProvided
+            ? formData.get("noteText")
+            : contentWasProvided
+              ? formData.get("content")
+              : descriptionInput,
         { format: noteHtmlWasProvided ? "html" : "plain" }
       );
       if (!noteContent.valid) {
@@ -455,7 +461,7 @@ export async function POST(request, { params }) {
       const resourceData = {
         type: "note",
         title: titleInput,
-        description: noteContent.noteText,
+        description,
         ...noteContent.fields,
         status: "active",
         createdAt: now,

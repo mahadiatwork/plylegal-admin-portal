@@ -5,26 +5,51 @@ import * as sessions from "../src/lib/adminSessionCore.js";
 import * as protection from "../src/lib/adminLoginProtection.js";
 
 process.env.SESSION_SECRET = "login-test-secret-not-used-outside-tests";
-process.env.PORTAL_ADMIN_USERNAME = "demo.admin";
-process.env.PORTAL_ADMIN_PASSWORD = "test-password";
+process.env.NEXT_PUBLIC_FIREBASE_API_KEY = "test-firebase-api-key";
+process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID = "test-firebase-project";
 delete process.env.VERCEL;
 let token = null;
 let cookieOptions;
+const firebaseUser = {
+  uid: "firebase-login-user",
+  name: "Demo Admin",
+  email: "demo.admin@example.com",
+  role: "super_admin",
+  provider: "firebase",
+  mustChangePassword: false,
+};
 globalThis.__loginTestSession = {
   ...sessions,
   getAdminSession: async () => sessions.verifyAdminSessionToken(token),
-  setAdminSessionCookie: () => {
-    token = sessions.createAdminSessionToken();
+  publicAdminSession: (session) => session ? ({
+    uid: session.sub,
+    name: session.name,
+    email: session.email,
+    role: session.role,
+    provider: session.provider,
+    mustChangePassword: session.mustChangePassword,
+  }) : null,
+  setAdminSessionCookie: (_cookieStore, identity) => {
+    token = sessions.createAdminSessionToken(identity);
     cookieOptions = sessions.getAdminSessionCookieOptions();
   },
   clearAdminSessionCookie: () => { token = null; },
 };
+globalThis.__loginTestIdentity = { firebaseUser };
 const mocks = {
   "next/server": "export const NextResponse = Response;",
   "next/headers": "export const cookies = async () => ({});",
   "@/lib/adminLoginProtection": `export { clearLoginAttempts, consumeLoginAttempt, isSameOriginRequest, loginAttemptKey } from ${JSON.stringify(new URL("../src/lib/adminLoginProtection.js", import.meta.url).href)};`,
   "@/lib/adminSession": `const session = globalThis.__loginTestSession;
-    export const {clearAdminSessionCookie, getAdminSession, isAdminLoginConfigured, sanitizeNextPath, setAdminSessionCookie, verifyAdminCredentials} = session;`,
+    export const {clearAdminSessionCookie, getAdminSession, isAdminLoginConfigured, publicAdminSession, sanitizeNextPath, setAdminSessionCookie} = session;`,
+  "@/lib/adminIdentity": `const identity = globalThis.__loginTestIdentity;
+    export class AdminIdentityError extends Error {
+      constructor(message, status = 400, code = "ADMIN_IDENTITY_ERROR") { super(message); this.status = status; this.code = code; }
+    }
+    export async function authenticateAdminIdentity(email, password) {
+      if (email === identity.firebaseUser.email && password === "test-password") return identity.firebaseUser;
+      throw new AdminIdentityError("The email or password is incorrect.", 401, "INVALID_CREDENTIALS");
+    }`,
 };
 const hooks = registerHooks({
   resolve(specifier, context, next) {
@@ -36,6 +61,7 @@ const hooks = registerHooks({
 const route = await import("../src/app/api/admin/session/route.js");
 hooks.deregister();
 delete globalThis.__loginTestSession;
+delete globalThis.__loginTestIdentity;
 
 function request(body, origin = "https://portal.test") {
   return new Request("https://portal.test/api/admin/session", {
@@ -43,12 +69,12 @@ function request(body, origin = "https://portal.test") {
   });
 }
 
-test("login rejects incomplete, wrong and key-only credentials without creating a cookie", async () => {
+test("login rejects incomplete and wrong Firebase credentials without creating a cookie", async () => {
   protection.clearLoginAttempts("local");
   for (const body of [
     { key: "test-password" },
-    { username: "demo.admin", password: "wrong" },
-    { username: "wrong", password: "test-password" },
+    { email: "demo.admin@example.com", password: "wrong" },
+    { email: "wrong@example.com", password: "test-password" },
   ]) {
     const response = await route.POST(request(body));
     assert.ok([400, 401].includes(response.status));
@@ -57,7 +83,7 @@ test("login rejects incomplete, wrong and key-only credentials without creating 
 });
 
 test("login sets a signed private cookie, preserves deep links, and logout clears it", async () => {
-  const response = await route.POST(request({ username: "demo.admin", password: "test-password", next: "/matter/123/resources" }));
+  const response = await route.POST(request({ email: "demo.admin@example.com", password: "test-password", next: "/matter/123/resources" }));
   assert.equal(response.status, 200);
   assert.equal((await response.json()).nextPath, "/matter/123/resources");
   assert.equal(cookieOptions.httpOnly, true);
@@ -70,7 +96,7 @@ test("login sets a signed private cookie, preserves deep links, and logout clear
 });
 
 test("login/logout reject cross-origin requests even with valid credentials", async () => {
-  const login = await route.POST(request({ username: "demo.admin", password: "test-password" }, "https://attacker.test"));
+  const login = await route.POST(request({ email: "demo.admin@example.com", password: "test-password" }, "https://attacker.test"));
   assert.equal(login.status, 403);
   assert.equal(token, null);
   const logout = await route.DELETE(new Request("https://portal.test/api/admin/session", {
@@ -85,9 +111,9 @@ test("login/logout reject cross-origin requests even with valid credentials", as
 test("failed attempts are throttled and expiry allows another attempt", async () => {
   protection.clearLoginAttempts("local");
   for (let i = 0; i < 8; i++) {
-    assert.equal((await route.POST(request({ username: "demo.admin", password: "wrong" }))).status, 401);
+    assert.equal((await route.POST(request({ email: "demo.admin@example.com", password: "wrong" }))).status, 401);
   }
-  const throttled = await route.POST(request({ username: "demo.admin", password: "test-password" }));
+  const throttled = await route.POST(request({ email: "demo.admin@example.com", password: "test-password" }));
   assert.equal(throttled.status, 429);
   assert.ok(Number(throttled.headers.get("Retry-After")) > 0);
   protection.clearLoginAttempts("local");
@@ -100,7 +126,7 @@ test("missing production configuration fails closed without leaking server secre
   const secret = process.env.SESSION_SECRET;
   delete process.env.SESSION_SECRET;
   try {
-    const response = await route.POST(request({ username: "demo.admin", password: "test-password" }));
+    const response = await route.POST(request({ email: "demo.admin@example.com", password: "test-password" }));
     assert.equal(response.status, 503);
     assert.equal(token, null);
   } finally { process.env.SESSION_SECRET = secret; }

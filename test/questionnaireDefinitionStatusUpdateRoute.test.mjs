@@ -90,7 +90,7 @@ const db = {
 globalThis.__questionnaireStatusUpdateDependencies = {
   db,
   async getAdminSession() {
-    return { role: "admin" };
+    return { role: "super_admin", email: "admin@example.com" };
   },
 };
 

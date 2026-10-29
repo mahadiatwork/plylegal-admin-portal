@@ -28,7 +28,6 @@ import {
 import MatterTabLoadingState from "@/components/matter/MatterTabLoadingState";
 import ResourceFoldersSidebar, {
   categoryIconOptions,
-  ResourceFolderGrid,
 } from "@/components/admin/ResourceFoldersSidebar";
 
 const GLOBAL_SCOPE = "global";
@@ -125,6 +124,7 @@ function normalizeCategoryMetadata(value) {
     icon: categoryIconOptions.some((option) => option.value === value?.icon)
       ? value.icon
       : "folder",
+    ...(cleanText(value?.description) ? { description: cleanText(value.description) } : {}),
     ...(value?.order !== undefined && value?.order !== null && String(value.order).trim() !== "" && Number.isFinite(Number(value.order))
       ? { order: Number(value.order) }
       : {}),
@@ -200,6 +200,7 @@ export default function AdminResourceTemplatesManager({
   const [categorySearchQuery, setCategorySearchQuery] = useState("");
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryIcon, setNewCategoryIcon] = useState("folder");
+  const [newCategoryDescription, setNewCategoryDescription] = useState("");
   const [showNewCategory, setShowNewCategory] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [files, setFiles] = useState([]);
@@ -295,8 +296,12 @@ export default function AdminResourceTemplatesManager({
   }, [resourceItems, selectedScope]);
 
   const categories = useMemo(() => {
-    const sourceTemplates = templates.filter(
-      (template) => template.visaSlug === selectedScope
+    const sourceTemplates = templates.filter((template) =>
+      template.visaSlug === selectedScope || (
+        selectedScope !== GLOBAL_SCOPE &&
+        template.visaSlug === GLOBAL_SCOPE &&
+        !failedTemplateSlugSet.has(GLOBAL_SCOPE)
+      )
     );
     const templateCategories = sourceTemplates.flatMap((template) =>
       Array.isArray(template.categories) ? template.categories : []
@@ -315,7 +320,7 @@ export default function AdminResourceTemplatesManager({
     const positions = new Map(folderOrderOverride.map((name, index) => [categoryKey(name), index]));
     return merged.sort((a, b) => (positions.get(categoryKey(a.name)) ?? Infinity) -
       (positions.get(categoryKey(b.name)) ?? Infinity));
-  }, [templates, visaScopedItems, folderOrderOverride, selectedScope]);
+  }, [templates, visaScopedItems, folderOrderOverride, selectedScope, failedTemplateSlugSet]);
 
   const visibleCategories = useMemo(() => {
     const query = categorySearchQuery.trim().toLowerCase();
@@ -622,7 +627,11 @@ export default function AdminResourceTemplatesManager({
       return;
     }
 
-    const categoryMeta = { name: category, icon: newCategoryIcon };
+    const categoryMeta = {
+      name: category,
+      icon: newCategoryIcon,
+      ...(cleanText(newCategoryDescription) ? { description: cleanText(newCategoryDescription) } : {}),
+    };
     const displayedOrder = new Map(categories.map((item, index) => [categoryKey(item.name), (index + 1) * 10]));
     const targetSlugs = isActiveTemplateAvailable ? [selectedScope] : [];
 
@@ -675,6 +684,7 @@ export default function AdminResourceTemplatesManager({
       setActiveCategory(category);
       setNewCategoryName("");
       setNewCategoryIcon("folder");
+      setNewCategoryDescription("");
       setShowNewCategory(false);
       setForm((current) => ({ ...current, category }));
       setMessage("Folder created.");
@@ -688,11 +698,18 @@ export default function AdminResourceTemplatesManager({
   const handleRenameCategory = async (category) => {
     if (!isActiveTemplateAvailable) return;
     if (category.name.toLowerCase() === "uncategorized") return;
-    const nextName = window.prompt("Rename folder", category.name);
+    const nextName = window.prompt("Folder name", category.name);
     if (nextName === null) return;
 
     const replacementName = cleanText(nextName);
-    if (!replacementName || replacementName === category.name) return;
+    if (!replacementName) return;
+    const nextDescription = window.prompt(
+      "Folder description (optional)",
+      category.description || "",
+    );
+    if (nextDescription === null) return;
+    const replacementDescription = cleanText(nextDescription);
+    if (replacementName === category.name && replacementDescription === cleanText(category.description)) return;
 
     const scope = templateBySlug[selectedScope]?.title || selectedScope;
 
@@ -704,7 +721,11 @@ export default function AdminResourceTemplatesManager({
       const response = await fetch(`/api/resource-templates/${selectedScope}/categories`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: category.name, nextName: replacementName }),
+        body: JSON.stringify({
+          name: category.name,
+          nextName: replacementName,
+          description: replacementDescription,
+        }),
       });
       const data = await response.json();
       if (!response.ok || !data.success) {
@@ -737,7 +758,7 @@ export default function AdminResourceTemplatesManager({
           : current
       );
       setMessage(
-        `Folder renamed in ${scope}. ${data.renamedResourceCount} resource${data.renamedResourceCount === 1 ? "" : "s"} updated.`
+        `Folder updated in ${scope}. ${data.renamedResourceCount} resource${data.renamedResourceCount === 1 ? "" : "s"} updated.`
       );
     } catch (categoryError) {
       setError(categoryError.message);
@@ -858,9 +879,7 @@ export default function AdminResourceTemplatesManager({
         if (editingItem.kind === "link") {
           payload.externalUrl = form.externalUrl;
         }
-        if (editingItem.kind === "file" || editingItem.kind === "link") {
-          payload.description = form.description;
-        }
+        payload.description = form.description;
         if (editingItem.kind === "note") {
           payload.noteText = form.noteText;
           payload.noteHtml = form.noteHtml;
@@ -933,9 +952,7 @@ export default function AdminResourceTemplatesManager({
         payload.append("order", form.order);
         payload.append("status", form.status);
         payload.append("externalUrl", form.externalUrl);
-        if (form.kind === "link") {
-          payload.append("description", form.description);
-        }
+        payload.append("description", form.description);
         payload.append("noteText", form.noteText);
         payload.append("noteHtml", form.noteHtml);
 
@@ -1288,13 +1305,16 @@ export default function AdminResourceTemplatesManager({
           showNewCategory={showNewCategory}
           newCategoryName={newCategoryName}
           newCategoryIcon={newCategoryIcon}
+          newCategoryDescription={newCategoryDescription}
           onNewCategoryNameChange={setNewCategoryName}
           onNewCategoryIconChange={setNewCategoryIcon}
+          onNewCategoryDescriptionChange={setNewCategoryDescription}
           onToggleNewCategory={() => setShowNewCategory((current) => !current)}
           onCancelNewCategory={() => {
             setShowNewCategory(false);
             setNewCategoryName("");
             setNewCategoryIcon("folder");
+            setNewCategoryDescription("");
           }}
           onNewCategory={handleNewCategory}
           isLoading={isLoading || !isActiveTemplateAvailable}
@@ -1313,15 +1333,6 @@ export default function AdminResourceTemplatesManager({
         />
 
         <div className="min-w-0 space-y-5">
-          {isRootCategory ? (
-            <ResourceFolderGrid
-              categories={visibleCategories}
-              categoryCounts={categoryCounts}
-              onSelectCategory={handleSelectCategory}
-              disabled={categoryMutationActive || isReordering || isReorderingFolders}
-            />
-          ) : null}
-
           {showResourceForm ? (
             <section className="rounded-lg border border-[#dbe7e1] bg-white p-5 shadow-sm">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1431,23 +1442,21 @@ export default function AdminResourceTemplatesManager({
                   </div>
                 ) : null}
 
-                {form.kind === "file" || form.kind === "link" ? (
-                  <div className="space-y-2">
-                    <label htmlFor="resource-description" className="text-sm font-medium text-[#224238]">Description</label>
-                    <Textarea
-                      id="resource-description"
-                      value={form.description}
-                      onChange={(event) => updateFormField("description", event.target.value)}
-                      placeholder="Optional note shown with this resource (for example, Use Code 33)."
-                      rows={3}
-                      className="border-[#d7e4de] bg-white"
-                    />
-                  </div>
-                ) : null}
+                <div className="space-y-2">
+                  <label htmlFor="resource-description" className="text-sm font-medium text-[#224238]">Description (optional)</label>
+                  <Textarea
+                    id="resource-description"
+                    value={form.description}
+                    onChange={(event) => updateFormField("description", event.target.value)}
+                    placeholder="Short description shown with this resource."
+                    rows={3}
+                    className="border-[#d7e4de] bg-white"
+                  />
+                </div>
 
                 {form.kind === "note" ? (
                   <div className="space-y-2">
-                    <label id="resource-note-label" htmlFor="resource-note" className="text-sm font-medium text-[#224238]">Note</label>
+                    <label id="resource-note-label" htmlFor="resource-note" className="text-sm font-medium text-[#224238]">Note content</label>
                     <RichTextEditor
                       key={editingItem ? `${editingItem.visaSlug}:${editingItem.id}` : "new-note"}
                       id="resource-note"
@@ -1589,6 +1598,11 @@ export default function AdminResourceTemplatesManager({
                           <p className="truncate font-semibold text-[#17372e]">
                             {item.name || item.fileName || "Untitled resource"}
                           </p>
+                          {item.description ? (
+                            <p className="mt-1 line-clamp-2 text-xs leading-4 text-[#71857d]">
+                              {item.description}
+                            </p>
+                          ) : null}
                         </div>
                         {item.deletionPending ? (
                           <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">

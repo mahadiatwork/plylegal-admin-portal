@@ -47,7 +47,7 @@ const icons = new Proxy({ __esModule: true }, {
   get: (target, name) => name in target ? target[name] : () => null,
 });
 
-function makeDefinition({ id, title, visaType, visaContexts = [], updatedAt }) {
+function makeDefinition({ id, title, visaType, visaContexts = [], updatedAt, status = "active" }) {
   return {
     schemaVersion: 1,
     id,
@@ -55,7 +55,7 @@ function makeDefinition({ id, title, visaType, visaContexts = [], updatedAt }) {
     version: "1.0.0",
     visaType,
     visaContexts,
-    status: "active",
+    status,
     revision: 0,
     ...(updatedAt ? { updatedAt } : {}),
     pages: [
@@ -133,13 +133,38 @@ async function loadComponent(relativePath) {
       return { getRegisteredQuestionnaireRoutes: () => [] };
     }
     if (specifier === "@/lib/questionnaireStarterTemplates") {
-      return { temporaryWork482Definition: builtIns[0] };
+      return {
+        temporaryWork482Definition: {
+          ...builtIns[0],
+          id: "legacy-built-in-482",
+          title: "Skills in Demand Visa Questionnaire",
+        },
+      };
     }
     if (specifier === "@/lib/questionnaireBuiltIns") {
       return { questionnaireBuiltInTemplates: builtIns };
     }
     if (specifier === "@/lib/questionnaireLegacyProtection") {
       return { hydrateLegacyQuestionnaireDefinition: (definition) => definition };
+    }
+    if (specifier === "@/lib/crmFieldCatalog") {
+      return {
+        CRM_CLEAR_POLICIES: { preserve_when_empty: "preserve_when_empty" },
+        CRM_MAPPING_MODES: {
+          unconfigured: "unconfigured",
+          portal_only: "portal_only",
+          field: "field",
+        },
+        compatibleTransformsFor: () => [],
+        listCrmCatalogFields: () => [],
+        moduleForCrmTarget: () => "",
+      };
+    }
+    if (specifier === "@/lib/questionnaireCrmContract") {
+      return {
+        getCrmCoverageSummary: () => ({ mapped: 0, portalOnly: 0, unconfigured: 0 }),
+        normalizeCrmMapping: () => null,
+      };
     }
     return require(specifier);
   };
@@ -205,7 +230,110 @@ const jsonResponse = (body, status = 200) => ({
   text: async () => JSON.stringify(body),
 });
 
-test("embedded builder shows four visa slots, replaces built-ins with saved definitions, and opens the matter audience", async (t) => {
+test("admin library hides starter templates for saved audiences and never labels a template live", async (t) => {
+  const saved482 = makeDefinition({
+    id: "saved-482",
+    title: "Saved Skills in Demand",
+    visaType: "temporary-work",
+    visaContexts: ["482"],
+  });
+  const savedPartner = makeDefinition({
+    id: "saved-partner",
+    title: "Saved Partner Visa",
+    visaType: "partner",
+  });
+  const partnerDraft = makeDefinition({
+    id: "partner-draft",
+    title: "Partner Visa test copy",
+    visaType: "partner",
+    status: "draft",
+  });
+  const savedProtection = makeDefinition({
+    id: "saved-protection",
+    title: "Saved Protection Visa",
+    visaType: "protection",
+  });
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  const calls = [];
+  const confirmations = [];
+  globalThis.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    confirm: (message) => {
+      confirmations.push(message);
+      return true;
+    },
+  };
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, options });
+    if (url === "/api/questionnaire-definitions" && !options.method) {
+      return jsonResponse({
+        definitions: [saved482, savedPartner, partnerDraft, savedProtection],
+      });
+    }
+    if (url === "/api/questionnaire-definitions/saved-482?revision=0" && options.method === "DELETE") {
+      return jsonResponse({ deletedId: saved482.id });
+    }
+    assert.fail(`Unexpected request: ${options.method || "GET"} ${url}`);
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    globalThis.window = originalWindow;
+  });
+
+  const harness = createHarness(AdminQuestionnaireBuilder);
+  harness.render();
+  await settle(harness);
+  const pageText = text(harness.tree);
+  const statusLabels = harness.nodes()
+    .filter((node) => node.type === "span")
+    .map((node) => text(node))
+    .filter((label) => ["Live", "Template", "Not published"].includes(label));
+
+  assert.equal(pageText.includes("Skills in Demand Visa (482)Built-in starter template"), false);
+  assert.equal(pageText.includes("Skills in Demand Visa Questionnaire"), false);
+  assert.equal(pageText.includes("Partner Visa (Subclass 820)Built-in starter template"), false);
+  assert.equal(pageText.includes("Protection Visa (Subclass 866)Built-in starter template"), false);
+  assert.equal(pageText.includes("Employer Nomination Visa (186)Built-in starter template"), true);
+  assert.equal(statusLabels.filter((label) => label === "Live").length, 3);
+  assert.equal(statusLabels.filter((label) => label === "Template").length, 1);
+  assert.equal(statusLabels.filter((label) => label === "Not published").length, 1);
+
+  const saved482Row = harness.nodes().find((node) =>
+    node.type === "article" && text(node).includes(saved482.title)
+  );
+  const builtIn186Row = harness.nodes().find((node) =>
+    node.type === "article" && text(node).includes("Employer Nomination Visa (186)")
+  );
+  assert.ok(saved482Row, "the saved questionnaire should be listed");
+  assert.ok(builtIn186Row, "the built-in template should be listed");
+  const savedDeleteButton = [...walk(saved482Row)].find((node) =>
+    node.type === "button" && text(node).includes("Delete questionnaire")
+  );
+  const builtInDeleteButton = [...walk(builtIn186Row)].find((node) =>
+    node.type === "button" && text(node).includes("Delete questionnaire")
+  );
+  assert.ok(savedDeleteButton, "saved questionnaires should have a delete action in More");
+  assert.equal(builtInDeleteButton, undefined, "built-in templates must not have a delete action");
+
+  const deleteResult = savedDeleteButton.props.onClick();
+  if (deleteResult && typeof deleteResult.then === "function") await deleteResult;
+  await settle(harness);
+
+  assert.equal(confirmations.length, 1);
+  assert.match(confirmations[0], /Saved client answers are not deleted/);
+  assert.ok(
+    calls.some(({ url, options }) =>
+      url === "/api/questionnaire-definitions/saved-482?revision=0" && options.method === "DELETE"
+    ),
+    "deleting from More should call the secured questionnaire delete endpoint",
+  );
+  assert.equal(text(harness.tree).includes(saved482.title), false);
+  assert.equal(text(harness.tree).includes("Skills in Demand Visa (482)Built-in starter template"), true);
+});
+
+test("embedded library replaces starter rows with the newest saved questionnaire", async (t) => {
   const saved482Old = makeDefinition({
     id: "saved-482-old",
     title: "Skills in Demand Visa (482)",
@@ -259,37 +387,33 @@ test("embedded builder shows four visa slots, replaces built-ins with saved defi
   harness.render();
   await settle(harness);
 
-  const visaTitles = builtIns.map((definition) => definition.title);
-  const catalogButtons = harness.nodes().filter((node) =>
-    node.type === "button" && visaTitles.some((title) => text(node).includes(title))
-  );
-  assert.equal(catalogButtons.length, 4, "each visa audience should appear exactly once");
-  assert.equal(
-    text(harness.tree).includes(customDefinition.title),
-    false,
-    "matter builders should show only the four supported visa questionnaires",
-  );
-  for (const title of visaTitles) {
-    assert.equal(
-      catalogButtons.filter((node) => text(node).includes(title)).length,
-      1,
-      `${title} should have one catalog slot`,
-    );
-  }
-
-  assert.ok(
-    harness.nodes().some((node) =>
-      node.type === "h2" && text(node) === "Protection Visa (Subclass 866)"
-    ),
-    "the matter's questionnaire audience should be selected on first load",
-  );
+  const rowTitles = harness.nodes()
+    .filter((node) => node.type === "h2")
+    .map((node) => text(node));
+  assert.deepEqual(rowTitles, [
+    "Skills in Demand Visa (482)",
+    customDefinition.title,
+    "Partner Visa (Subclass 820)",
+    "Employer Nomination Visa (186)",
+    "Protection Visa (Subclass 866)",
+  ]);
+  assert.equal(rowTitles.filter((title) => title === "Skills in Demand Visa (482)").length, 1);
+  assert.equal(rowTitles.filter((title) => title === "Partner Visa (Subclass 820)").length, 1);
   assert.deepEqual(
     calls.filter(({ url }) => url.startsWith("/api/questionnaire-definitions/")).map(({ url }) => url),
     [],
-    "the unsaved Protection slot should open its built-in template without fetching a different saved visa",
+    "loading the catalogue should not fetch a questionnaire body",
   );
 
-  const clickResult = harness.buttonContaining("Skills in Demand Visa (482)").props.onClick();
+  const saved482Row = harness.nodes().find((node) =>
+    node.type === "article" && text(node).includes(saved482.title)
+  );
+  assert.ok(saved482Row, "the newest saved 482 questionnaire should be listed");
+  const editButton = [...walk(saved482Row)].find((node) =>
+    node.type === "button" && text(node).includes("Edit questions")
+  );
+  assert.ok(editButton, "the saved questionnaire should remain editable");
+  const clickResult = editButton.props.onClick();
   if (clickResult && typeof clickResult.then === "function") await clickResult;
   await settle(harness);
 

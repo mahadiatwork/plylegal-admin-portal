@@ -9,6 +9,7 @@ import {
 const MAX_CATEGORY_MUTATION_WRITES = 400;
 const CATEGORY_ICONS = new Set([
   "folder", "guide", "policy", "link", "file", "note", "shield", "scale",
+  "government", "checklist", "briefcase", "education", "people", "calendar", "globe", "info",
 ]);
 const uncategorizedKey = UNCATEGORIZED.toLowerCase();
 
@@ -19,6 +20,10 @@ function categoryName(value) {
 
 function categoryKey(value) {
   return (categoryName(value) || UNCATEGORIZED).toLowerCase();
+}
+
+function categoryDescription(value) {
+  return typeof value?.description === "string" ? value.description.trim() : "";
 }
 
 function categoryError(message, status) {
@@ -32,9 +37,11 @@ export function normalizeMatterResourceCategories(rawCategories, resources = [],
     const name = categoryName(value);
     if (!name || seen.has(name.toLowerCase())) return;
     seen.add(name.toLowerCase());
+    const description = categoryDescription(value);
     categories.push({
       name: name.toLowerCase() === uncategorizedKey ? UNCATEGORIZED : name,
       icon: CATEGORY_ICONS.has(value?.icon) ? value.icon : "folder",
+      ...(description ? { description } : {}),
     });
   };
 
@@ -108,7 +115,7 @@ function hasCategory(matter, key) {
     matter.docs.some((doc) => categoryKey(doc.data()?.category) === key);
 }
 
-export async function createMatterResourceCategory({ db, appId, name, icon = "folder", actor, source = "" }) {
+export async function createMatterResourceCategory({ db, appId, name, icon = "folder", description = "", actor, source = "" }) {
   const nextName = requireCategoryName(name);
   if (!CATEGORY_ICONS.has(icon)) throw categoryError("Unsupported folder icon", 400);
   return db.runTransaction(async (transaction) => {
@@ -119,7 +126,11 @@ export async function createMatterResourceCategory({ db, appId, name, icon = "fo
     return commitCategories(
       transaction,
       matter,
-      [...matter.categories, { name: nextName, icon }],
+      [...matter.categories, {
+        name: nextName,
+        icon,
+        ...(categoryDescription({ description }) ? { description: categoryDescription({ description }) } : {}),
+      }],
       [],
       actor,
       source,
@@ -127,14 +138,19 @@ export async function createMatterResourceCategory({ db, appId, name, icon = "fo
   });
 }
 
-export async function renameMatterResourceCategory({ db, appId, name, nextName, actor, source = "" }) {
+export async function renameMatterResourceCategory({ db, appId, name, nextName, description, actor, source = "" }) {
   const currentName = requireCategoryName(name);
   const replacementName = requireCategoryName(nextName, "New folder name is required");
   const key = currentName.toLowerCase();
   const nextKey = replacementName.toLowerCase();
   if (key === uncategorizedKey) throw categoryError("Uncategorized cannot be renamed", 400);
   if (nextKey === uncategorizedKey) throw categoryError("Uncategorized is reserved", 400);
-  if (currentName === replacementName) throw categoryError("Choose a different folder name", 400);
+  const descriptionWasProvided = description !== undefined;
+  const nextDescription = categoryDescription({ description });
+  const nameChanged = currentName !== replacementName;
+  if (currentName === replacementName && !descriptionWasProvided) {
+    throw categoryError("Choose a different folder name or description", 400);
+  }
 
   return db.runTransaction(async (transaction) => {
     const matter = await readMatter(transaction, db, appId, source);
@@ -143,14 +159,22 @@ export async function renameMatterResourceCategory({ db, appId, name, nextName, 
       throw categoryError(`Folder "${replacementName}" already exists`, 409);
     }
     const categories = matter.categories.map((category) =>
-      categoryKey(category) === key ? { ...category, name: replacementName } : category
+      categoryKey(category) === key
+        ? {
+            ...category,
+            name: replacementName,
+            ...(descriptionWasProvided ? { description: nextDescription } : {}),
+          }
+        : category
     );
     if (!categories.some((category) => categoryKey(category) === nextKey)) {
       categories.push({ name: replacementName, icon: "folder" });
     }
-    const changes = matter.docs
-      .filter((doc) => categoryKey(doc.data()?.category) === key)
-      .map((doc) => ({ doc, update: { category: replacementName } }));
+    const changes = nameChanged
+      ? matter.docs
+          .filter((doc) => categoryKey(doc.data()?.category) === key)
+          .map((doc) => ({ doc, update: { category: replacementName } }))
+      : [];
     return commitCategories(transaction, matter, categories, changes, actor, source);
   });
 }

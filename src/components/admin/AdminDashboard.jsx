@@ -8,6 +8,7 @@ import { ArrowRight, ClipboardList, LibraryBig, Loader2, Search } from "lucide-r
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import AdminNavigation from "./AdminNavigation";
+import { canAccessQuestionnaireBuilder } from "@/lib/adminRoles";
 
 const tools = [
   { href: "/admin/questionnaires", title: "Questionnaires", icon: ClipboardList,
@@ -16,7 +17,7 @@ const tools = [
     description: "Organise reusable client resources by visa type and folder. Add files, links and notes, or change their order.", action: "Manage resources" },
 ];
 
-export default function AdminDashboard() {
+export default function AdminDashboard({ user }) {
   const router = useRouter();
   const [matterId, setMatterId] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -30,7 +31,7 @@ export default function AdminDashboard() {
     <header className="border-b border-gray-100 bg-white">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-5">
         <Image src="/Ply_Logo_black.png" alt="Ply Legal" width={156} height={52} className="h-auto w-36" priority />
-        <AdminNavigation />
+        <AdminNavigation user={user} />
       </div>
     </header>
     <main className="mx-auto max-w-7xl px-6 py-10 sm:py-14">
@@ -38,7 +39,7 @@ export default function AdminDashboard() {
       <h1 className="mt-3 text-3xl font-semibold text-[#17372e]">Admin dashboard</h1>
       <p className="mt-3 text-gray-600">Manage what clients see, or open an individual matter.</p>
       <div className="mt-8 grid gap-5 lg:grid-cols-2">
-        {tools.map(({ href, title, icon: Icon, description, action }) => <Link key={href} href={href}
+        {tools.filter(({ href }) => href !== "/admin/questionnaires" || canAccessQuestionnaireBuilder(user?.role)).map(({ href, title, icon: Icon, description, action }) => <Link key={href} href={href}
           className="group flex cursor-pointer flex-col rounded-2xl border border-[#cfe0d8] bg-white p-7 shadow-sm transition-colors hover:border-[#72b69a] hover:bg-[#f3faf6] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B] focus-visible:ring-offset-2">
           <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#e8f3ee] text-[#4F726B]"><Icon className="h-6 w-6" /></span>
           <h2 className="mt-5 text-xl font-semibold text-[#17372e]">{title}</h2>

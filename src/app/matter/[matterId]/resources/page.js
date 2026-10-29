@@ -26,9 +26,7 @@ import { Input } from "@/components/ui/input";
 import { RichTextContent, RichTextEditor } from "@/components/ui/rich-text";
 import { Textarea } from "@/components/ui/textarea";
 import AdminResourceTemplatesManager from "@/components/admin/AdminResourceTemplatesManager";
-import ResourceFoldersSidebar, {
-  ResourceFolderGrid,
-} from "@/components/admin/ResourceFoldersSidebar";
+import ResourceFoldersSidebar from "@/components/admin/ResourceFoldersSidebar";
 import MatterTabLoadingState from "@/components/matter/MatterTabLoadingState";
 import { getWorkDrivePreviewUrl } from "@/lib/workDrivePreviewUrl.mjs";
 
@@ -313,6 +311,7 @@ export function MatterResourcesManager({ matterId, resourceSource = "", pageTitl
   const [showNewCategory, setShowNewCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryIcon, setNewCategoryIcon] = useState("folder");
+  const [newCategoryDescription, setNewCategoryDescription] = useState("");
   const [isCategorySaving, setIsCategorySaving] = useState(false);
   const [renamingCategory, setRenamingCategory] = useState(null);
   const [deletingCategory, setDeletingCategory] = useState(null);
@@ -413,6 +412,9 @@ export function MatterResourcesManager({ matterId, resourceSource = "", pageTitl
       if (normalized) byName.set(categoryKey(normalized), {
         name: normalized,
         icon: category.icon || "folder",
+        ...(String(category.description || "").trim()
+          ? { description: String(category.description).trim() }
+          : {}),
       });
     }
     if (!byName.has(categoryKey(DEFAULT_MATTER_CATEGORY))) {
@@ -553,6 +555,7 @@ export function MatterResourcesManager({ matterId, resourceSource = "", pageTitl
     setShowNewCategory(false);
     setNewCategoryName("");
     setNewCategoryIcon("folder");
+    setNewCategoryDescription("");
   };
 
   const applyCategoryMutation = (data) => {
@@ -647,7 +650,13 @@ export function MatterResourcesManager({ matterId, resourceSource = "", pageTitl
       setIsCategorySaving(true);
       setError(null);
       setSuccessMessage("");
-      await mutateCategory("POST", { name: category, icon: newCategoryIcon });
+      await mutateCategory("POST", {
+        name: category,
+        icon: newCategoryIcon,
+        ...(newCategoryDescription.trim()
+          ? { description: newCategoryDescription.trim() }
+          : {}),
+      });
       setActiveCategory(category);
       setSelectedCategory(category);
       cancelNewCategory();
@@ -660,14 +669,27 @@ export function MatterResourcesManager({ matterId, resourceSource = "", pageTitl
   };
 
   const handleRenameCategory = async (category) => {
-    const nextName = window.prompt("Rename folder", category.name)?.trim();
-    if (!nextName || nextName === category.name) return;
+    const promptedName = window.prompt("Folder name", category.name);
+    if (promptedName === null) return;
+    const nextName = promptedName.trim();
+    if (!nextName) return;
+    const promptedDescription = window.prompt(
+      "Folder description (optional)",
+      category.description || "",
+    );
+    if (promptedDescription === null) return;
+    const nextDescription = promptedDescription.trim();
+    if (nextName === category.name && nextDescription === String(category.description || "").trim()) return;
 
     try {
       setRenamingCategory(category.name);
       setError(null);
       setSuccessMessage("");
-      await mutateCategory("PATCH", { name: category.name, nextName });
+      await mutateCategory("PATCH", {
+        name: category.name,
+        nextName,
+        description: nextDescription,
+      });
       setActiveCategory((current) =>
         categoryKey(current) === categoryKey(category.name)
           ? nextName
@@ -760,10 +782,7 @@ export function MatterResourcesManager({ matterId, resourceSource = "", pageTitl
     const formData = new FormData();
     formData.append("type", mode);
     formData.append("title", title.trim());
-    formData.append(
-      "description",
-      mode === "note" ? noteText.trim() : description.trim(),
-    );
+    formData.append("description", description.trim());
     if (mode === "note") {
       formData.append("noteText", noteText.trim());
       formData.append("noteHtml", noteHtml);
@@ -1039,8 +1058,10 @@ export function MatterResourcesManager({ matterId, resourceSource = "", pageTitl
               showNewCategory={showNewCategory}
               newCategoryName={newCategoryName}
               newCategoryIcon={newCategoryIcon}
+              newCategoryDescription={newCategoryDescription}
               onNewCategoryNameChange={setNewCategoryName}
               onNewCategoryIconChange={setNewCategoryIcon}
+              onNewCategoryDescriptionChange={setNewCategoryDescription}
               onToggleNewCategory={() =>
                 setShowNewCategory((current) => !current)
               }
@@ -1062,15 +1083,6 @@ export function MatterResourcesManager({ matterId, resourceSource = "", pageTitl
             />
 
             <div className="min-w-0 space-y-5">
-              {isRootCategory ? (
-                <ResourceFolderGrid
-                  categories={visibleCategories}
-                  categoryCounts={categoryCounts}
-                  onSelectCategory={handleSelectCategory}
-                  disabled={interactionPending || isReorderingFolders}
-                />
-              ) : null}
-
               {showResourceForm ? (
                 <section className="rounded-lg border border-[#dbe7e1] bg-white p-5 shadow-sm">
                   <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -1266,16 +1278,33 @@ export function MatterResourcesManager({ matterId, resourceSource = "", pageTitl
 
                       <div className="space-y-2 md:col-span-2">
                         <label
-                          id="resource-description-label"
                           htmlFor="resource-description"
                           className="text-sm font-medium text-gray-700"
                         >
-                          {mode === "note" ? "Note" : "Description"}
+                          Description (optional)
                         </label>
-                        {mode === "note" ? (
+                        <Textarea
+                          id="resource-description"
+                          value={description}
+                          onChange={(event) => setDescription(event.target.value)}
+                          placeholder="Short description shown with this resource"
+                          rows={3}
+                          className="bg-white"
+                        />
+                      </div>
+
+                      {mode === "note" ? (
+                        <div className="space-y-2 md:col-span-2">
+                          <label
+                            id="resource-note-label"
+                            htmlFor="resource-note"
+                            className="text-sm font-medium text-gray-700"
+                          >
+                            Note content
+                          </label>
                           <RichTextEditor
-                            id="resource-description"
-                            ariaLabelledBy="resource-description-label"
+                            id="resource-note"
+                            ariaLabelledBy="resource-note-label"
                             value={noteHtml}
                             fallbackText={noteText}
                             onChange={(nextHtml, nextText) => {
@@ -1284,19 +1313,8 @@ export function MatterResourcesManager({ matterId, resourceSource = "", pageTitl
                             }}
                             placeholder="Write the note for this matter"
                           />
-                        ) : (
-                          <Textarea
-                            id="resource-description"
-                            value={description}
-                            onChange={(event) =>
-                              setDescription(event.target.value)
-                            }
-                            placeholder="Optional note"
-                            rows={3}
-                            className="bg-white"
-                          />
-                        )}
-                      </div>
+                        </div>
+                      ) : null}
 
                       {isSubmitting && (
                         <div className="h-1 overflow-hidden rounded-full bg-gray-100 md:col-span-2">

@@ -79,12 +79,18 @@ test("creating an empty folder persists its metadata and retains existing matter
     "applications/app/resources/legacy": { type: "link", category: "Legacy", url: "https://example.test" },
     "applications/other": { resourceCategories: ["Elsewhere"] },
   });
-  const result = await createMatterResourceCategory({ ...options, db: mock.db, name: " New folder ", icon: "scale" });
+  const result = await createMatterResourceCategory({
+    ...options,
+    db: mock.db,
+    name: " New folder ",
+    icon: "government",
+    description: "Official visa guidance",
+  });
   assert.deepEqual(result.categories, [
     ...defaults,
     { name: "Guides", icon: "folder" },
     { name: "Legacy", icon: "folder" },
-    { name: "New folder", icon: "scale" },
+    { name: "New folder", icon: "government", description: "Official visa guidance" },
   ]);
   assert.deepEqual(result.items, []);
   assert.deepEqual(mock.documents["applications/app"].resourceCategories, result.categories);
@@ -160,6 +166,29 @@ test("legacy item-only folders support case-only rename and empty persisted fold
   const renamedEmpty = await renameMatterResourceCategory({ ...options, db: mock.db, name: "Empty", nextName: "Notes" });
   assert.deepEqual(renamedEmpty.items, []);
   assert.ok(renamedEmpty.categories.some((category) => category.name === "Notes" && category.icon === "note"));
+});
+
+test("folder descriptions can be added without renaming or rewriting resources", async () => {
+  const mock = mockDatabase({
+    "applications/app": { resourceCategories: [{ name: "Guides", icon: "guide" }] },
+    "applications/app/resources/file": { type: "file", category: "Guides" },
+  });
+  const result = await renameMatterResourceCategory({
+    ...options,
+    db: mock.db,
+    name: "Guides",
+    nextName: "Guides",
+    description: "Helpful guides for this matter",
+  });
+  assert.deepEqual(result.categories, [
+    ...defaults,
+    { name: "Guides", icon: "guide", description: "Helpful guides for this matter" },
+  ]);
+  assert.deepEqual(result.items, []);
+  assert.deepEqual(mock.documents["applications/app/resources/file"], {
+    type: "file",
+    category: "Guides",
+  });
 });
 
 test("deleting a folder preserves all resources and appends them after ordered and legacy Uncategorized rows", async () => {

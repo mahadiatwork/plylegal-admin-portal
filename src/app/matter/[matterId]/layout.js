@@ -6,8 +6,10 @@ import { useParams, usePathname, useRouter } from "next/navigation";
 import { Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatVisaApplicationType } from "@/lib/visaDisplay";
-import AdminLogoutButton from "@/components/admin/AdminLogoutButton";
 import AdminSessionMonitor from "@/components/admin/AdminSessionMonitor";
+import AdminAccountMenu from "@/components/admin/AdminAccountMenu";
+import { useAdminSession } from "@/components/admin/AdminSessionContext";
+import { canAccessQuestionnaireBuilder } from "@/lib/adminRoles";
 import { MatterDataProvider } from "@/components/matter/MatterDataContext";
 
 const HEADER_COLLAPSE_SCROLL_Y = 120;
@@ -17,6 +19,7 @@ export default function MatterLayout({ children }) {
   const params = useParams();
   const pathname = usePathname();
   const router = useRouter();
+  const user = useAdminSession();
   const matterId = params.matterId;
   const headerRef = useRef(null);
   const headerHeightFrameRef = useRef(null);
@@ -148,7 +151,9 @@ export default function MatterLayout({ children }) {
     { href: `/matter/${canonicalMatterId}/questionnaire`, label: "Client answers" },
     { href: `/matter/${canonicalMatterId}/resources`, label: "Resources" },
     { href: `/matter/${canonicalMatterId}/shared-files`, label: "Shared files" },
-    { href: `/matter/${canonicalMatterId}/questionnaire-builder`, label: "Questionnaire builder" },
+    ...(canAccessQuestionnaireBuilder(user?.role)
+      ? [{ href: `/matter/${canonicalMatterId}/questionnaire-builder`, label: "Questionnaire builder" }]
+      : []),
   ];
 
   return (
@@ -166,7 +171,7 @@ export default function MatterLayout({ children }) {
           <img src="/Ply_Logo_black.png" alt="Ply Legal" className="h-7 sm:h-9" />
           <div className="flex items-center gap-2">
             <AdminSessionMonitor />
-            <AdminLogoutButton />
+            <AdminAccountMenu user={user} />
           </div>
         </div>
 

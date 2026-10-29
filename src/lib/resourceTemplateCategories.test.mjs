@@ -259,6 +259,29 @@ test("renaming a default-backed category preserves sibling default metadata", as
   ]);
 });
 
+test("category descriptions can be updated without renaming or rewriting resources", async () => {
+  const mock = mockDatabase({
+    "resourceTemplates/186": template([{ name: "Guides", icon: "guide" }]),
+    "resourceTemplates/186/items/file1": file,
+  });
+
+  const result = await renameResourceTemplateCategory({
+    db: mock.db,
+    visaSlugs: ["186"],
+    name: "Guides",
+    nextName: "Guides",
+    description: "Documents and guidance for your application",
+    actor: "admin",
+  });
+
+  assert.equal(result.renamedResourceCount, 0);
+  assert.deepEqual(result.changes[0].renamedItemIds, []);
+  assert.deepEqual(mock.documents["resourceTemplates/186"].categories, [
+    { name: "Guides", icon: "guide", description: "Documents and guidance for your application" },
+  ]);
+  assert.deepEqual(mock.documents["resourceTemplates/186/items/file1"], file);
+});
+
 test("category mutations reject more than 400 transaction writes before changing data", async () => {
   const items = Object.fromEntries(
     Array.from({ length: 400 }, (_, index) => [

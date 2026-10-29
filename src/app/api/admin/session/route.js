@@ -4,10 +4,11 @@ import {
   clearAdminSessionCookie,
   getAdminSession,
   isAdminLoginConfigured,
+  publicAdminSession,
   sanitizeNextPath,
   setAdminSessionCookie,
-  verifyAdminCredentials,
 } from "@/lib/adminSession";
+import { AdminIdentityError, authenticateAdminIdentity } from "@/lib/adminIdentity";
 import { clearLoginAttempts, consumeLoginAttempt, isSameOriginRequest, loginAttemptKey } from "@/lib/adminLoginProtection";
 
 export const runtime = "nodejs";
@@ -20,7 +21,7 @@ function json(body, status = 200, headers = {}) {
 export async function GET() {
   const session = await getAdminSession();
   return session
-    ? json({ success: true, username: session.sub })
+    ? json({ success: true, user: publicAdminSession(session) })
     : json({ success: false, error: "Please sign in to continue." }, 401);
 }
 
@@ -37,19 +38,28 @@ export async function POST(request) {
   try {
     const body = await request.json().catch(() => null);
     const nextPath = sanitizeNextPath(body?.next);
-    if (typeof body?.username !== "string" || typeof body?.password !== "string" ||
-      !body.username.trim() || !body.password || body.username.length > 200 || body.password.length > 1024) {
-      return json({ success: false, error: "Enter your username and password." }, 400);
+    if (typeof body?.email !== "string" || typeof body?.password !== "string" ||
+      !body.email.trim() || !body.password || body.email.length > 254 || body.password.length > 1024) {
+      return json({ success: false, error: "Enter your email and password." }, 400);
     }
-    if (!verifyAdminCredentials(body.username, body.password)) {
-      return json({ success: false, error: "The username or password is incorrect." }, 401);
-    }
+    const identity = await authenticateAdminIdentity(body.email, body.password);
 
     const cookieStore = await cookies();
-    setAdminSessionCookie(cookieStore);
+    setAdminSessionCookie(cookieStore, identity);
     clearLoginAttempts(attemptKey);
-    return json({ success: true, nextPath });
+    return json({
+      success: true,
+      nextPath: identity.mustChangePassword ? "/admin/settings" : nextPath,
+      user: identity,
+    });
   } catch (error) {
+    if (error instanceof AdminIdentityError) {
+      const configurationError = error.status === 503;
+      return json({
+        success: false,
+        error: configurationError ? error.message : "The email or password is incorrect.",
+      }, error.status);
+    }
     console.error("Error creating admin session:", error);
     return json({ success: false, error: "Unable to sign in. Please try again." }, 500);
   }

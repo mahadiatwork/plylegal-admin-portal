@@ -1,7 +1,7 @@
 import AdminDashboard from "@/components/admin/AdminDashboard";
-import { requireAdminSession } from "@/lib/adminSession";
+import { publicAdminSession, requireAdminSession } from "@/lib/adminSession";
 
 export default async function Home() {
-  await requireAdminSession("/");
-  return <AdminDashboard />;
+  const session = await requireAdminSession("/");
+  return <AdminDashboard user={publicAdminSession(session)} />;
 }

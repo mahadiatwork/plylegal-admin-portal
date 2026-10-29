@@ -176,20 +176,26 @@ export async function PATCH(request, { params }) {
     }
 
     const descriptionWasProvided = Object.prototype.hasOwnProperty.call(body, "description");
-    if (
-      descriptionWasProvided &&
-      (currentItem.kind === "file" || currentItem.kind === "link")
-    ) {
+    if (descriptionWasProvided) {
       updates.description = cleanText(body.description);
     }
 
     const noteHtmlWasProvided = Object.prototype.hasOwnProperty.call(body, "noteHtml");
-    const legacyNoteTextWasProvided =
-      Object.prototype.hasOwnProperty.call(body, "noteText") ||
-      Object.prototype.hasOwnProperty.call(body, "content") ||
-      (currentItem.kind === "note" && descriptionWasProvided);
+    const noteTextWasProvided = Object.prototype.hasOwnProperty.call(body, "noteText");
+    const contentWasProvided = Object.prototype.hasOwnProperty.call(body, "content");
+    const legacyDescriptionContentWasProvided =
+      currentItem.kind === "note" &&
+      descriptionWasProvided &&
+      !noteHtmlWasProvided &&
+      !noteTextWasProvided &&
+      !contentWasProvided;
+    const noteContentWasProvided =
+      noteHtmlWasProvided ||
+      noteTextWasProvided ||
+      contentWasProvided ||
+      legacyDescriptionContentWasProvided;
 
-    if (noteHtmlWasProvided || legacyNoteTextWasProvided) {
+    if (noteContentWasProvided) {
       if (currentItem.kind !== "note") {
         return errorResponse("Only note items can update note content", 400);
       }
@@ -197,9 +203,9 @@ export async function PATCH(request, { params }) {
       const noteContent = buildNoteFields(
         noteHtmlWasProvided
           ? body.noteHtml
-          : Object.prototype.hasOwnProperty.call(body, "noteText")
+          : noteTextWasProvided
             ? body.noteText
-            : Object.prototype.hasOwnProperty.call(body, "content")
+            : contentWasProvided
               ? body.content
               : body.description,
         { format: noteHtmlWasProvided ? "html" : "plain" }

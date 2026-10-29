@@ -116,6 +116,7 @@ test("template note create stores sanitized rich HTML and keeps legacy creates p
   const richForm = new FormData();
   richForm.set("kind", "note");
   richForm.set("name", "Instructions");
+  richForm.set("description", "A short summary");
   richForm.set(
     "noteHtml",
     '<h1>Instructions</h1><ul><li><i>Read</i> this</li></ul><a href="//unsafe.test">unsafe</a>'
@@ -131,6 +132,7 @@ test("template note create stores sanitized rich HTML and keeps legacy creates p
   assert.equal(rich.noteText, "Instructions\nRead this\nunsafe");
   assert.equal(rich.content, rich.noteText);
   assert.equal(rich.contentFormat, "html");
+  assert.equal(rich.description, "A short summary");
 
   reset();
   const legacyForm = new FormData();
@@ -164,6 +166,7 @@ test("template note update sanitizes rich HTML and legacy clients can replace it
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      description: "Updated summary",
       noteHtml: '<blockquote>Updated <code>value</code></blockquote><a href="mailto:team@example.test">Email</a>',
     }),
   }), itemContext);
@@ -173,6 +176,7 @@ test("template note update sanitizes rich HTML and legacy clients can replace it
     '<blockquote>Updated <code>value</code></blockquote><a href="mailto:team@example.test" target="_blank" rel="noopener noreferrer">Email</a>'
   );
   assert.equal(items.get("note").noteText, "Updated value\nEmail");
+  assert.equal(items.get("note").description, "Updated summary");
 
   const legacyResponse = await itemRoute.PATCH(new Request("https://portal.test/api/resource-templates/482/items/note", {
     method: "PATCH",
@@ -238,7 +242,7 @@ test("legacy note description remains plain-text note content", async () => {
   }), collectionContext);
   assert.equal(createResponse.status, 201);
   assert.equal(items.get("created").noteText, "<strong>Literal legacy note</strong>");
-  assert.equal("description" in items.get("created"), false);
+  assert.equal(items.get("created").description, "<strong>Literal legacy note</strong>");
 
   items.set("note", { kind: "note", name: "Legacy note", noteText: "Old", content: "Old" });
   const updateResponse = await itemRoute.PATCH(new Request("https://portal.test/api/resource-templates/482/items/note", {
@@ -250,5 +254,5 @@ test("legacy note description remains plain-text note content", async () => {
   assert.equal(updateResponse.status, 200);
   assert.equal(items.get("note").noteText, "<em>Literal replacement</em>");
   assert.equal(items.get("note").content, "<em>Literal replacement</em>");
-  assert.equal("description" in items.get("note"), false);
+  assert.equal(items.get("note").description, "<em>Literal replacement</em>");
 });

@@ -23,6 +23,14 @@ export const RESOURCE_TEMPLATE_CATEGORY_ICONS = [
   "note",
   "shield",
   "scale",
+  "government",
+  "checklist",
+  "briefcase",
+  "education",
+  "people",
+  "calendar",
+  "globe",
+  "info",
 ];
 export const DEFAULT_RESOURCE_TEMPLATE_CATEGORIES = [
   { name: "Uncategorized", icon: "folder" },
@@ -212,6 +220,9 @@ export function normalizeTemplateCategories(rawValue) {
         typeof value === "string"
           ? "folder"
           : normalizeTemplateCategoryIcon(value?.icon),
+      ...(typeof value === "object" && cleanText(value?.description)
+        ? { description: cleanText(value.description) }
+        : {}),
       ...(value && typeof value === "object" && value.order !== null && value.order !== undefined &&
         String(value.order).trim() !== "" && Number.isFinite(Number(value.order))
         ? { order: Number(value.order) }

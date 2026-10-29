@@ -8,7 +8,14 @@ const require = createRequire(import.meta.url);
 const { unstable_doesMiddlewareMatch: doesProxyMatch } = require("next/dist/experimental/testing/server/middleware-testing-utils.js");
 
 process.env.SESSION_SECRET = "proxy-test-secret";
-process.env.PORTAL_ADMIN_USERNAME = "proxy-admin";
+const superAdminIdentity = {
+  uid: "proxy-super-admin",
+  name: "Proxy Admin",
+  email: "proxy@example.com",
+  role: "super_admin",
+  provider: "firebase",
+  mustChangePassword: false,
+};
 const hooks = registerHooks({ resolve(specifier, context, next) {
   return next(specifier === "next/server" ? "next/server.js" : specifier, context);
 } });
@@ -40,7 +47,7 @@ test("anonymous and tampered sessions redirect pages to login and return API 401
 });
 
 test("valid login can reach resources and questionnaires, but cross-origin mutations cannot", () => {
-  const cookie = `vp_admin_session=${createAdminSessionToken()}`;
+  const cookie = `vp_admin_session=${createAdminSessionToken(superAdminIdentity)}`;
   for (const path of ["/", "/admin/questionnaires", "/matter/123/resources", "/matter/123/questionnaire-builder", "/api/resource-templates"]) {
     const response = proxy(new NextRequest(`https://portal.test${path}`, { headers: { cookie } }));
     assert.equal(response.headers.get("x-middleware-next"), "1");
@@ -49,4 +56,19 @@ test("valid login can reach resources and questionnaires, but cross-origin mutat
   assert.equal(proxy(new NextRequest("https://portal.test/api/resources", {
     method: "POST", headers: { cookie, origin: "https://attacker.test" },
   })).status, 403);
+});
+
+test("sales and support sessions cannot reach questionnaire builder pages or APIs", async () => {
+  const cookie = `vp_admin_session=${createAdminSessionToken({
+    ...superAdminIdentity,
+    uid: "proxy-sales-support",
+    email: "support@example.com",
+    role: "sales_support",
+  })}`;
+  const page = proxy(new NextRequest("https://portal.test/admin/questionnaires", { headers: { cookie } }));
+  assert.equal(page.status, 307);
+  assert.equal(new URL(page.headers.get("location")).pathname, "/");
+  const api = proxy(new NextRequest("https://portal.test/api/questionnaire-definitions", { headers: { cookie } }));
+  assert.equal(api.status, 403);
+  assert.equal((await api.json()).success, false);
 });

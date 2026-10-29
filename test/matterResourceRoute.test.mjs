@@ -302,6 +302,7 @@ test("matter note creation stores sanitized rich HTML and derived plaintext", as
   const form = new FormData();
   form.set("type", "note");
   form.set("title", "Next steps");
+  form.set("description", "A short client-facing summary");
   form.set(
     "noteHtml",
     '<h2>Next steps</h2><ul><li><strong>Upload</strong> the form</li></ul><a href="javascript:alert(1)">unsafe</a>'
@@ -320,7 +321,7 @@ test("matter note creation stores sanitized rich HTML and derived plaintext", as
   );
   assert.equal(fixture.adds[0].noteText, "Next steps\nUpload the form\nunsafe");
   assert.equal(fixture.adds[0].content, fixture.adds[0].noteText);
-  assert.equal(fixture.adds[0].description, fixture.adds[0].noteText);
+  assert.equal(fixture.adds[0].description, "A short client-facing summary");
   assert.equal(fixture.adds[0].contentFormat, "html");
 });
 

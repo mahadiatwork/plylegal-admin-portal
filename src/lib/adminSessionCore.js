@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
+import { isAdminRole } from "./adminRoles.js";
 
 export const ADMIN_SESSION_COOKIE = "vp_admin_session";
-const ADMIN_ROLE = "admin";
 const ADMIN_SESSION_MAX_AGE_SECONDS = 60 * 60 * 12;
 export const DEFAULT_ADMIN_PATH = "/";
 
@@ -11,19 +11,12 @@ function getSessionSecret() {
   return secret;
 }
 
-function getAdminKey() {
-  const adminKey = process.env.PORTAL_ADMIN_PASSWORD || process.env.PORTAL_ADMIN_KEY;
-  if (!adminKey?.trim()) throw new Error("PORTAL_ADMIN_PASSWORD is required for admin authentication");
-  return adminKey;
-}
-
-export function getAdminUsername() {
-  return process.env.PORTAL_ADMIN_USERNAME?.trim() || "admin";
-}
-
 export function isAdminLoginConfigured() {
-  return Boolean(process.env.SESSION_SECRET?.trim() &&
-    (process.env.PORTAL_ADMIN_PASSWORD || process.env.PORTAL_ADMIN_KEY)?.trim());
+  return Boolean(
+    process.env.SESSION_SECRET?.trim() &&
+    process.env.NEXT_PUBLIC_FIREBASE_API_KEY?.trim() &&
+    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID?.trim()
+  );
 }
 
 function encodePayload(payload) {
@@ -76,27 +69,18 @@ export function sanitizeNextPath(input) {
   return trimmed;
 }
 
-export function verifyAdminCredentials(username, password) {
-  const expectedPassword = getAdminKey();
-  const suppliedUsername = typeof username === "string" ? username.trim() : "";
-  const suppliedPassword = typeof password === "string" ? password : "";
-  const digest = (value) => crypto.createHash("sha256").update(value).digest();
-  const usernameMatches = crypto.timingSafeEqual(digest(suppliedUsername), digest(getAdminUsername()));
-  const passwordMatches = crypto.timingSafeEqual(digest(suppliedPassword), digest(expectedPassword));
-  return usernameMatches && passwordMatches;
-}
-
-export function verifyAdminKey(candidate) {
-  const normalizedCandidate = typeof candidate === "string" ? candidate.trim() : "";
-  const expectedKey = getAdminKey().trim();
-  return safeEqual(normalizedCandidate, expectedKey);
-}
-
-export function createAdminSessionToken() {
+export function createAdminSessionToken(identity) {
+  if (!identity || identity.provider !== "firebase" || !isAdminRole(identity.role) || typeof identity.uid !== "string" || !identity.uid.trim()) {
+    throw new Error("A valid admin identity is required");
+  }
   const now = Math.floor(Date.now() / 1000);
   const payload = {
-    role: ADMIN_ROLE,
-    sub: getAdminUsername(),
+    role: identity.role,
+    sub: identity.uid.trim(),
+    name: typeof identity.name === "string" ? identity.name.trim().slice(0, 120) : "",
+    email: typeof identity.email === "string" ? identity.email.trim().toLowerCase().slice(0, 254) : "",
+    provider: "firebase",
+    mustChangePassword: identity.mustChangePassword === true,
     iat: now,
     exp: now + ADMIN_SESSION_MAX_AGE_SECONDS,
   };
@@ -115,8 +99,13 @@ export function verifyAdminSessionToken(token) {
   const payload = decodePayload(encodedPayload);
   if (
     !payload ||
-    payload.role !== ADMIN_ROLE ||
-    payload.sub !== getAdminUsername() ||
+    !isAdminRole(payload.role) ||
+    typeof payload.sub !== "string" ||
+    !payload.sub ||
+    typeof payload.name !== "string" ||
+    typeof payload.email !== "string" ||
+    payload.provider !== "firebase" ||
+    typeof payload.mustChangePassword !== "boolean" ||
     !Number.isInteger(payload.iat) ||
     !Number.isInteger(payload.exp) ||
     payload.iat > payload.exp ||

@@ -3,22 +3,31 @@
 import { useState } from "react";
 import {
   BookOpen,
-  ChevronRight,
+  Briefcase,
+  CalendarDays,
+  CircleHelp,
   FileText,
   Folder,
+  Globe2,
+  GraduationCap,
   GripVertical,
+  Landmark,
   Link2,
+  ListChecks,
   Loader2,
   PencilLine,
   Plus,
   Scale,
   Search,
   ShieldCheck,
+  ScrollText,
   StickyNote,
   Trash2,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 
 export const categoryIconOptions = [
   { value: "folder", label: "Folder" },
@@ -29,86 +38,37 @@ export const categoryIconOptions = [
   { value: "note", label: "Note" },
   { value: "shield", label: "Shield" },
   { value: "scale", label: "Legal" },
+  { value: "government", label: "Government" },
+  { value: "checklist", label: "Checklist" },
+  { value: "briefcase", label: "Work" },
+  { value: "education", label: "Education" },
+  { value: "people", label: "People" },
+  { value: "calendar", label: "Calendar" },
+  { value: "globe", label: "Website" },
+  { value: "info", label: "Information" },
 ];
 
 export function CategoryIcon({ icon, className }) {
   if (icon === "guide") return <BookOpen className={className} />;
-  if (icon === "policy") return <ShieldCheck className={className} />;
+  if (icon === "policy") return <ScrollText className={className} />;
   if (icon === "link") return <Link2 className={className} />;
   if (icon === "file") return <FileText className={className} />;
   if (icon === "note") return <StickyNote className={className} />;
   if (icon === "shield") return <ShieldCheck className={className} />;
   if (icon === "scale") return <Scale className={className} />;
+  if (icon === "government") return <Landmark className={className} />;
+  if (icon === "checklist") return <ListChecks className={className} />;
+  if (icon === "briefcase") return <Briefcase className={className} />;
+  if (icon === "education") return <GraduationCap className={className} />;
+  if (icon === "people") return <Users className={className} />;
+  if (icon === "calendar") return <CalendarDays className={className} />;
+  if (icon === "globe") return <Globe2 className={className} />;
+  if (icon === "info") return <CircleHelp className={className} />;
   return <Folder className={className} />;
 }
 
 function categoryKey(value) {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
-}
-
-export function ResourceFolderGrid({
-  categories = [],
-  categoryCounts = {},
-  onSelectCategory,
-  disabled = false,
-}) {
-  const folders = categories.filter(
-    (category) => categoryKey(category.name) !== "uncategorized",
-  );
-
-  if (!folders.length) return null;
-
-  return (
-    <section
-      aria-labelledby="resource-folder-grid-heading"
-      className="rounded-lg border border-[#dbe7e1] bg-white p-5 shadow-sm"
-    >
-      <div>
-        <h2
-          id="resource-folder-grid-heading"
-          className="text-base font-semibold text-[#17372e]"
-        >
-          Folders
-        </h2>
-        <p className="mt-1 text-xs text-[#71857d]">
-          Open a folder to view its files and resources.
-        </p>
-      </div>
-
-      <div
-        className="mt-4 grid gap-3 sm:grid-cols-2 2xl:grid-cols-3"
-        role="list"
-      >
-        {folders.map((category) => {
-          const count = categoryCounts[categoryKey(category.name)] || 0;
-          return (
-            <div key={category.name} role="listitem">
-              <button
-                type="button"
-                aria-label={`Open folder ${category.name}, ${count} ${count === 1 ? "resource" : "resources"}`}
-                disabled={disabled}
-                onClick={() => onSelectCategory(category)}
-                className="group flex min-h-20 w-full items-center gap-3 rounded-lg border border-[#dbe7e1] bg-[#fbfdfc] px-4 py-3 text-left transition-colors hover:border-[#8ac6ad] hover:bg-[#f0f8f4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#e8f4ee] text-[#4F726B] transition-colors group-hover:bg-white">
-                  <CategoryIcon icon={category.icon} className="h-5 w-5" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold text-[#17372e]">
-                    {category.name}
-                  </span>
-                  <span className="mt-1 block text-xs text-[#71857d]">
-                    {count} {count === 1 ? "resource" : "resources"}
-                  </span>
-                </span>
-                <ChevronRight className="h-4 w-4 shrink-0 text-[#8aa099] transition-transform group-hover:translate-x-0.5 group-hover:text-[#4F726B]" />
-              </button>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
 }
 
 export default function ResourceFoldersSidebar({
@@ -121,8 +81,10 @@ export default function ResourceFoldersSidebar({
   showNewCategory = false,
   newCategoryName = "",
   newCategoryIcon = "folder",
+  newCategoryDescription = "",
   onNewCategoryNameChange,
   onNewCategoryIconChange,
+  onNewCategoryDescriptionChange,
   onToggleNewCategory,
   onCancelNewCategory,
   onNewCategory,
@@ -298,6 +260,19 @@ export default function ResourceFoldersSidebar({
               aria-label="Folder name"
               className="h-9"
             />
+            <div className="space-y-1">
+              <label htmlFor="new-folder-description" className="text-xs font-medium text-[#60786f]">
+                Description (optional)
+              </label>
+              <Textarea
+                id="new-folder-description"
+                value={newCategoryDescription}
+                onChange={(event) => onNewCategoryDescriptionChange(event.target.value)}
+                placeholder="Explain what clients will find in this folder"
+                rows={3}
+                className="border-[#d7e4de] bg-white text-sm"
+              />
+            </div>
             <div className="space-y-2">
               <p className="text-xs font-medium text-[#60786f]">Icon</p>
               <div className="grid grid-cols-4 gap-2" role="group" aria-label="Folder icon">

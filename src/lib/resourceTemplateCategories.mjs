@@ -10,9 +10,19 @@ function categoryError(message, status) {
   return Object.assign(new Error(message), { status });
 }
 
-function renameCategoryValue(category, name) {
-  if (typeof category === "string") return name;
-  return { ...category, name };
+function renameCategoryValue(category, name, description, descriptionWasProvided) {
+  if (typeof category === "string") {
+    return descriptionWasProvided ? { name, icon: "folder", description } : name;
+  }
+  return {
+    ...category,
+    name,
+    ...(descriptionWasProvided ? { description } : {}),
+  };
+}
+
+function categoryDescription(value) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function normalizedOrder(value) {
@@ -153,6 +163,7 @@ export async function renameResourceTemplateCategory({
   visaSlugs,
   name,
   nextName,
+  description,
   actor,
   defaultCategories = [{ name: UNCATEGORIZED, icon: "folder" }],
 }) {
@@ -160,11 +171,14 @@ export async function renameResourceTemplateCategory({
   const replacementName = categoryName(nextName);
   const normalizedName = currentName.toLowerCase();
   const normalizedNextName = replacementName.toLowerCase();
+  const descriptionWasProvided = description !== undefined;
+  const nextDescription = categoryDescription(description);
+  const nameChanged = currentName !== replacementName;
 
   if (!normalizedName) throw categoryError("Category name is required", 400);
   if (!normalizedNextName) throw categoryError("New category name is required", 400);
-  if (currentName === replacementName) {
-    throw categoryError("Choose a different category name", 400);
+  if (currentName === replacementName && !descriptionWasProvided) {
+    throw categoryError("Choose a different category name or description", 400);
   }
   if (normalizedName === UNCATEGORIZED.toLowerCase()) {
     throw categoryError("Uncategorized cannot be renamed", 400);
@@ -221,9 +235,11 @@ export async function renameResourceTemplateCategory({
 
     assertSafeMutationSize(
       affectedTemplates.reduce(
-        (writeCount, { items }) => writeCount + 1 + items.docs.filter(
-          (item) => categoryName(item.data().category).toLowerCase() === normalizedName
-        ).length,
+        (writeCount, { items }) => writeCount + 1 + (nameChanged
+          ? items.docs.filter(
+              (item) => categoryName(item.data().category).toLowerCase() === normalizedName
+            ).length
+          : 0),
         0
       )
     );
@@ -236,19 +252,25 @@ export async function renameResourceTemplateCategory({
       const currentCategories = Array.isArray(snapshot.data().categories)
         ? snapshot.data().categories
         : defaultCategories;
-      const renamedItems = items.docs.filter(
-        (item) => categoryName(item.data().category).toLowerCase() === normalizedName
-      );
+      const renamedItems = nameChanged
+        ? items.docs.filter(
+            (item) => categoryName(item.data().category).toLowerCase() === normalizedName
+          )
+        : [];
       const hasCategoryMetadata = currentCategories.some(
         (category) => categoryName(category).toLowerCase() === normalizedName
       );
       const categories = currentCategories.map((category) =>
         categoryName(category).toLowerCase() === normalizedName
-          ? renameCategoryValue(category, replacementName)
+          ? renameCategoryValue(category, replacementName, nextDescription, descriptionWasProvided)
           : category
       );
-      if (!hasCategoryMetadata && renamedItems.length) {
-        categories.push({ name: replacementName, icon: "folder" });
+      if (!hasCategoryMetadata && (renamedItems.length || descriptionWasProvided)) {
+        categories.push({
+          name: replacementName,
+          icon: "folder",
+          ...(descriptionWasProvided ? { description: nextDescription } : {}),
+        });
       }
 
       for (const item of renamedItems) {

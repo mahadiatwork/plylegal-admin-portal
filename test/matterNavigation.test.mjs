@@ -79,14 +79,26 @@ async function loadComponent(relativePath, overrides = {}) {
     };
     if (specifier === "lucide-react") return icons;
     if (specifier === "@/components/ui/button") return { Button: "button" };
-    if (specifier === "@/components/admin/AdminLogoutButton") {
-      return { __esModule: true, default: () => React.createElement("button", null, "Sign out") };
+    if (specifier === "@/components/admin/AdminAccountMenu") {
+      return { __esModule: true, default: () => React.createElement("button", null, "Account") };
     }
     if (specifier === "@/components/admin/AdminSessionMonitor") {
       return { __esModule: true, default: () => null };
     }
     if (specifier === "@/components/matter/MatterDataContext") {
       return { MatterDataProvider: ({ children }) => children };
+    }
+    if (specifier === "@/components/admin/AdminSessionContext") {
+      return { useAdminSession: () => ({ role: "super_admin" }) };
+    }
+    if (specifier === "@/lib/adminRoles") {
+      return {
+        ADMIN_ROLES: { SUPER_ADMIN: "super_admin" },
+        canAccessQuestionnaireBuilder: (role) => role === "super_admin",
+      };
+    }
+    if (specifier === "@/lib/adminSession") {
+      return { requireAdminRole: async () => ({ role: "super_admin" }) };
     }
     if (specifier === "@/lib/visaDisplay") {
       return { formatVisaApplicationType: () => "Subclass 186" };
@@ -130,7 +142,34 @@ async function flushEffects(harness) {
   harness.render();
 }
 
-test("matter header keeps navigation in three local tabs without dashboard links", async (t) => {
+test("admin header only shows the account controls", async () => {
+  function AccountMenuSentinel() {
+    return null;
+  }
+
+  const { default: AdminNavigation } = await loadComponent(
+    "src/components/admin/AdminNavigation.jsx",
+    {
+      "./AdminSessionMonitor": { __esModule: true, default: () => null },
+      "./AdminAccountMenu": {
+        __esModule: true,
+        default: AccountMenuSentinel,
+      },
+      "./AdminSessionContext": {
+        useAdminSession: () => ({ role: "super_admin" }),
+      },
+    },
+  );
+
+  const tree = AdminNavigation({});
+  const links = [...walk(tree)].filter((node) => node.type === "a");
+  const accountMenus = [...walk(tree)].filter((node) => node.type === AccountMenuSentinel);
+
+  assert.equal(links.length, 0);
+  assert.equal(accountMenus.length, 1);
+});
+
+test("matter header keeps role-aware local tabs without dashboard links", async (t) => {
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
   navigation.params = { matterId: "app-123" };
@@ -181,6 +220,7 @@ test("matter header keeps navigation in three local tabs without dashboard links
   assert.deepEqual(links, [
     { label: "Client answers", href: "/matter/app-123/questionnaire", current: undefined },
     { label: "Resources", href: "/matter/app-123/resources", current: undefined },
+    { label: "Shared files", href: "/matter/app-123/shared-files", current: undefined },
     { label: "Questionnaire builder", href: "/matter/app-123/questionnaire-builder", current: "page" },
   ]);
   assert.equal(links.some(({ label }) => label === "Dashboard" || label === "Questionnaires"), false);
@@ -212,7 +252,7 @@ test("matter questionnaire-builder page renders the shared builder in embedded m
     },
   });
 
-  const page = pageModule.default();
+  const page = await pageModule.default({ params: Promise.resolve({ matterId: "app-123" }) });
   assert.equal(page.type, BuilderSentinel);
   assert.equal(page.props.embeddedInMatter, true);
 });
