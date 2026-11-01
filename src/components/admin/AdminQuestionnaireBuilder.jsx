@@ -51,6 +51,10 @@ import {
   moduleForCrmTarget,
 } from "@/lib/crmFieldCatalog";
 import { getCrmCoverageSummary, normalizeCrmMapping } from "@/lib/questionnaireCrmContract";
+import {
+  describeClientCondition,
+  getClientQuestionnairePresentation,
+} from "@/lib/questionnaireClientPresentation";
 
 const QUESTION_TYPES = [
   ["text", "Short text"],
@@ -706,6 +710,117 @@ function QuestionPreview({ question }) {
   );
 }
 
+function clientEntryTypeLabel(entry) {
+  if (entry.kind === "date") return "Date · Day, month and year";
+  if (entry.kind === "repeater") {
+    const count = entry.nestedEntries.length;
+    return `Record list · ${count} field${count === 1 ? "" : "s"} in the Add/Edit dialog`;
+  }
+  const question = entry.questions[0];
+  return `${questionTypeLabel(question?.type)}${entry.required ? " · Required" : ""}`;
+}
+
+function EntryEditActions({ entry, onEdit }) {
+  if (entry.questions.length === 1) {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        className="justify-start text-[#45685d] sm:justify-center"
+        onClick={() => onEdit(entry.questions[0])}
+      >
+        <Pencil />Edit
+      </Button>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {entry.questions.map((question) => (
+        <Button
+          key={question.id}
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="text-[#45685d]"
+          onClick={() => onEdit(question)}
+        >
+          <Pencil className="h-3.5 w-3.5" />
+          {String(question.answerKey || "").split("_").pop()}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+function ClientEntryRow({ entry, onEdit }) {
+  return (
+    <div className="rounded-lg border border-[#dce6e1] bg-white px-3 py-3 sm:flex sm:items-center sm:justify-between sm:gap-3">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-[#2f5146]">{entry.label}</p>
+        <p className="mt-1 text-xs text-[#7a8d86]">{clientEntryTypeLabel(entry)}</p>
+      </div>
+      <EntryEditActions entry={entry} onEdit={onEdit} />
+    </div>
+  );
+}
+
+function RepeaterFields({ entry }) {
+  if (entry.kind !== "repeater" || !entry.nestedEntries.length) return null;
+  return (
+    <details className="mt-3 rounded-lg border border-[#e0e9e4] bg-[#f8fbf9] px-3 py-2.5">
+      <summary className="cursor-pointer text-xs font-semibold text-[#45685d]">
+        View fields in the client Add/Edit dialog
+      </summary>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {entry.nestedEntries.map((nestedEntry) => (
+          <div key={nestedEntry.id} className="rounded-md bg-white px-3 py-2 ring-1 ring-[#e1e9e5]">
+            <p className="text-xs font-medium text-[#38564b]">{nestedEntry.label}</p>
+            <p className="mt-0.5 text-[11px] text-[#84958f]">{clientEntryTypeLabel(nestedEntry)}</p>
+            {nestedEntry.conditions.length ? <p className="mt-1 text-[10px] font-medium text-[#4d7868]">{describeClientCondition(nestedEntry.conditions, entry.nestedEntries)}</p> : null}
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-[11px] leading-5 text-[#71857d]">
+        Choose Edit on this question to change any field in the record dialog.
+      </p>
+    </details>
+  );
+}
+
+function ClientFacingQuestionCard({ entry, number, allPrimaryEntries, onEdit }) {
+  return (
+    <article className="rounded-xl border border-[#dce6e1] bg-white px-4 py-4 transition hover:border-[#b9d3c7] hover:shadow-[0_2px_8px_rgba(23,55,46,0.05)]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-4">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#f0f5f2] text-xs font-semibold text-[#547368]">{number}</span>
+          <div className="min-w-0">
+            {entry.group ? <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#7b8e87]">{entry.group}</p> : null}
+            <h4 className="text-sm font-semibold text-[#24453b]">{entry.label}</h4>
+            <p className="mt-1 text-xs text-[#7a8d86]">{clientEntryTypeLabel(entry)}</p>
+          </div>
+        </div>
+        <EntryEditActions entry={entry} onEdit={onEdit} />
+      </div>
+
+      <RepeaterFields entry={entry} />
+
+      {entry.conditionalGroups.map((group) => (
+        <div key={group.id} className="ml-4 mt-4 border-l-2 border-[#a8cdbb] pl-4 sm:ml-12">
+          <p className="mb-2 text-xs font-semibold text-[#356352]">
+            {describeClientCondition(group.conditions, allPrimaryEntries)}
+          </p>
+          <div className="space-y-2">
+            {group.entries.map((conditionalEntry) => (
+              <ClientEntryRow key={conditionalEntry.id} entry={conditionalEntry} onEdit={onEdit} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </article>
+  );
+}
+
 function QuestionCrmSyncPanel({ question, disabled, onChange }) {
   const mapping = normalizeCrmMapping(question?.metadata?.crm) || { mode: CRM_MAPPING_MODES.unconfigured };
   const mode = mapping.mode || CRM_MAPPING_MODES.unconfigured;
@@ -1358,8 +1473,18 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
   }, [definitions]);
   const pageGroups = useMemo(
     () => groupQuestionnairePages(definition?.pages || []),
-    [definition?.pages]
+    [definition]
   );
+  const pagePresentations = useMemo(
+    () => new Map((definition?.pages || []).map((page) => [
+      page.id,
+      getClientQuestionnairePresentation(page, definition),
+    ])),
+    [definition]
+  );
+  const activePagePresentation = activePage
+    ? pagePresentations.get(activePage.id) || getClientQuestionnairePresentation(activePage, definition)
+    : null;
   const activePageGroupKey = activePage
     ? getQuestionnairePageGroupKey(activePage)
     : pageGroups[0]?.key || "";
@@ -2759,7 +2884,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                           setSectionSettingsOpen(false);
                         }} className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left text-sm transition ${page.id === activePageId ? "bg-[#e5f1ea] font-semibold text-[#2b5f4d] ring-1 ring-[#add0bf]" : "text-[#587067] hover:bg-[#f2f7f4]"}`}>
                           <span className="truncate">{page.title}</span>
-                          <span className="flex shrink-0 items-center gap-2 text-xs text-[#789087]"><span>{countQuestions(page.questions)}</span><ChevronRight className="h-4 w-4" /></span>
+                          <span className="flex shrink-0 items-center gap-2 text-xs text-[#789087]" title="Client-facing questions"><span>{pagePresentations.get(page.id)?.primaryCount ?? 0}</span><ChevronRight className="h-4 w-4" /></span>
                         </button>
                       ))}
                       {!filteredPages.length ? <p className="px-3 py-8 text-center text-xs leading-5 text-[#7a8e86]">{pageSearch ? "No matching sections in this group." : "No sections in this group."}</p> : null}
@@ -2944,21 +3069,51 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                         ) : null}
 
                         <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-                          <div><h3 className="font-semibold text-[#24453b]">{activePage.questions.length} question{activePage.questions.length === 1 ? "" : "s"}</h3><p className="mt-1 text-xs text-[#7a8d86]">Select a question to edit its wording, choices, and display rules.</p></div>
+                          <div><h3 className="font-semibold text-[#24453b]">{activePagePresentation.primaryCount} client-facing question{activePagePresentation.primaryCount === 1 ? "" : "s"}</h3><p className="mt-1 text-xs text-[#7a8d86]">This mirrors the client portal: conditional fields and Add/Edit dialog fields are nested under their parent question.</p></div>
                           <Button type="button" className="bg-[#1f6654] text-white hover:bg-[#174f42]" disabled={isBusy} onClick={() => { addQuestion(); setQuestionEditorOpen(true); }}><Plus />Add question</Button>
                         </div>
                       </div>
 
                       <div className="space-y-2 bg-[#fbfcfb] px-5 pb-5 sm:px-6 sm:pb-6">
-                        {activePage.questions.map((question, index) => (
-                          <article key={`${question.id}-${index}`} className="flex flex-col gap-3 rounded-xl border border-[#dce6e1] bg-white px-4 py-4 transition hover:border-[#b9d3c7] hover:shadow-[0_2px_8px_rgba(23,55,46,0.05)] sm:flex-row sm:items-center sm:justify-between">
-                            <div className="flex min-w-0 items-center gap-4">
-                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#f0f5f2] text-xs font-semibold text-[#547368]">{index + 1}</span>
-                              <div className="min-w-0"><h4 className="truncate text-sm font-semibold text-[#24453b]">{question.label}</h4><p className="mt-1 text-xs text-[#7a8d86]">{questionTypeLabel(question.type)}{question.required ? " · Required" : ""}{question.followUps?.length ? ` · ${question.followUps.length} follow-up` : ""}</p></div>
-                            </div>
-                            <Button type="button" variant="ghost" className="justify-start text-[#45685d] sm:justify-center" onClick={() => { setActiveQuestionId(question.id); setQuestionEditorOpen(true); }}><Pencil />Edit</Button>
-                          </article>
+                        {activePagePresentation.primaryEntries.map((entry, index) => (
+                          <ClientFacingQuestionCard
+                            key={entry.id}
+                            entry={entry}
+                            number={index + 1}
+                            allPrimaryEntries={activePagePresentation.primaryEntries}
+                            onEdit={(question) => { setActiveQuestionId(question.id); setQuestionEditorOpen(true); }}
+                          />
                         ))}
+                        {activePagePresentation.orphanConditionalGroups.length ? (
+                          <section className="rounded-xl border border-[#d6e4dd] bg-[#f3f8f5] p-4">
+                            <h4 className="text-sm font-semibold text-[#31564a]">Other conditional questions</h4>
+                            <p className="mt-1 text-xs text-[#71857d]">These depend on an answer outside the visible top-level questions in this section.</p>
+                            <div className="mt-3 space-y-3">
+                              {activePagePresentation.orphanConditionalGroups.map((group) => (
+                                <div key={group.id}>
+                                  <p className="mb-2 text-xs font-semibold text-[#45685d]">{describeClientCondition(group.conditions, activePagePresentation.primaryEntries)}</p>
+                                  <div className="space-y-2">{group.entries.map((entry) => <ClientEntryRow key={entry.id} entry={entry} onEdit={(question) => { setActiveQuestionId(question.id); setQuestionEditorOpen(true); }} />)}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </section>
+                        ) : null}
+                        {activePagePresentation.storageQuestions.length ? (
+                          <details className="rounded-xl border border-dashed border-[#cbdad3] bg-[#f6f8f7] px-4 py-3">
+                            <summary className="cursor-pointer text-xs font-semibold text-[#60786f]">
+                              {activePagePresentation.storageQuestions.length} storage-only field{activePagePresentation.storageQuestions.length === 1 ? "" : "s"} excluded from the client view
+                            </summary>
+                            <p className="mt-2 text-xs leading-5 text-[#7a8d86]">These keys are retained for compatibility, but the client portal does not present them as questions.</p>
+                            <div className="mt-3 space-y-2">
+                              {activePagePresentation.storageQuestions.map((question) => (
+                                <div key={question.id} className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 ring-1 ring-[#e1e9e5]">
+                                  <div className="min-w-0"><p className="truncate text-xs font-medium text-[#526b62]">{question.label}</p><p className="mt-0.5 truncate font-mono text-[10px] text-[#8a9b95]">{question.answerKey}</p></div>
+                                  <Button type="button" variant="ghost" size="sm" className="text-[#60786f]" onClick={() => { setActiveQuestionId(question.id); setQuestionEditorOpen(true); }}><Pencil className="h-3.5 w-3.5" />Edit</Button>
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        ) : null}
                         {!activePage.questions.length ? <div className="rounded-xl border border-dashed border-[#cbdad3] bg-white px-6 py-14 text-center text-sm text-[#71857d]">No questions in this section yet.</div> : null}
                         <div className="flex items-center justify-between pt-2 text-xs text-[#748880]"><span>{isDirty ? "Draft changes not saved" : "All changes saved"}</span>{!isDirty ? <span className="flex items-center gap-1"><Check className="h-3.5 w-3.5" />Saved</span> : null}</div>
                       </div>

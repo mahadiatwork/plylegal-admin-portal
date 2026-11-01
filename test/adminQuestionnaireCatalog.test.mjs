@@ -176,6 +176,24 @@ async function loadComponent(relativePath) {
         normalizeCrmMapping: () => null,
       };
     }
+    if (specifier === "@/lib/questionnaireClientPresentation") {
+      return {
+        describeClientCondition: () => "Shown conditionally",
+        getClientQuestionnairePresentation: (page) => ({
+          primaryEntries: (page?.questions || []).map((question) => ({
+            id: question.id,
+            kind: "question",
+            label: question.label,
+            questions: [question],
+            nestedEntries: [],
+            conditionalGroups: [],
+          })),
+          orphanConditionalGroups: [],
+          storageQuestions: [],
+          primaryCount: page?.questions?.length || 0,
+        }),
+      };
+    }
     return require(specifier);
   };
   componentModule._compile(code, filename);
