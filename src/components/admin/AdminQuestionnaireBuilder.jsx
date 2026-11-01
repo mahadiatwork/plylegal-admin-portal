@@ -37,7 +37,12 @@ import MatterTabLoadingState from "@/components/matter/MatterTabLoadingState";
 import { getRegisteredQuestionnaireRoutes } from "@/lib/routes";
 import { temporaryWork482Definition } from "@/lib/questionnaireStarterTemplates";
 import { questionnaireBuiltInTemplates } from "@/lib/questionnaireBuiltIns";
+import { completeAdminQuestionnairePages } from "@/lib/questionnaireAdminCoverage";
 import { hydrateLegacyQuestionnaireDefinition } from "@/lib/questionnaireLegacyProtection";
+import {
+  getQuestionnairePageGroupKey,
+  groupQuestionnairePages,
+} from "@/lib/questionnairePageGroups";
 import {
   CRM_CLEAR_POLICIES,
   CRM_MAPPING_MODES,
@@ -541,7 +546,9 @@ async function fetchDefinition(id) {
   const payload = await apiRequest(`/api/questionnaire-definitions/${encodeURIComponent(id)}`);
   const definition = getDefinitionFromResponse(payload);
   if (!definition) throw new Error("The questionnaire API returned no definition.");
-  return normalizeDefinition(hydrateLegacyQuestionnaireDefinition(definition));
+  return normalizeDefinition(
+    completeAdminQuestionnairePages(hydrateLegacyQuestionnaireDefinition(definition))
+  );
 }
 
 function countQuestions(questions = []) {
@@ -589,23 +596,6 @@ function audienceLabel(definition) {
       ? [definition.visaContext]
       : [];
   return [definition?.visaType || "No visa type", contexts.length ? contexts.join(", ") : "All contexts"].join(" · ");
-}
-
-function pageGroupLabel(page) {
-  const metadataRole = page?.metadata?.profileRole;
-  const role = metadataRole
-    ? (metadataRole === "main" ? "main_applicant" : metadataRole)
-    : null;
-  const route = String(page?.route || "");
-  const routeRole = role
-    || (route.includes("/main-applicant/") ? "main_applicant" : null)
-    || (route.includes("/spouse-partner/") ? "spouse" : null)
-    || (route.includes("/children/") && !route.endsWith("/children/start") ? "child" : null)
-    || (/\/non-migrating\/[^/]+\//.test(route) ? "non_migrating" : null);
-  if (routeRole === "main_applicant") return "Main applicant";
-  if (["spouse", "child", "other"].includes(routeRole)) return "Dependents";
-  if (routeRole === "non_migrating") return "Non-migrating";
-  return "Shared";
 }
 
 function getIntroText(page) {
@@ -1366,26 +1356,22 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
         key: `saved:${item.id}`,
       }));
   }, [definitions]);
+  const pageGroups = useMemo(
+    () => groupQuestionnairePages(definition?.pages || []),
+    [definition?.pages]
+  );
+  const activePageGroupKey = activePage
+    ? getQuestionnairePageGroupKey(activePage)
+    : pageGroups[0]?.key || "";
+  const activePageGroup = pageGroups.find((group) => group.key === activePageGroupKey)
+    || pageGroups[0]
+    || null;
   const filteredPages = useMemo(() => {
     const search = pageSearch.trim().toLowerCase();
-    return (definition?.pages || []).filter((page) =>
+    return (activePageGroup?.pages || []).filter((page) =>
       !search || [page.title, page.id].some((value) => String(value || "").toLowerCase().includes(search))
     );
-  }, [definition?.pages, pageSearch]);
-
-  const groupedPages = useMemo(() => {
-    const groups = [];
-    let current = null;
-    for (const page of filteredPages) {
-      const label = pageGroupLabel(page);
-      if (!current || current.label !== label) {
-        current = { label, pages: [] };
-        groups.push(current);
-      }
-      current.pages.push(page);
-    }
-    return groups;
-  }, [filteredPages]);
+  }, [activePageGroup?.pages, pageSearch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1495,6 +1481,16 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
 
   function confirmDiscard() {
     return !isDirty || window.confirm("Discard your unsaved questionnaire changes?");
+  }
+
+  function selectPageGroup(groupKey) {
+    const firstPage = pageGroups.find((group) => group.key === groupKey)?.pages?.[0];
+    if (!firstPage) return;
+    setPageSearch("");
+    setActivePageId(firstPage.id);
+    setActiveQuestionId(firstPage.questions?.[0]?.id || "");
+    setQuestionEditorOpen(false);
+    setSectionSettingsOpen(false);
   }
 
   function discardDefinitionChanges() {
@@ -2726,32 +2722,47 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                       <p className="mt-1 text-xs text-[#7a8e86]">{definition.pages.length} total</p>
                     </div>
                   </div>
-                  <div className="px-3 pb-3">
+                  <div className="space-y-3 px-3 pb-3">
+                    <div className="space-y-1.5">
+                      <label htmlFor="questionnaire-page-group" className="px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#6f837b]">
+                        Applicant / section group
+                      </label>
+                      <select
+                        id="questionnaire-page-group"
+                        className={selectClassName}
+                        value={activePageGroupKey}
+                        onChange={(event) => selectPageGroup(event.target.value)}
+                      >
+                        {pageGroups.map((group) => (
+                          <option key={group.key} value={group.key}>
+                            {group.label} ({group.pages.length})
+                          </option>
+                        ))}
+                      </select>
+                      <p className="px-1 text-[11px] text-[#7a8e86]">
+                        {activePageGroup?.pages.length || 0} of {definition.pages.length} sections
+                      </p>
+                    </div>
                     <div className="relative">
                       <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-[#71857d]" />
-                      <Input value={pageSearch} onChange={(event) => setPageSearch(event.target.value)} placeholder="Find a section…" aria-label="Search sections" className={`${inputClassName} pl-9`} />
+                      <Input value={pageSearch} onChange={(event) => setPageSearch(event.target.value)} placeholder="Find in this group…" aria-label="Search sections in the selected group" className={`${inputClassName} pl-9`} />
                     </div>
                   </div>
                   <div className="border-y border-[#e5ebe8] px-3 py-3">
-                    <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7b8e87]">Questionnaire sections</p>
-                    <div className="max-h-[calc(100vh-390px)] space-y-3 overflow-y-auto">
-                      {groupedPages.map((group) => (
-                        <div key={group.label} className="space-y-1">
-                          <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7b8e87]">{group.label}</p>
-                          {group.pages.map((page) => (
-                            <button key={page.id} type="button" onClick={() => {
-                              setActivePageId(page.id);
-                              setActiveQuestionId(page.questions?.[0]?.id || "");
-                              setQuestionEditorOpen(false);
-                              setSectionSettingsOpen(false);
-                            }} className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left text-sm transition ${page.id === activePageId ? "bg-[#e5f1ea] font-semibold text-[#2b5f4d] ring-1 ring-[#add0bf]" : "text-[#587067] hover:bg-[#f2f7f4]"}`}>
-                              <span className="truncate">{page.title}</span>
-                              <span className="flex shrink-0 items-center gap-2 text-xs text-[#789087]"><span>{countQuestions(page.questions)}</span><ChevronRight className="h-4 w-4" /></span>
-                            </button>
-                          ))}
-                        </div>
+                    <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7b8e87]">{activePageGroup?.label || "Questionnaire sections"}</p>
+                    <div className="max-h-[calc(100vh-460px)] space-y-1 overflow-y-auto">
+                      {filteredPages.map((page) => (
+                        <button key={page.id} type="button" onClick={() => {
+                          setActivePageId(page.id);
+                          setActiveQuestionId(page.questions?.[0]?.id || "");
+                          setQuestionEditorOpen(false);
+                          setSectionSettingsOpen(false);
+                        }} className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left text-sm transition ${page.id === activePageId ? "bg-[#e5f1ea] font-semibold text-[#2b5f4d] ring-1 ring-[#add0bf]" : "text-[#587067] hover:bg-[#f2f7f4]"}`}>
+                          <span className="truncate">{page.title}</span>
+                          <span className="flex shrink-0 items-center gap-2 text-xs text-[#789087]"><span>{countQuestions(page.questions)}</span><ChevronRight className="h-4 w-4" /></span>
+                        </button>
                       ))}
-                      {!groupedPages.length ? <p className="px-3 py-8 text-center text-xs leading-5 text-[#7a8e86]">{pageSearch ? "No matching sections." : "No sections yet."}</p> : null}
+                      {!filteredPages.length ? <p className="px-3 py-8 text-center text-xs leading-5 text-[#7a8e86]">{pageSearch ? "No matching sections in this group." : "No sections in this group."}</p> : null}
                     </div>
                   </div>
                   <div className="p-3">
@@ -2953,28 +2964,6 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                       </div>
                     </section>
                   )}
-
-                  <details className="group mt-5 overflow-hidden rounded-xl border border-[#dce6e1] bg-white shadow-[0_1px_2px_rgba(23,55,46,0.04)]" onToggle={(event) => { if (event.currentTarget.open && !jsonHasPendingEdits) { setJsonText(JSON.stringify(definition, null, 2)); setJsonError(""); } }}>
-                    <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 sm:px-6"><div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e8f4ee] text-[#4F726B]"><Braces className="h-4 w-4" /></span><div><h3 className="font-semibold text-[#17372e]">Advanced questionnaire tools</h3><p className="mt-1 text-xs text-[#71857d]">Settings, deletion, and complete JSON.</p></div></div><ChevronRight className="h-5 w-5 text-[#71857d] transition-transform group-open:rotate-90" /></summary>
-                    <div className="space-y-5 border-t border-[#e1e9e5] p-5 sm:p-6">
-                      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                        <div className="space-y-2 md:col-span-2"><FieldLabel htmlFor="questionnaire-title">Title</FieldLabel><Input id="questionnaire-title" className={inputClassName} value={definition.title} onChange={(event) => updateDefinitionField("title", event.target.value)} /></div>
-                        <div className="space-y-2"><FieldLabel htmlFor="questionnaire-version">Version</FieldLabel><Input id="questionnaire-version" className={inputClassName} value={definition.version} onChange={(event) => updateDefinitionField("version", event.target.value)} /></div>
-                        <div className="space-y-2 md:col-span-2"><FieldLabel htmlFor="questionnaire-id" hint="machine key">ID</FieldLabel><Input id="questionnaire-id" className={`${inputClassName} font-mono`} value={definition.id} disabled={!isCreating || machineKeysLocked} onChange={(event) => { updateDefinitionField("id", event.target.value); setSelectedId(event.target.value); }} /></div>
-                        <div className="space-y-2"><FieldLabel htmlFor="questionnaire-visa-type">Visa type</FieldLabel><select id="questionnaire-visa-type" className={selectClassName} value={definition.visaType} disabled={machineKeysLocked} onChange={(event) => { const visaType = event.target.value; setDefinition((current) => { const next = { ...current, visaType }; if (visaType !== "temporary-work") { next.visaContexts = []; delete next.visaContext; } return next; }); }}><option value="temporary-work">Temporary work (482 / 186)</option><option value="partner">Partner Visa (Subclass 820)</option><option value="protection">Protection Visa (Subclass 866)</option></select></div>
-                        <div className="space-y-2 md:col-span-2 xl:col-span-3"><FieldLabel htmlFor="questionnaire-contexts" hint="comma separated">Visa contexts</FieldLabel><Input id="questionnaire-contexts" className={inputClassName} value={definition.visaContexts.join(", ")} disabled={machineKeysLocked || definition.visaType !== "temporary-work"} placeholder="482, 186" onChange={(event) => updateDefinitionField("visaContexts", event.target.value.split(",").map((value) => value.trim()).filter(Boolean))} /></div>
-                      </div>
-                      {machineKeysLocked ? <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Advanced JSON is read-only for this live questionnaire. Use the visual fields above for supported changes.</p> : null}
-                      <Textarea value={jsonText} onChange={(event) => { setJsonText(event.target.value); setJsonHasPendingEdits(true); setJsonError(""); }} readOnly={machineKeysLocked} spellCheck={false} aria-label="Questionnaire JSON" className="min-h-[360px] border-[#d7e4de] bg-[#11221d] font-mono text-xs leading-5 text-[#d8eee5]" />
-                      {jsonError ? <p role="alert" className="text-sm text-red-600">{jsonError}</p> : null}
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button type="button" variant="outline" className="border-[#d7e4de] bg-white" disabled={machineKeysLocked || !jsonHasPendingEdits} onClick={applyJson}><Check />Apply JSON</Button>
-                        {jsonHasPendingEdits ? <Button type="button" variant="ghost" onClick={() => { setJsonText(JSON.stringify(definition, null, 2)); setJsonHasPendingEdits(false); setJsonError(""); }}>Discard JSON edits</Button> : null}
-                        <label className={`inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-[#d7e4de] bg-white px-4 py-2 text-sm font-medium text-[#38564b] ${machineKeysLocked ? "cursor-not-allowed opacity-50" : "hover:bg-[#f8fbf9]"}`}><FileJson className="h-4 w-4" />Import file<input type="file" accept="application/json,.json" className="sr-only" disabled={machineKeysLocked} onChange={(event) => { importJson(event.target.files?.[0]); event.target.value = ""; }} /></label>
-                        <Button type="button" variant="ghost" className="ml-auto text-red-600 hover:bg-red-50 hover:text-red-700" disabled={isBusy || isCreating} onClick={deleteDefinition}>{isDeleting ? <Loader2 className="animate-spin" /> : <Trash2 />}Delete questionnaire</Button>
-                      </div>
-                    </div>
-                  </details>
                 </main>
               </div>
             </fieldset>
@@ -3346,8 +3335,25 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                       <Plus />
                     </Button>
                   </div>
+                  <div className="space-y-1.5 border-b border-[#e1e9e5] px-3 py-3">
+                    <label htmlFor="embedded-questionnaire-page-group" className="px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#6f837b]">
+                      Applicant / section group
+                    </label>
+                    <select
+                      id="embedded-questionnaire-page-group"
+                      className={selectClassName}
+                      value={activePageGroupKey}
+                      onChange={(event) => selectPageGroup(event.target.value)}
+                    >
+                      {pageGroups.map((group) => (
+                        <option key={group.key} value={group.key}>
+                          {group.label} ({group.pages.length})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <div className="flex gap-2 overflow-x-auto p-3 lg:block lg:max-h-[760px] lg:space-y-2 lg:overflow-y-auto">
-                    {definition.pages.map((page, index) => (
+                    {(activePageGroup?.pages || []).map((page, index) => (
                       <button
                         key={`${page.id}-${index}`}
                         type="button"
@@ -3368,9 +3374,9 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                         <p className="mt-1 text-[11px] text-[#71857d]">{page.metadata?.profileRole ? `${({ main_applicant: "Main Applicant", spouse: "Spouse/Partner", child: "Child", non_migrating: "Other Family" })[page.metadata.profileRole] || page.metadata.profileRole} · ` : ""}{countQuestions(page.questions)} questions</p>
                       </button>
                     ))}
-                    {!definition.pages.length ? (
+                    {!activePageGroup?.pages.length ? (
                       <p className="px-2 py-8 text-center text-xs leading-5 text-[#71857d]">
-                        No pages yet. Add one to start building.
+                        No pages in this group yet. Add one to start building.
                       </p>
                     ) : null}
                   </div>

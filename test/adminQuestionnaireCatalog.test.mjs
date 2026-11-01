@@ -145,8 +145,17 @@ async function loadComponent(relativePath) {
     if (specifier === "@/lib/questionnaireBuiltIns") {
       return { questionnaireBuiltInTemplates: builtIns };
     }
+    if (specifier === "@/lib/questionnaireAdminCoverage") {
+      return { completeAdminQuestionnairePages: (definition) => definition };
+    }
     if (specifier === "@/lib/questionnaireLegacyProtection") {
       return { hydrateLegacyQuestionnaireDefinition: (definition) => definition };
+    }
+    if (specifier === "@/lib/questionnairePageGroups") {
+      return {
+        getQuestionnairePageGroupKey: () => "shared",
+        groupQuestionnairePages: (pages) => [{ key: "shared", label: "Shared questionnaire", pages }],
+      };
     }
     if (specifier === "@/lib/crmFieldCatalog") {
       return {

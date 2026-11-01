@@ -4,6 +4,8 @@ import { questionnaireBuiltInTemplates, getBuiltInQuestionnaireDefinition } from
 import { createQuestionnaireDraft } from './questionnaireDrafts.js';
 import { getQuestionnaireDefinitionIssues, normalizeQuestionnaireDefinition, assertQuestionnaireDefinitionStructureEditable } from './questionnaireDefinitions.js';
 import { getLegacyQuestionnairePublishIssues } from './questionnaireLegacyProtection.js';
+import { completeAdminQuestionnairePages } from './questionnaireAdminCoverage.js';
+import { groupQuestionnairePages } from './questionnairePageGroups.js';
 import { getRegisteredQuestionnaireRoutes } from './routes.js';
 
 for (const template of questionnaireBuiltInTemplates) {
@@ -14,8 +16,44 @@ for (const template of questionnaireBuiltInTemplates) {
     assert.ok(definition.pages.length > 20);
     const routes = new Set(getRegisteredQuestionnaireRoutes(definition.visaType, definition.visaContexts).map(route => route.href));
     assert.ok(definition.pages.every(page => routes.has(page.route)), 'every page has a registered client form');
+    const definitionRoutes = new Set(definition.pages.map(page => page.route));
+    assert.deepEqual(
+      [...routes].filter(route => !definitionRoutes.has(route)),
+      [],
+      'every registered client form is available in the admin questionnaire',
+    );
+    const groups = groupQuestionnairePages(definition.pages);
+    const groupKeys = new Set(groups.map(group => group.key));
+    for (const key of ['main-applicant', 'spouse-partner', 'children', 'non-migrating', 'all-applicants']) {
+      assert.ok(groupKeys.has(key), `${key} should have its own applicant selector option`);
+    }
+    assert.ok(groups.every(group => group.label), 'every applicant selector option has a label');
+    const groupedPages = groups.flatMap(group => group.pages);
+    assert.equal(groupedPages.length, definition.pages.length, 'the applicant selector includes every admin section');
+    assert.deepEqual(new Set(groupedPages.map(page => page.id)), new Set(definition.pages.map(page => page.id)));
   });
 }
+
+test('older partial definitions show the client portal fallback pages in the admin editor', () => {
+  const builtIn = getBuiltInQuestionnaireDefinition({ visaType: 'partner' });
+  const editedPage = {
+    ...structuredClone(builtIn.pages[0]),
+    title: 'Edited main applicant details',
+  };
+  const partial = {
+    ...structuredClone(builtIn),
+    id: 'saved-partial-partner',
+    pages: [editedPage],
+  };
+
+  const completed = completeAdminQuestionnairePages(partial);
+  assert.equal(completed.pages.length, builtIn.pages.length);
+  assert.equal(completed.pages.find(page => page.route === editedPage.route).title, editedPage.title);
+  assert.deepEqual(
+    new Set(completed.pages.map(page => page.route)),
+    new Set(builtIn.pages.map(page => page.route)),
+  );
+});
 
 test('subclass selection preserves separate complete 482 and 186 templates', () => {
   assert.equal(getBuiltInQuestionnaireDefinition({ visaType: 'temporary-work', visaContext: '186' }).visaContext, '186');
