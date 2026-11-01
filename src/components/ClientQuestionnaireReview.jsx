@@ -163,11 +163,13 @@ function MatterCrmSyncControls({ matterId }) {
   const [changes, setChanges] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
 
   async function run(mode) {
     if (!matterId) return;
     setBusy(true);
     setError("");
+    setStatus("");
     try {
       const response = await fetch(`/api/matter/${encodeURIComponent(matterId)}/crm-sync`, {
         method: "POST",
@@ -180,6 +182,16 @@ function MatterCrmSyncControls({ matterId }) {
         return;
       }
       setChanges(payload.changes || []);
+      const definitionTitle = payload.questionnaireDefinition?.title;
+      if (payload.preview) {
+        setStatus(`Preview ready${definitionTitle ? ` for ${definitionTitle}` : ""}. No CRM data was changed.`);
+      } else if (payload.skipped) {
+        setStatus("CRM synchronization is disabled. The preview below is safe to review.");
+      } else if (payload.dryRun) {
+        setStatus("CRM dry run completed. No CRM data was changed.");
+      } else {
+        setStatus("CRM synchronization completed successfully.");
+      }
     } catch {
       setError("CRM synchronization failed");
     } finally {
@@ -198,6 +210,7 @@ function MatterCrmSyncControls({ matterId }) {
         </button>
       </div>
       {error ? <p className="text-xs text-red-700">{error}</p> : null}
+      {status ? <p role="status" className="text-xs text-[#31564a]">{status}</p> : null}
       {changes ? (
         <ul className="max-h-48 space-y-1 overflow-auto text-xs text-slate-700">
           {changes.map((change, index) => (

@@ -2398,6 +2398,25 @@ export const questionnaireBuiltInPages = [
         ]
       },
       {
+        "id": "temporary-work-main-applicant-employment-current_duties",
+        "answerKey": "current_duties",
+        "label": "Current Duties / Notes",
+        "type": "textarea",
+        "required": false,
+        "placeholder": "Briefly describe the applicant's current duties",
+        "metadata": {
+          "originalPlaceholder": "Briefly describe the applicant's current duties",
+          "originalLabel": "Current Duties / Notes"
+        },
+        "visibleIf": [
+          {
+            "field": "is_currently_employed",
+            "op": "equals",
+            "value": "yes"
+          }
+        ]
+      },
+      {
         "id": "temporary-work-main-applicant-employment-employment_history",
         "answerKey": "employment_history",
         "label": "Are you currently Employed in a paid position?",
@@ -2553,6 +2572,18 @@ export const questionnaireBuiltInPages = [
               "required": false,
               "metadata": {
                 "originalLabel": "Employer/Organization"
+              }
+            },
+            {
+              "id": "temporary-work-main-applicant-employment-employment_history-employer_address",
+              "answerKey": "employer_address",
+              "label": "Workplace Address",
+              "type": "text",
+              "required": false,
+              "placeholder": "Street, City, State, Postcode",
+              "metadata": {
+                "originalPlaceholder": "Street, City, State, Postcode",
+                "originalLabel": "Workplace Address"
               }
             },
             {

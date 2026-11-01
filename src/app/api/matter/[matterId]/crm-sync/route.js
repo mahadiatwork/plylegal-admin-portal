@@ -3,7 +3,7 @@ import { getAdminSession } from "@/lib/adminSession";
 import { isSameOriginRequest } from "@/lib/adminLoginProtection";
 import { db, initResult } from "@/lib/firebase-admin";
 import { resolveMatterApplication } from "@/lib/matterResolver";
-import { inferQuestionnaireAudience, loadQuestionnaireReviewDefinition } from "@/lib/questionnaireReviewDefinitions";
+import { definitionMatchesAudience, inferQuestionnaireAudience, loadQuestionnaireReviewDefinition } from "@/lib/questionnaireReviewDefinitions";
 import { getBuiltInQuestionnaireDefinition } from "@/lib/questionnaireBuiltIns";
 import { buildAdminCrmProjection } from "@/lib/questionnaireCrmProjection";
 import { ZohoCRMClient } from "@/lib/zohoClient";
@@ -35,6 +35,24 @@ export async function POST(request, { params }) {
   const loaded = await loadQuestionnaireReviewDefinition(db, audience, builtIn);
   const definition = loaded?.definition;
   if (!definition) return json({ success: false, error: "Questionnaire definition was not found" }, 409);
+  if (!definitionMatchesAudience(definition, audience)) {
+    return json({ success: false, error: "The questionnaire definition does not match this matter type" }, 409);
+  }
+
+  const context = {
+    mode,
+    audience,
+    resolvedApplicationId: resolved.appId,
+    matchedBy: resolved.matchedBy,
+    duplicateCount: resolved.duplicateCount || 1,
+    questionnaireDefinition: {
+      id: definition.id,
+      title: definition.title,
+      visaType: definition.visaType,
+      visaContexts: definition.visaContexts || (definition.visaContext ? [definition.visaContext] : []),
+      source: loaded.source,
+    },
+  };
 
   let userProfile = {};
   if (application.userId) {
@@ -45,13 +63,21 @@ export async function POST(request, { params }) {
   const projection = buildAdminCrmProjection({ definition, draft, application, userProfile });
   const publicChanges = projection.changes.map(({ writeValue, ...change }) => change);
   if (mode === "preview") {
-    return json({ success: true, preview: true, changes: publicChanges });
+    return json({ success: true, preview: true, ...context, changes: publicChanges });
+  }
+
+  if ((resolved.duplicateCount || 1) > 1 && resolved.matchedBy !== "firebaseId") {
+    return json({
+      success: false,
+      error: "Multiple portal applications match this matter. Open the application by its portal ID before synchronizing.",
+      ...context,
+    }, 409);
   }
 
   const enabled = ["true", "1"].includes(String(process.env.CRM_QUESTIONNAIRE_SYNC_ENABLED || "").toLowerCase());
   const dryRun = ["true", "1"].includes(String(process.env.CRM_QUESTIONNAIRE_SYNC_DRY_RUN || "").toLowerCase());
-  if (!enabled) return json({ success: true, skipped: true, reason: "feature_disabled", changes: publicChanges });
-  if (dryRun) return json({ success: true, dryRun: true, changes: publicChanges });
+  if (!enabled) return json({ success: true, skipped: true, reason: "feature_disabled", ...context, changes: publicChanges });
+  if (dryRun) return json({ success: true, dryRun: true, ...context, changes: publicChanges });
 
   const zoho = new ZohoCRMClient();
   const token = await zoho.getAccessToken();
@@ -73,5 +99,5 @@ export async function POST(request, { params }) {
       return json({ success: false, error: result?.message || "Zoho update failed", changes: publicChanges }, 502);
     }
   }
-  return json({ success: true, changes: publicChanges });
+  return json({ success: true, synchronized: true, ...context, changes: publicChanges });
 }

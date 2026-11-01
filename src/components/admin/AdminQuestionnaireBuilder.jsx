@@ -67,6 +67,14 @@ const CONDITION_OPERATORS = [
   ["notExists", "Has no answer"],
 ];
 
+const CRM_QUESTIONNAIRE_MATTER_TYPES = [
+  { value: "820", label: "Partner Visa (Subclass 820)", visaType: "partner", visaContexts: [] },
+  { value: "482", label: "Skills in Demand (Subclass 482)", visaType: "temporary-work", visaContexts: ["482"] },
+  { value: "866", label: "Protection Visa (Subclass 866)", visaType: "protection", visaContexts: [] },
+  { value: "309", label: "Partner Visa (Subclass 309)", visaType: "partner", visaContexts: [] },
+  { value: "186", label: "Employer Nomination Visa (Subclass 186)", visaType: "temporary-work", visaContexts: ["186"] },
+];
+
 const STATUS_STYLES = {
   active: "border-emerald-200 bg-emerald-50 text-emerald-700",
   draft: "border-amber-200 bg-amber-50 text-amber-700",
@@ -366,6 +374,61 @@ function questionnaireAudienceKey(definition) {
   return `${definition?.visaType || ""}|${[...contexts].sort().join(",")}`;
 }
 
+function getMatterTypeOption(value) {
+  return CRM_QUESTIONNAIRE_MATTER_TYPES.find((option) => option.value === String(value || ""));
+}
+
+function getDefinitionMatterTypeOption(definition) {
+  const contexts = Array.isArray(definition?.visaContexts)
+    ? definition.visaContexts.map(String)
+    : definition?.visaContext
+      ? [String(definition.visaContext)]
+      : [];
+  if (definition?.visaType === "temporary-work") {
+    return getMatterTypeOption(contexts.includes("186") ? "186" : "482");
+  }
+  if (definition?.visaType === "protection") return getMatterTypeOption("866");
+  if (definition?.visaType === "partner") return getMatterTypeOption("820");
+  return null;
+}
+
+function definitionMatchesMatterType(definition, matterType) {
+  if (!matterType || definition?.visaType !== matterType.visaType) return false;
+  if (matterType.visaType !== "temporary-work") return true;
+  const contexts = Array.isArray(definition?.visaContexts)
+    ? definition.visaContexts.map(String)
+    : definition?.visaContext
+      ? [String(definition.visaContext)]
+      : [];
+  return contexts.includes(matterType.value);
+}
+
+function getApplicationMatterTypeOption(application) {
+  const description = [
+    application?.type,
+    application?.visaType,
+    application?.visaTypeCode,
+    application?.visaContext,
+    application?.reference,
+    application?.Deal_Name,
+    application?.Visa_Type,
+  ].filter(Boolean).join(" ").toLowerCase();
+  if (/\b309\b/.test(description)) return getMatterTypeOption("309");
+  if (/\b820\b/.test(description)) return getMatterTypeOption("820");
+  if (/\b866\b/.test(description) || description.includes("protection")) return getMatterTypeOption("866");
+  if (/\b186\b/.test(description) || description.includes("employer nomination")) return getMatterTypeOption("186");
+  if (
+    /\b482\b/.test(description)
+    || description.includes("skills in demand")
+    || description.includes("temporary work")
+    || description.includes("temporary skill")
+  ) {
+    return getMatterTypeOption("482");
+  }
+  if (description.includes("partner")) return getMatterTypeOption("820");
+  return null;
+}
+
 function definitionUpdatedAt(definition) {
   return Date.parse(definition?.updatedAt || definition?.createdAt || "") || 0;
 }
@@ -546,24 +609,20 @@ function pageGroupLabel(page) {
 }
 
 function getIntroText(page) {
-  return page?.introBlocks?.find((block) => block?.type === "paragraph")?.text || "";
+  return (page?.introBlocks || [])
+    .filter((block) => block?.type === "paragraph" && block.text)
+    .map((block) => block.text)
+    .join("\n\n");
 }
 
 function setIntroText(page, text) {
-  const blocks = Array.isArray(page.introBlocks) ? [...page.introBlocks] : [];
-  const paragraphIndex = blocks.findIndex((block) => block?.type === "paragraph");
-
-  if (paragraphIndex >= 0) {
-    if (text) {
-      blocks[paragraphIndex] = { ...blocks[paragraphIndex], text };
-    } else {
-      blocks.splice(paragraphIndex, 1);
-    }
-  } else if (text) {
-    blocks.unshift({ type: "paragraph", text });
-  }
-
-  return { ...page, introBlocks: blocks };
+  const nonParagraphBlocks = (page.introBlocks || []).filter((block) => block?.type !== "paragraph");
+  const paragraphs = text
+    .split(/\n\s*\n/)
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => ({ type: "paragraph", text: value }));
+  return { ...page, introBlocks: [...paragraphs, ...nonParagraphBlocks] };
 }
 
 function makeNewDefinition() {
@@ -647,9 +706,7 @@ function QuestionPreview({ question }) {
           <span>{question.placeholder || "Yes"}</span>
         </div>
       ) : question.type === "repeater" ? (
-        <div className="mt-5 rounded-lg border border-dashed border-[#bdd0c7] bg-[#f8fbf9] px-4 py-5 text-sm text-[#6c8078]">
-          Clients can add one or more records here.
-        </div>
+        <div className="mt-5 h-16 rounded-lg border border-dashed border-[#bdd0c7] bg-[#f8fbf9]" aria-hidden="true" />
       ) : (
         <div className="mt-5 rounded-lg border border-[#cddbd5] bg-[#fbfcfb] px-3 py-3 text-sm text-[#91a29b]">
           {question.placeholder || (question.type === "select" ? "Choose an option" : "Enter your answer")}
@@ -1063,6 +1120,22 @@ function EmbeddedNestedQuestionEditor({
           />
         </div>
       </div>
+      <label className="flex items-start gap-3 rounded-lg border border-[#e1e9e5] bg-white p-3 text-sm text-[#38564b]">
+        <input
+          type="checkbox"
+          className="mt-0.5 h-4 w-4 accent-[#1f6654]"
+          checked={Boolean(question.required)}
+          onChange={(event) => onUpdate(
+            question.id,
+            (current) => ({ ...current, required: event.target.checked }),
+            true
+          )}
+        />
+        <span>
+          <span className="block font-semibold text-[#24453b]">Answer is required</span>
+          <span className="mt-1 block text-xs text-[#71857d]">Clients must complete this field before continuing.</span>
+        </span>
+      </label>
       {showOptions ? (
         <div className="space-y-3 rounded-lg border border-[#e1e9e5] bg-white p-3">
           <div className="flex items-center justify-between gap-3">
@@ -1182,7 +1255,6 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
   const [isDeleting, setIsDeleting] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [definitionSearch, setDefinitionSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
   const [adminView, setAdminView] = useState("library");
   const [pageSearch, setPageSearch] = useState("");
   const [questionEditorOpen, setQuestionEditorOpen] = useState(false);
@@ -1190,7 +1262,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createMode, setCreateMode] = useState("copy");
   const [createName, setCreateName] = useState("");
-  const [createVisaType, setCreateVisaType] = useState("temporary-work");
+  const [createMatterType, setCreateMatterType] = useState("482");
   const [createSourceKey, setCreateSourceKey] = useState("");
   const adminContentRef = useRef(null);
   const selectionRequestId = useRef(0);
@@ -1278,33 +1350,21 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
   }, [definitions]);
   const filteredAdminLibraryEntries = useMemo(() => {
     const search = definitionSearch.trim().toLowerCase();
-    return adminLibraryEntries.filter(({ definition: item, source }) => {
-      const status = source === "builtIn" ? "template" : item.status;
-      const matchesStatus = statusFilter === "all" || status === statusFilter;
+    return adminLibraryEntries.filter(({ definition: item }) => {
       const matchesSearch = !search || [item.title, item.id, audienceLabel(item)].some((value) =>
         String(value || "").toLowerCase().includes(search)
       );
-      return matchesStatus && matchesSearch;
+      return matchesSearch;
     });
-  }, [adminLibraryEntries, definitionSearch, statusFilter]);
+  }, [adminLibraryEntries, definitionSearch]);
   const createSourceEntries = useMemo(() => {
-    const savedEntries = definitions.map((item) => ({
-      definition: item,
-      source: "saved",
-      key: `saved:${item.id}`,
-    }));
-    const savedIds = new Set(savedEntries.map((entry) => String(entry.definition.id)));
-    const builtInEntries = [...questionnaireBuiltInTemplates, temporaryWork482Definition]
-      .filter((item, index, items) =>
-        !savedIds.has(String(item.id))
-        && items.findIndex((candidate) => String(candidate.id) === String(item.id)) === index
-      )
+    return definitions
+      .filter((item) => item.status === "active")
       .map((item) => ({
         definition: item,
-        source: "builtIn",
-        key: `builtIn:${item.id}`,
+        source: "saved",
+        key: `saved:${item.id}`,
       }));
-    return [...savedEntries, ...builtInEntries];
   }, [definitions]);
   const filteredPages = useMemo(() => {
     const search = pageSearch.trim().toLowerCase();
@@ -1435,6 +1495,23 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
 
   function confirmDiscard() {
     return !isDirty || window.confirm("Discard your unsaved questionnaire changes?");
+  }
+
+  function discardDefinitionChanges() {
+    if (!savedDefinition || !isDirty) return;
+    const restored = clone(savedDefinition);
+    setDefinition(restored);
+    setJsonText(JSON.stringify(restored, null, 2));
+    setJsonHasPendingEdits(false);
+    setJsonError("");
+    setError("");
+    setNotice("Unsaved changes discarded.");
+    const restoredPage = restored.pages?.find((page) => page.id === activePageId) || restored.pages?.[0];
+    setActivePageId(restoredPage?.id || "");
+    if (!restoredPage?.questions?.some((question) => question.id === activeQuestionId)) {
+      setActiveQuestionId(restoredPage?.questions?.[0]?.id || "");
+      setQuestionEditorOpen(false);
+    }
   }
 
   async function loadList(preferredId = selectedId) {
@@ -1609,12 +1686,42 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
   }
 
   function openCreateQuestionnaireDialog() {
-    const firstSource = createSourceEntries[0];
+    const crmMatterType = getApplicationMatterTypeOption(matterData?.application);
+    const matterSource = crmMatterType
+      ? createSourceEntries.find((entry) => definitionMatchesMatterType(entry.definition, crmMatterType))
+      : null;
+    const firstSource = matterSource || createSourceEntries[0];
+    const matterType = matterSource
+      ? crmMatterType
+      : getDefinitionMatterTypeOption(firstSource?.definition) || crmMatterType || getMatterTypeOption("482");
     setCreateMode(firstSource ? "copy" : "blank");
     setCreateSourceKey(firstSource?.key || "");
-    setCreateName(firstSource ? `${firstSource.definition.title} — working copy` : "New questionnaire");
-    setCreateVisaType(firstSource?.definition.visaType || "temporary-work");
+    setCreateName(firstSource ? `${matterType.label} — working copy` : "New questionnaire");
+    setCreateMatterType(matterType.value);
     setCreateDialogOpen(true);
+  }
+
+  function changeCreateMatterType(value) {
+    const matterType = getMatterTypeOption(value);
+    if (!matterType) return;
+    setCreateMatterType(matterType.value);
+    if (createMode !== "copy") return;
+    const matchingSource = createSourceEntries.find((entry) =>
+      definitionMatchesMatterType(entry.definition, matterType)
+    );
+    setCreateSourceKey(matchingSource?.key || "");
+    if (matchingSource) setCreateName(`${matterType.label} — working copy`);
+  }
+
+  function changeCreateSource(key) {
+    const sourceEntry = createSourceEntries.find((entry) => entry.key === key);
+    setCreateSourceKey(key);
+    if (!sourceEntry) return;
+    const matterType = getDefinitionMatterTypeOption(sourceEntry.definition);
+    if (matterType) {
+      setCreateMatterType(matterType.value);
+      setCreateName(`${matterType.label} — working copy`);
+    }
   }
 
   async function createQuestionnaireFromDialog() {
@@ -1632,6 +1739,10 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
       if (createMode === "copy") {
         const sourceEntry = createSourceEntries.find((entry) => entry.key === createSourceKey);
         if (!sourceEntry) throw new Error("Choose a questionnaire to copy.");
+        const matterType = getMatterTypeOption(createMatterType);
+        if (!definitionMatchesMatterType(sourceEntry.definition, matterType)) {
+          throw new Error("Choose a questionnaire that matches the CRM matter type.");
+        }
         const source = sourceEntry.source === "saved"
           ? await fetchDefinition(sourceEntry.definition.id)
           : sourceEntry.definition;
@@ -1643,11 +1754,12 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
           revision: 0,
         });
       } else {
+        const matterType = getMatterTypeOption(createMatterType) || getMatterTypeOption("482");
         nextDefinition = normalizeDefinition({
           ...makeNewDefinition(),
           title,
-          visaType: createVisaType,
-          visaContexts: createVisaType === "temporary-work" ? ["482"] : [],
+          visaType: matterType.visaType,
+          visaContexts: matterType.visaContexts,
         });
       }
 
@@ -2379,12 +2491,6 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
           </div>
         ) : null}
 
-        <section className="rounded-lg border border-gray-200 bg-white px-5 py-4 shadow-sm">
-          <p className="text-sm font-medium text-gray-600">
-            Choose what clients will be asked for each visa type. Manage shared templates used across the Client Portal. Client answers are not changed here.
-          </p>
-        </section>
-
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex w-full flex-col gap-3 sm:max-w-2xl sm:flex-row">
             <div className="relative flex-1">
@@ -2392,24 +2498,10 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
               <Input
                 value={definitionSearch}
                 onChange={(event) => setDefinitionSearch(event.target.value)}
-                placeholder="Find a questionnaire…"
+                placeholder="eg search"
                 aria-label="Search questionnaires"
                 className="h-10 border-[#d7e4de] bg-white pl-9 text-sm text-[#17372e] placeholder:text-gray-400 focus-visible:ring-[#4F726B]"
               />
-            </div>
-            <div className="relative sm:w-44">
-              <select
-                className="flex h-10 w-full appearance-none rounded-md border border-[#cfded7] bg-white px-3 py-2 pr-9 text-sm text-[#17372e] focus:outline-none focus:ring-2 focus:ring-[#8ac6ad]"
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value)}
-                aria-label="Filter by status"
-              >
-                <option value="all">All statuses</option>
-                <option value="active">Live</option>
-                <option value="draft">Drafts</option>
-                <option value="archived">Archived</option>
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#60786f]" />
             </div>
           </div>
           <div className="flex items-center justify-between gap-3 text-xs text-[#71857d] sm:justify-end">
@@ -2475,33 +2567,18 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                   >
                     {entry.source === "builtIn" ? "Use template" : "Edit questions"}
                   </Button>
-                  <details className="relative">
-                    <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-md px-2 py-2 text-sm font-medium text-[#45685d] transition hover:bg-[#edf7f2] hover:text-[#17372e] [&::-webkit-details-marker]:hidden">
-                      More
-                      <ChevronDown className="h-4 w-4" />
-                    </summary>
-                    <div className="absolute right-0 z-10 mt-1 w-48 rounded-lg border border-[#dbe7e1] bg-white p-1 shadow-lg">
-                      <button
-                        type="button"
-                        className="w-full rounded-md px-3 py-2 text-left text-sm font-medium text-[#31564a] hover:bg-[#edf7f2]"
-                        disabled={isBusy}
-                        onClick={() => openAdminDefinition(entry)}
-                      >
-                        Open editor
-                      </button>
-                      {entry.source === "saved" ? (
-                        <button
-                          type="button"
-                          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-red-600 hover:bg-red-50 hover:text-red-700 disabled:cursor-wait disabled:opacity-60"
-                          disabled={isBusy}
-                          onClick={() => deleteLibraryDefinition(entry)}
-                        >
-                          {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                          Delete questionnaire
-                        </button>
-                      ) : null}
-                    </div>
-                  </details>
+                  {entry.source === "saved" ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                      disabled={isBusy}
+                      onClick={() => deleteLibraryDefinition(entry)}
+                    >
+                      {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                      Delete
+                    </Button>
+                  ) : null}
                 </div>
               </article>
             );
@@ -2509,7 +2586,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
             <div className="px-6 py-16 text-center">
               <FileText className="mx-auto h-9 w-9 text-[#8aa099]" />
               <p className="mt-3 text-sm font-semibold text-[#17372e]">No matching questionnaires</p>
-              <p className="mt-1 text-xs text-[#71857d]">Try another search or status.</p>
+              <p className="mt-1 text-xs text-[#71857d]">Try another search.</p>
             </div>
           )}
         </section>
@@ -2534,11 +2611,11 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                   <Input id="new-questionnaire-name" className={`${inputClassName} h-12`} value={createName} onChange={(event) => setCreateName(event.target.value)} />
                 </div>
                 <div className="space-y-2">
-                  <FieldLabel htmlFor="new-questionnaire-visa-type">Visa type</FieldLabel>
-                  <select id="new-questionnaire-visa-type" className={`${selectClassName} h-12`} value={createVisaType} onChange={(event) => setCreateVisaType(event.target.value)}>
-                    <option value="temporary-work">Skills in Demand Visa</option>
-                    <option value="partner">Partner Visa</option>
-                    <option value="protection">Protection Visa</option>
+                  <FieldLabel htmlFor="new-questionnaire-visa-type">Matter type</FieldLabel>
+                  <select id="new-questionnaire-visa-type" className={`${selectClassName} h-12`} value={createMatterType} onChange={(event) => changeCreateMatterType(event.target.value)}>
+                    {CRM_QUESTIONNAIRE_MATTER_TYPES.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -2554,18 +2631,11 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                     </span>
                   </span>
                   {createMode === "copy" ? (
-                    <select className={`${selectClassName} mt-4 h-11`} value={createSourceKey} onChange={(event) => {
-                      const key = event.target.value;
-                      const source = createSourceEntries.find((entry) => entry.key === key)?.definition;
-                      setCreateSourceKey(key);
-                      if (source) {
-                        setCreateName(`${source.title} — working copy`);
-                        setCreateVisaType(source.visaType || "temporary-work");
-                      }
-                    }}>
+                    <select className={`${selectClassName} mt-4 h-11`} value={createSourceKey} onChange={(event) => changeCreateSource(event.target.value)}>
                       {createSourceEntries.map((entry) => {
                         const counts = definitionCounts(entry.definition);
-                        return <option key={entry.key} value={entry.key}>{entry.definition.title} · {counts.pageCount} sections</option>;
+                        const label = getDefinitionMatterTypeOption(entry.definition)?.label || entry.definition.title;
+                        return <option key={entry.key} value={entry.key}>{label} · {counts.pageCount} sections</option>;
                       })}
                     </select>
                   ) : null}
@@ -2624,6 +2694,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
             {definition ? (
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" className="border-[#cfddd6] bg-white text-[#38564b]" disabled={isBusy} onClick={copyDefinitionAsTest}><Copy />Copy as test</Button>
+                <Button type="button" variant="outline" className="border-[#cfddd6] bg-white text-[#38564b]" disabled={isBusy || !isDirty || !savedDefinition} onClick={discardDefinitionChanges}>Cancel changes</Button>
                 <Button type="button" className="bg-[#4F726B] text-white hover:bg-[#3d625a]" disabled={isBusy || !isDirty} onClick={() => saveDefinition()}>{isSaving ? <Loader2 className="animate-spin" /> : <Save />}Save changes</Button>
                 {definition.status === "draft" ? <Button type="button" className="bg-[#173f35] text-white hover:bg-[#102f28]" disabled={isBusy} onClick={() => saveDefinition("active")}><Send />Make live</Button> : null}
               </div>
@@ -2815,9 +2886,9 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#e6ece9] pt-5">
                             <Button type="button" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" disabled={isBusy} onClick={deleteQuestion}><Trash2 />Remove question</Button>
                             <div className="flex gap-2">
-                              <Button type="button" variant="outline" className="border-[#d2dfd8] bg-white text-[#38564b]" disabled={isBusy || activeQuestionIndex === 0} onClick={() => moveQuestion(-1)}><ArrowUp />Move up</Button>
-                              <Button type="button" variant="outline" className="border-[#d2dfd8] bg-white text-[#38564b]" disabled={isBusy || activeQuestionIndex === activePage.questions.length - 1} onClick={() => moveQuestion(1)}><ArrowDown />Move down</Button>
-                              <Button type="button" className="bg-[#1f6654] text-white hover:bg-[#174f42]" onClick={() => setQuestionEditorOpen(false)}><Check />Done</Button>
+                              <Button type="button" variant="outline" className="border-[#d2dfd8] bg-white text-[#38564b]" disabled={isBusy || activeQuestionIndex === 0} onClick={() => moveQuestion(-1)}><ArrowUp />Move question earlier</Button>
+                              <Button type="button" variant="outline" className="border-[#d2dfd8] bg-white text-[#38564b]" disabled={isBusy || activeQuestionIndex === activePage.questions.length - 1} onClick={() => moveQuestion(1)}><ArrowDown />Move question later</Button>
+                              <Button type="button" className="bg-[#1f6654] text-white hover:bg-[#174f42]" onClick={() => setQuestionEditorOpen(false)}><Check />Close editor</Button>
                             </div>
                           </div>
                         </div>
@@ -3107,6 +3178,15 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-[#d7e4de] bg-white text-[#38564b]"
+                    disabled={isSaving || isDeleting || !isDirty || !savedDefinition}
+                    onClick={discardDefinitionChanges}
+                  >
+                    Cancel changes
+                  </Button>
                   <Button
                     type="button"
                     className="bg-[#4F726B] text-white hover:bg-[#3f625a]"

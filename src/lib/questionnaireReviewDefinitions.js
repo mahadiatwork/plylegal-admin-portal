@@ -4,16 +4,33 @@ import {
 } from "./questionnaireDefinitions.js";
 
 export function inferQuestionnaireAudience(application = {}, questionnaire = {}) {
-  const description = [application.type, application.reference, application.visaTypeCode].filter(Boolean).join(" ").toLowerCase();
-  const context = String(questionnaire.visaContext || application.visaContext || "");
+  const description = [
+    application.type,
+    application.reference,
+    application.visaTypeCode,
+    application.visaType,
+    application.matterType,
+    application.Visa_Type,
+    application.Deal_Name,
+  ].filter(Boolean).join(" ").toLowerCase();
+  const context = String(questionnaire.visaContext || application.visaContext || "").trim();
   const visaContext = ["186", "482"].includes(context)
     ? context
     : /186|employer nomination/.test(description) ? "186"
       : /482|skills in demand/.test(description) ? "482" : undefined;
   const visaType = visaContext ? "temporary-work"
     : /866|protection/.test(description) ? "protection"
-      : String(application.visaTypeCode || "").toLowerCase() || "partner";
+      : /(^|\D)(100|300|309|801|820)(\D|$)|partner/.test(description) ? "partner"
+        : ["temporary-work", "protection", "partner"].includes(String(application.visaType || "").toLowerCase())
+          ? String(application.visaType).toLowerCase()
+          : "partner";
   return { visaType, visaContext };
+}
+
+export function definitionMatchesAudience(definition, audience) {
+  if (!definition || definition.visaType !== audience.visaType) return false;
+  const contexts = contextsFor(definition);
+  return !contexts.length || contexts.includes(audience.visaContext);
 }
 
 function contextsFor(definition) {

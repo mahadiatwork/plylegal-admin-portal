@@ -19,6 +19,14 @@ test("resolves a numeric legacy protection visa code", () => {
   });
 });
 
+test("normalizes partner subclasses to the shared partner questionnaire", () => {
+  for (const visaTypeCode of [820, "309", "Partner visa (subclass 801)"]) {
+    assert.deepEqual(inferQuestionnaireAudience({ visaTypeCode }), {
+      visaType: "partner", visaContext: undefined,
+    });
+  }
+});
+
 test("selects the same specific current active questionnaire as the client", () => {
   const definitions = [
     { id: "generic", status: "active", visaType: "temporary-work", updatedAt: "2026-09-16" },

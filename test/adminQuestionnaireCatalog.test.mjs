@@ -85,6 +85,7 @@ const builtIns = [
 const matterContextValue = {
   questionnaireDefinition: builtIns[3],
   matterData: { questionnaireDefinition: builtIns[3] },
+  application: { type: "Partner Visa (Subclass 309)" },
 };
 
 async function loadComponent(relativePath) {
@@ -309,12 +310,12 @@ test("admin library hides starter templates for saved audiences and never labels
   assert.ok(saved482Row, "the saved questionnaire should be listed");
   assert.ok(builtIn186Row, "the built-in template should be listed");
   const savedDeleteButton = [...walk(saved482Row)].find((node) =>
-    node.type === "button" && text(node).includes("Delete questionnaire")
+    node.type === "button" && text(node) === "Delete"
   );
   const builtInDeleteButton = [...walk(builtIn186Row)].find((node) =>
-    node.type === "button" && text(node).includes("Delete questionnaire")
+    node.type === "button" && text(node) === "Delete"
   );
-  assert.ok(savedDeleteButton, "saved questionnaires should have a delete action in More");
+  assert.ok(savedDeleteButton, "saved questionnaires should have a direct delete action");
   assert.equal(builtInDeleteButton, undefined, "built-in templates must not have a delete action");
 
   const deleteResult = savedDeleteButton.props.onClick();
@@ -331,6 +332,114 @@ test("admin library hides starter templates for saved audiences and never labels
   );
   assert.equal(text(harness.tree).includes(saved482.title), false);
   assert.equal(text(harness.tree).includes("Skills in Demand Visa (482)Built-in starter template"), true);
+});
+
+test("new questionnaire copies only active saved questionnaires", async (t) => {
+  const activeDefinitions = [
+    makeDefinition({
+      id: "saved-482",
+      title: "Skills in Demand Visa (482)",
+      visaType: "temporary-work",
+      visaContexts: ["482"],
+    }),
+    makeDefinition({
+      id: "saved-186",
+      title: "Employer Nomination Visa (186)",
+      visaType: "temporary-work",
+      visaContexts: ["186"],
+    }),
+    makeDefinition({
+      id: "saved-partner",
+      title: "Partner Visa (Subclass 820)",
+      visaType: "partner",
+    }),
+    makeDefinition({
+      id: "saved-protection",
+      title: "Protection Visa (Subclass 866)",
+      visaType: "protection",
+    }),
+  ];
+  const workingCopy = makeDefinition({
+    id: "working-copy-186",
+    title: "Employer Nomination Visa (186) — working copy",
+    visaType: "temporary-work",
+    visaContexts: ["186"],
+    status: "draft",
+  });
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    confirm: () => true,
+  };
+  globalThis.fetch = async (url, options = {}) => {
+    if (url === "/api/questionnaire-definitions" && !options.method) {
+      return jsonResponse({ definitions: [...activeDefinitions, workingCopy] });
+    }
+    assert.fail(`Unexpected request: ${options.method || "GET"} ${url}`);
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    globalThis.window = originalWindow;
+  });
+
+  const harness = createHarness(AdminQuestionnaireBuilder);
+  harness.render();
+  await settle(harness);
+  harness.buttonContaining("New questionnaire").props.onClick();
+  harness.render();
+
+  const matterTypeSelect = harness.nodes().find((node) =>
+    node.type === "select" && node.props.id === "new-questionnaire-visa-type"
+  );
+  assert.ok(matterTypeSelect, "the CRM matter-type selector should be rendered");
+  assert.deepEqual(
+    [...walk(matterTypeSelect)].filter((node) => node.type === "option").map((option) => text(option)),
+    [
+      "Partner Visa (Subclass 820)",
+      "Skills in Demand (Subclass 482)",
+      "Protection Visa (Subclass 866)",
+      "Partner Visa (Subclass 309)",
+      "Employer Nomination Visa (Subclass 186)",
+    ],
+  );
+  assert.equal(matterTypeSelect.props.value, "309", "the current CRM matter type should be preselected");
+
+  const copySelect = harness.nodes().find((node) =>
+    node.type === "select" && [...walk(node)].some((child) =>
+      child.type === "option" && String(child.props.value || "").startsWith("saved:")
+    )
+  );
+  assert.ok(copySelect, "the copy-source questionnaire selector should be rendered");
+  const copyOptions = [...walk(copySelect)].filter((node) => node.type === "option");
+
+  assert.deepEqual(
+    new Set(copyOptions.map((option) => option.props.value)),
+    new Set(activeDefinitions.map((definition) => `saved:${definition.id}`)),
+  );
+  assert.equal(copyOptions.length, 4);
+  assert.equal(copySelect.props.value, "saved:saved-partner", "Partner 309 should reuse the Partner 820 source");
+  assert.deepEqual(copyOptions.map((option) => text(option)), [
+    "Employer Nomination Visa (Subclass 186) · 1 sections",
+    "Partner Visa (Subclass 820) · 1 sections",
+    "Protection Visa (Subclass 866) · 1 sections",
+    "Skills in Demand (Subclass 482) · 1 sections",
+  ]);
+  const questionnaireName = harness.nodes().find((node) =>
+    node.type === "input" && node.props.id === "new-questionnaire-name"
+  );
+  assert.equal(questionnaireName.props.value, "Partner Visa (Subclass 309) — working copy");
+  assert.equal(
+    copyOptions.some((option) => option.props.value === `saved:${workingCopy.id}`),
+    false,
+    "the unpublished working copy must remain saved without becoming a copy source",
+  );
+  assert.equal(
+    copyOptions.some((option) => String(option.props.value || "").startsWith("builtIn:")),
+    false,
+    "bundled fallbacks must not duplicate active database questionnaires",
+  );
 });
 
 test("embedded library replaces starter rows with the newest saved questionnaire", async (t) => {
