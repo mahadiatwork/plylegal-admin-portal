@@ -5,7 +5,9 @@ import path from "node:path";
 import { test } from "node:test";
 import * as React from "react";
 import * as crmFieldCatalog from "../src/lib/crmFieldCatalog.js";
+import * as questionnaireClientPresentation from "../src/lib/questionnaireClientPresentation.js";
 import * as questionnaireCrmContract from "../src/lib/questionnaireCrmContract.js";
+import * as questionnairePageGroups from "../src/lib/questionnairePageGroups.js";
 
 const require = createRequire(import.meta.url);
 const { loadBindings, transform } = require("next/dist/build/swc");
@@ -81,7 +83,16 @@ async function loadComponent(relativePath) {
     if (specifier === "lucide-react") return icons;
     if (specifier === "@/components/ui/badge") return { Badge: "span" };
     if (specifier === "@/components/ui/button") return { Button: "button" };
+    if (specifier === "@/components/ui/collapsible") {
+      const Passthrough = ({ children }) => children;
+      return {
+        Collapsible: Passthrough,
+        CollapsibleContent: Passthrough,
+        CollapsibleTrigger: Passthrough,
+      };
+    }
     if (specifier === "@/components/ui/input") return { Input: "input" };
+    if (specifier === "@/components/ui/scroll-area") return { ScrollArea: "div" };
     if (specifier === "@/components/ui/textarea") return { Textarea: "textarea" };
     if (specifier === "@/components/matter/MatterTabLoadingState") {
       return {
@@ -108,8 +119,13 @@ async function loadComponent(relativePath) {
     if (specifier === "@/lib/questionnaireLegacyProtection") {
       return { hydrateLegacyQuestionnaireDefinition: (definition) => definition };
     }
+    if (specifier === "@/lib/questionnaireAdminCoverage") {
+      return { completeAdminQuestionnairePages: (definition) => definition };
+    }
+    if (specifier === "@/lib/questionnaireClientPresentation") return questionnaireClientPresentation;
     if (specifier === "@/lib/crmFieldCatalog") return crmFieldCatalog;
     if (specifier === "@/lib/questionnaireCrmContract") return questionnaireCrmContract;
+    if (specifier === "@/lib/questionnairePageGroups") return questionnairePageGroups;
     return require(specifier);
   };
   componentModule._compile(code, filename);
@@ -315,18 +331,30 @@ function richDefinition() {
 async function mountBuilder(t, {
   definition = richDefinition(),
   embeddedInMatter = true,
+  initialLayout = "current",
   routes = [],
   confirm = () => true,
 } = {}) {
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
   const calls = [];
+  const replacedUrls = [];
   const storedDefinitions = [definition];
   registeredQuestionnaireRoutes = routes;
   globalThis.window = {
     addEventListener() {},
     removeEventListener() {},
     confirm,
+    location: {
+      hash: "",
+      pathname: "/admin/questionnaires",
+      search: `?layout=${initialLayout}`,
+    },
+    history: {
+      replaceState(_state, _unused, url) {
+        replacedUrls.push(url);
+      },
+    },
   };
   globalThis.fetch = async (url, options = {}) => {
     calls.push({ url, options });
@@ -362,10 +390,10 @@ async function mountBuilder(t, {
     registeredQuestionnaireRoutes = [];
   });
 
-  const harness = createHarness(AdminQuestionnaireBuilder, { embeddedInMatter });
+  const harness = createHarness(AdminQuestionnaireBuilder, { embeddedInMatter, initialLayout });
   harness.render();
   await flushEffects(harness);
-  return { harness, calls, definition, storedDefinitions };
+  return { harness, calls, definition, replacedUrls, storedDefinitions };
 }
 
 const questionnaireRoutes = [
@@ -1038,7 +1066,7 @@ test("CRM synchronization panel writes metadata.crm without dropping other metad
 
   await harness.button("Edit questions").props.onClick();
   harness.render();
-  harness.button("Edit").props.onClick();
+  harness.control("Edit Original question text?").props.onClick();
   harness.render();
   assert.ok(harness.control("crm-mode"), "Expected the CRM synchronization control");
   harness.control("crm-mode").props.onChange({ target: { value: "portal_only" } });
@@ -1052,4 +1080,35 @@ test("CRM synchronization panel writes metadata.crm without dropping other metad
   const savedQuestion = JSON.parse(saveCall.options.body).pages[0].questions[0];
   assert.equal(savedQuestion.metadata.crm.mode, "portal_only");
   assert.equal(savedQuestion.metadata.analyticsName, "identity_question");
+});
+
+test("the proposed questionnaire layout can be presented without removing the current layout", async (t) => {
+  const { harness, replacedUrls } = await mountBuilder(t, {
+    embeddedInMatter: false,
+    routes: questionnaireRoutes,
+  });
+
+  await harness.button("Show new layout").props.onClick();
+  harness.render();
+
+  assert.equal(harness.button("Proposed layout").props["aria-pressed"], true);
+  assert.equal(replacedUrls.at(-1), "/admin/questionnaires?layout=proposed");
+  assert.ok(text(harness.tree).includes("Design preview."));
+  assert.ok(text(harness.tree).includes("1 section"));
+  assert.equal(
+    harness.maybeControl("questionnaire-page-group"),
+    undefined,
+    "the client-style stepper should replace the current group dropdown only in the proposed view"
+  );
+
+  harness.button("Current layout").props.onClick();
+  harness.render();
+
+  assert.equal(harness.button("Current layout").props["aria-pressed"], true);
+  assert.equal(replacedUrls.at(-1), "/admin/questionnaires?layout=current");
+  assert.ok(
+    harness.control("questionnaire-page-group"),
+    "the existing questionnaire group dropdown should remain available in the current view"
+  );
+  assert.equal(text(harness.tree).includes("Design preview."), false);
 });

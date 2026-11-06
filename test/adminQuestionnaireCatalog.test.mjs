@@ -108,7 +108,16 @@ async function loadComponent(relativePath) {
     if (specifier === "lucide-react") return icons;
     if (specifier === "@/components/ui/badge") return { Badge: "span" };
     if (specifier === "@/components/ui/button") return { Button: "button" };
+    if (specifier === "@/components/ui/collapsible") {
+      const Passthrough = ({ children }) => children;
+      return {
+        Collapsible: Passthrough,
+        CollapsibleContent: Passthrough,
+        CollapsibleTrigger: Passthrough,
+      };
+    }
     if (specifier === "@/components/ui/input") return { Input: "input" };
+    if (specifier === "@/components/ui/scroll-area") return { ScrollArea: "div" };
     if (specifier === "@/components/ui/textarea") return { Textarea: "textarea" };
     if (specifier === "@/components/matter/MatterTabLoadingState") {
       return {

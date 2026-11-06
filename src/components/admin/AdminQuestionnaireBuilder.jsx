@@ -30,7 +30,13 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { useMatterData } from "@/components/matter/MatterDataContext";
 import MatterTabLoadingState from "@/components/matter/MatterTabLoadingState";
@@ -95,6 +101,16 @@ const inputClassName = "h-10 border-[#d7e4de] bg-white text-[#17372e]";
 const selectClassName =
   "h-10 w-full rounded-md border border-[#d7e4de] bg-white px-3 text-sm text-[#17372e] outline-none transition focus:border-[#4F726B] focus:ring-2 focus:ring-[#4F726B]/15 disabled:cursor-not-allowed disabled:bg-[#f3f6f4] disabled:text-[#80928b]";
 const RESERVED_WORKFLOW_ROUTE = /\/(?:start|profile|submit)$/;
+const BUILDER_LAYOUTS = {
+  CURRENT: "current",
+  PROPOSED: "proposed",
+};
+
+function normalizeBuilderLayout(value) {
+  return value === BUILDER_LAYOUTS.PROPOSED
+    ? BUILDER_LAYOUTS.PROPOSED
+    : BUILDER_LAYOUTS.CURRENT;
+}
 
 function getRouteScope(route) {
   return /^\/intake\/(?:temporary-work|partner|protection)\/(?:main-applicant|spouse-partner|children\/[^/]+|non-migrating\/[^/]+)\//.test(route)
@@ -726,6 +742,7 @@ function EntryEditActions({ entry, onEdit }) {
       <Button
         type="button"
         variant="ghost"
+        aria-label={`Edit ${entry.label}`}
         className="justify-start text-[#45685d] sm:justify-center"
         onClick={() => onEdit(entry.questions[0])}
       >
@@ -1340,7 +1357,46 @@ function EmptyPane({ onCreate }) {
   );
 }
 
-export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } = {}) {
+function BuilderLayoutToggle({ value, onChange }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#d8e4de] bg-white p-1.5 shadow-sm">
+      <span className="px-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#71857d]">
+        Layout
+      </span>
+      <div className="flex rounded-lg bg-[#f1f5f3] p-1" role="group" aria-label="Questionnaire builder layout">
+        <button
+          type="button"
+          aria-pressed={value === BUILDER_LAYOUTS.CURRENT}
+          className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+            value === BUILDER_LAYOUTS.CURRENT
+              ? "bg-white text-[#24453b] shadow-sm"
+              : "text-[#6d8179] hover:text-[#24453b]"
+          }`}
+          onClick={() => onChange(BUILDER_LAYOUTS.CURRENT)}
+        >
+          Current layout
+        </button>
+        <button
+          type="button"
+          aria-pressed={value === BUILDER_LAYOUTS.PROPOSED}
+          className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+            value === BUILDER_LAYOUTS.PROPOSED
+              ? "bg-[#244D42] text-white shadow-sm"
+              : "text-[#6d8179] hover:text-[#24453b]"
+          }`}
+          onClick={() => onChange(BUILDER_LAYOUTS.PROPOSED)}
+        >
+          Proposed layout
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default function AdminQuestionnaireBuilder({
+  embeddedInMatter = false,
+  initialLayout = BUILDER_LAYOUTS.CURRENT,
+} = {}) {
   const matterData = useMatterData();
   const [definitions, setDefinitions] = useState([]);
   const [selectedId, setSelectedId] = useState("");
@@ -1361,6 +1417,9 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
   const [isCreating, setIsCreating] = useState(false);
   const [definitionSearch, setDefinitionSearch] = useState("");
   const [adminView, setAdminView] = useState("library");
+  const [editorLayout, setEditorLayout] = useState(() => normalizeBuilderLayout(initialLayout));
+  const [expandedPageGroupKeys, setExpandedPageGroupKeys] = useState([]);
+  const [proposedNavigationOpen, setProposedNavigationOpen] = useState(false);
   const [pageSearch, setPageSearch] = useState("");
   const [questionEditorOpen, setQuestionEditorOpen] = useState(false);
   const [sectionSettingsOpen, setSectionSettingsOpen] = useState(false);
@@ -1473,6 +1532,10 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
   }, [definitions]);
   const pageGroups = useMemo(
     () => groupQuestionnairePages(definition?.pages || []),
+    [definition]
+  );
+  const pageNumberById = useMemo(
+    () => new Map((definition?.pages || []).map((page, index) => [page.id, index + 1])),
     [definition]
   );
   const pagePresentations = useMemo(
@@ -1908,9 +1971,10 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
     }
   }
 
-  async function openAdminDefinition(entry) {
+  async function openAdminDefinition(entry, requestedLayout = null) {
     setQuestionEditorOpen(false);
     setSectionSettingsOpen(false);
+    if (requestedLayout) changeEditorLayout(requestedLayout);
     if (entry.source === "builtIn") {
       createDefinitionFrom(entry.definition, { starter: true });
       setAdminView("editor");
@@ -2557,6 +2621,26 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
     }
   }
 
+  function changeEditorLayout(nextLayout) {
+    const normalizedLayout = normalizeBuilderLayout(nextLayout);
+    setEditorLayout(normalizedLayout);
+    setProposedNavigationOpen(false);
+
+    if (
+      typeof window === "undefined"
+      || !window.history?.replaceState
+      || !window.location
+    ) {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search || "");
+    params.set("layout", normalizedLayout);
+    const query = params.toString();
+    const nextUrl = `${window.location.pathname || "/admin/questionnaires"}${query ? `?${query}` : ""}${window.location.hash || ""}`;
+    window.history.replaceState(null, "", nextUrl);
+  }
+
   const firstCondition = activeQuestion?.visibleIf?.[0] || null;
   const conditionValue = Array.isArray(firstCondition?.value)
     ? firstCondition.value.join(", ")
@@ -2642,7 +2726,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
         </div>
 
         <section className="rounded-lg border border-[#dbe7e1] bg-white shadow-sm">
-          <div className="hidden grid-cols-[minmax(0,1.45fr)_minmax(150px,.55fr)_minmax(130px,.42fr)_220px] gap-5 rounded-t-lg border-b border-[#dbe7e1] bg-[#fafcfb] px-6 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#72867e] md:grid">
+          <div className="hidden grid-cols-[minmax(0,1.45fr)_minmax(130px,.5fr)_minmax(110px,.4fr)_300px] gap-5 rounded-t-lg border-b border-[#dbe7e1] bg-[#fafcfb] px-6 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#72867e] md:grid">
             <span>Questionnaire</span>
             <span>Contents</span>
             <span>Status</span>
@@ -2660,7 +2744,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
             return (
               <article
                 key={entry.key}
-                className="grid gap-4 border-b border-[#e8eeeb] px-5 py-4 last:rounded-b-lg last:border-b-0 hover:bg-[#fafcfb]/60 transition-colors md:grid-cols-[minmax(0,1.45fr)_minmax(150px,.55fr)_minmax(130px,.42fr)_220px] md:items-center md:px-6"
+                className="grid gap-4 border-b border-[#e8eeeb] px-5 py-4 last:rounded-b-lg last:border-b-0 hover:bg-[#fafcfb]/60 transition-colors md:grid-cols-[minmax(0,1.45fr)_minmax(130px,.5fr)_minmax(110px,.4fr)_300px] md:items-center md:px-6"
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#e8f4ee] text-[#4F726B]">
@@ -2678,7 +2762,7 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                   <p className="mt-0.5 text-xs text-[#71857d]">{counts.questionCount} questions</p>
                 </div>
                 <div><StatusBadge status={displayStatus} /></div>
-                <div className="flex items-center justify-end gap-3">
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   <Button
                     type="button"
                     variant="outline"
@@ -2687,6 +2771,15 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                     onClick={() => openAdminDefinition(entry)}
                   >
                     {entry.source === "builtIn" ? "Use template" : "Edit questions"}
+                  </Button>
+                  <Button
+                    type="button"
+                    className="w-full bg-[#244D42] text-white hover:bg-[#1C3E35] md:w-auto"
+                    disabled={isBusy}
+                    onClick={() => openAdminDefinition(entry, BUILDER_LAYOUTS.PROPOSED)}
+                  >
+                    <Eye className="h-4 w-4" />
+                    Show new layout
                   </Button>
                   {entry.source === "saved" ? (
                     <Button
@@ -2791,16 +2884,19 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
     return (
       <div className="space-y-6">
         <header className="flex flex-col gap-5">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="w-fit cursor-pointer border-[#c7d8d0] bg-white text-[#38564b] shadow-sm transition-all hover:-translate-y-0.5 hover:border-[#7ea698] hover:bg-[#edf7f2] hover:text-[#17372e] hover:shadow-md"
-            onClick={returnToQuestionnaireLibrary}
-          >
-            <ArrowLeft className="h-4 w-4" />
-            All questionnaires
-          </Button>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-fit cursor-pointer border-[#c7d8d0] bg-white text-[#38564b] shadow-sm transition-all hover:-translate-y-0.5 hover:border-[#7ea698] hover:bg-[#edf7f2] hover:text-[#17372e] hover:shadow-md"
+              onClick={returnToQuestionnaireLibrary}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              All questionnaires
+            </Button>
+            <BuilderLayoutToggle value={editorLayout} onChange={changeEditorLayout} />
+          </div>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-3">
@@ -2823,6 +2919,18 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
           </div>
         </header>
 
+          {editorLayout === BUILDER_LAYOUTS.PROPOSED ? (
+            <div data-testid="proposed-layout-notice" className="flex flex-col gap-3 rounded-xl border border-[#cfe0d7] bg-[#f2f8f5] px-4 py-3 text-sm text-[#45685d] sm:flex-row sm:items-center sm:justify-between">
+              <span className="flex items-start gap-2">
+                <Eye className="mt-0.5 h-4 w-4 shrink-0" />
+                <span><strong className="text-[#24453b]">Design preview.</strong> This client-style view uses the same questionnaire and save controls as the current layout.</span>
+              </span>
+              <button type="button" className="shrink-0 text-left text-xs font-semibold text-[#2b5f4d] underline underline-offset-4" onClick={() => changeEditorLayout(BUILDER_LAYOUTS.CURRENT)}>
+                Return to current layout
+              </button>
+            </div>
+          ) : null}
+
           {savedQuestionnairesError ? (
             <div role="alert" className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" /><span>{savedQuestionnairesError}</span></div>
           ) : null}
@@ -2839,7 +2947,82 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
             <EmptyPane onCreate={openCreateQuestionnaireDialog} />
           ) : (
             <fieldset disabled={isSaving || isDeleting} className="m-0 min-w-0 border-0 p-0 disabled:cursor-wait">
-              <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
+              {editorLayout === BUILDER_LAYOUTS.PROPOSED ? (
+                <div className="mb-3 flex items-center justify-between rounded-xl border border-[#e4e1d9] bg-[#FAF8F5] px-4 py-3 lg:hidden">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Section navigation</p>
+                    <p className="mt-1 text-sm font-medium text-slate-700">Section {pageNumberById.get(activePageId) || 0} of {definition.pages.length}</p>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" className="border-slate-200 bg-white text-slate-700" onClick={() => setProposedNavigationOpen((current) => !current)}>
+                    {proposedNavigationOpen ? "Hide steps" : "View steps"}
+                  </Button>
+                </div>
+              ) : null}
+              <div className={editorLayout === BUILDER_LAYOUTS.PROPOSED
+                ? "grid overflow-hidden rounded-2xl border border-white/70 bg-[#FAF8F5] shadow-[0_4px_24px_rgba(20,40,30,0.05)] lg:grid-cols-[320px_minmax(0,1fr)]"
+                : "grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]"}>
+                {editorLayout === BUILDER_LAYOUTS.PROPOSED ? (
+                  <aside className={`${proposedNavigationOpen ? "block" : "hidden"} w-full shrink-0 border-b border-[#EBE7DF]/80 p-5 sm:p-6 lg:block lg:border-b-0 lg:border-r`}>
+                    <div>
+                      <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Questionnaire</span>
+                      <p className="mt-1 text-sm font-medium text-slate-700">{definition.pages.length} section{definition.pages.length === 1 ? "" : "s"}</p>
+                      <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-full rounded-full bg-[#244D42] transition-all duration-500" style={{ width: `${definition.pages.length ? ((pageNumberById.get(activePageId) || 1) / definition.pages.length) * 100 : 0}%` }} />
+                      </div>
+                    </div>
+
+                    <ScrollArea className="mt-5 h-[min(62vh,680px)] pr-2">
+                      <nav className="space-y-2" aria-label="Questionnaire sections">
+                        {pageGroups.map((group) => {
+                          const isExpanded = group.key === activePageGroupKey
+                            || expandedPageGroupKeys.includes(group.key);
+                          return (
+                            <Collapsible
+                              key={group.key}
+                              open={isExpanded}
+                              onOpenChange={(open) => setExpandedPageGroupKeys((current) => open
+                                ? Array.from(new Set([...current, group.key]))
+                                : current.filter((key) => key !== group.key))}
+                            >
+                              <CollapsibleTrigger asChild>
+                                <button type="button" className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition-colors ${group.key === activePageGroupKey ? "bg-slate-100 text-slate-900" : "text-slate-700 hover:bg-slate-50"}`}>
+                                  <span className="truncate">{group.label}</span>
+                                  <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                                </button>
+                              </CollapsibleTrigger>
+                              <CollapsibleContent className="ml-3 mt-1 space-y-0.5 border-l-2 border-slate-100 pl-3">
+                                {group.pages.map((page) => {
+                                  const isActive = page.id === activePageId;
+                                  const stepNumber = pageNumberById.get(page.id) || 0;
+                                  return (
+                                    <button
+                                      key={page.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setActivePageId(page.id);
+                                        setActiveQuestionId(page.questions?.[0]?.id || "");
+                                        setQuestionEditorOpen(false);
+                                        setSectionSettingsOpen(false);
+                                        setProposedNavigationOpen(false);
+                                      }}
+                                      className={`group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs transition-colors ${isActive ? "bg-[#EEF7F2] font-semibold text-[#244D42]" : "text-slate-600 hover:bg-slate-50"}`}
+                                    >
+                                      <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] ${isActive ? "bg-[#244D42] font-bold text-white" : "border border-slate-200 text-slate-400"}`}>{stepNumber}</span>
+                                      <span className="flex-1 truncate">{page.title}</span>
+                                      <span className="text-[10px] text-slate-400" title="Client-facing questions">{pagePresentations.get(page.id)?.primaryCount ?? 0}</span>
+                                    </button>
+                                  );
+                                })}
+                              </CollapsibleContent>
+                            </Collapsible>
+                          );
+                        })}
+                      </nav>
+                    </ScrollArea>
+
+                    <Button type="button" variant="outline" className="mt-5 w-full border-[#d2dfd8] bg-white text-[#38564b]" disabled={isBusy} onClick={() => { addPage(); setSectionSettingsOpen(true); setQuestionEditorOpen(false); }}><Plus />Add section</Button>
+                  </aside>
+                ) : (
                 <aside className="self-start overflow-hidden rounded-xl border border-[#dce6e1] bg-white shadow-[0_1px_2px_rgba(23,55,46,0.04)] lg:sticky lg:top-6">
                   <div className="flex items-center justify-between px-4 pb-3 pt-4">
                     <div>
@@ -2894,8 +3077,9 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                     <Button type="button" variant="outline" className="w-full border-[#d2dfd8] bg-white text-[#38564b]" disabled={isBusy} onClick={() => { addPage(); setSectionSettingsOpen(true); setQuestionEditorOpen(false); }}><Plus />Add section</Button>
                   </div>
                 </aside>
+                )}
 
-                <main ref={adminContentRef} className="min-w-0 scroll-mt-6">
+                <main ref={adminContentRef} className={editorLayout === BUILDER_LAYOUTS.PROPOSED ? "min-w-0 scroll-mt-6 p-5 sm:p-8 lg:p-10" : "min-w-0 scroll-mt-6"}>
                   {!activePage ? (
                     <section className="flex min-h-[500px] flex-col items-center justify-center rounded-xl border border-[#dce6e1] bg-white px-6 text-center">
                       <FileText className="h-10 w-10 text-[#9fb4ac]" />
@@ -2962,6 +3146,14 @@ export default function AdminQuestionnaireBuilder({ embeddedInMatter = false } =
                             <input type="checkbox" className="mt-0.5 h-5 w-5 accent-[#1f6654]" checked={activeQuestion.required} disabled={isBusy} onChange={(event) => updateQuestionField("required", event.target.checked)} />
                             <span><span className="block font-semibold text-[#24453b]">Answer is required</span><span className="mt-1 block text-xs text-[#71857d]">Clients must answer before they can continue.</span></span>
                           </label>
+
+                          <div className="border-t border-[#e6ece9] pt-5">
+                            <QuestionCrmSyncPanel
+                              question={activeQuestion}
+                              disabled={isBusy}
+                              onChange={updateQuestionCrm}
+                            />
+                          </div>
 
                           <div className="space-y-3 border-t border-[#e6ece9] pt-5">
                             <h3 className="text-sm font-semibold text-[#24453b]">When should clients see this question?</h3>
