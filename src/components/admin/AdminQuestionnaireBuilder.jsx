@@ -838,6 +838,252 @@ function ClientFacingQuestionCard({ entry, number, allPrimaryEntries, onEdit }) 
   );
 }
 
+function getEntryQuestions(entry) {
+  return [
+    ...(entry?.questions || []),
+    ...(entry?.conditionalGroups || []).flatMap((group) =>
+      (group.entries || []).flatMap((conditionalEntry) => conditionalEntry.questions || [])
+    ),
+  ];
+}
+
+function getEntryInsertIndex(entry, questions = []) {
+  const entryIds = new Set(getEntryQuestions(entry).map((question) => question.id));
+  return questions.reduce(
+    (insertIndex, question, index) => entryIds.has(question.id) ? index + 1 : insertIndex,
+    0
+  );
+}
+
+function PortalAnswerPreview({ entry }) {
+  const question = entry.questions?.[0] || {};
+  const options = getQuestionOptions(question);
+  const answerClassName = "border border-[#a9beb6] bg-[#eef3ff] text-[#17372e]";
+
+  if (entry.kind === "date" || question.type === "dateParts") {
+    return (
+      <div className="mt-3 grid gap-4 sm:grid-cols-3">
+        {["Day", "Month", "Year"].map((part) => (
+          <div key={part}>
+            <p className="mb-1.5 text-xs text-[#405c53]">{part}</p>
+            <div className={`flex h-12 items-center justify-between rounded-lg px-4 text-sm ${answerClassName}`}>
+              <span>{part}</span><ChevronDown className="h-4 w-4 text-[#779087]" />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (["yesNo", "radio"].includes(question.type)) {
+    return (
+      <div className="mt-3 flex flex-wrap gap-x-7 gap-y-3">
+        {options.map((option) => (
+          <span key={option.value} className="flex items-center gap-2 text-sm text-[#17372e]">
+            <span className="h-5 w-5 rounded-full border border-[#759289] bg-[#eef3ff]" />
+            {option.label}
+          </span>
+        ))}
+      </div>
+    );
+  }
+
+  if (question.type === "checkbox") {
+    return (
+      <div className="mt-3 flex items-center gap-2 text-sm text-[#17372e]">
+        <span className="h-5 w-5 rounded border border-[#759289] bg-[#eef3ff]" />
+        <span>{question.placeholder || "Select if applicable"}</span>
+      </div>
+    );
+  }
+
+  if (question.type === "repeater") {
+    return (
+      <div className="mt-4 space-y-3">
+        <div className="flex justify-end">
+          <span className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#244D42] px-4 text-sm font-semibold text-white"><Plus className="h-4 w-4" />Add</span>
+        </div>
+        <div className="overflow-hidden rounded-xl border border-[#dce5e1]">
+          <div className="grid grid-cols-3 gap-3 bg-[#f8faf9] px-4 py-3 text-xs font-semibold text-[#405c53]">
+            <span>Record</span><span>Details</span><span className="text-right">Actions</span>
+          </div>
+          <div className="px-4 py-5 text-sm text-[#84958f]">Added records will appear here.</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (question.type === "textarea") {
+    return <div className={`mt-3 min-h-24 rounded-lg px-4 py-3 text-sm text-[#779087] ${answerClassName}`}>{question.placeholder || "Enter your answer"}</div>;
+  }
+
+  if (question.type === "select") {
+    return (
+      <div className={`mt-3 flex h-12 items-center justify-between rounded-lg px-4 text-sm text-[#779087] ${answerClassName}`}>
+        <span>{question.placeholder || "Choose an option"}</span><ChevronDown className="h-4 w-4" />
+      </div>
+    );
+  }
+
+  return <div className={`mt-3 flex h-12 items-center rounded-lg px-4 text-sm text-[#779087] ${answerClassName}`}>{question.placeholder || "Enter your answer"}</div>;
+}
+
+function QuestionInsertControl({ label, onInsert }) {
+  return (
+    <div className="group/insert relative flex h-10 items-center justify-center" data-testid="question-insert-control">
+      <span className="absolute inset-x-0 top-1/2 h-px bg-[#dce6e1] opacity-0 transition group-hover/insert:opacity-100 group-focus-within/insert:opacity-100" />
+      <button
+        type="button"
+        aria-label={label}
+        className="relative z-10 inline-flex h-8 items-center gap-1.5 rounded-full border border-[#96b5a8] bg-white px-3 text-xs font-semibold text-[#315f50] opacity-0 shadow-sm transition hover:bg-[#eef7f2] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]/30 group-hover/insert:opacity-100"
+        onClick={onInsert}
+      >
+        <Plus className="h-3.5 w-3.5" />Add question here
+      </button>
+    </div>
+  );
+}
+
+function ProposedInlineQuestionEditor({
+  disabled,
+  onAddOption,
+  onChange,
+  onChangeType,
+  onClose,
+  onDeleteOption,
+  onUpdateOption,
+  options,
+  question,
+  showOptions,
+}) {
+  return (
+    <div data-testid="inline-question-editor" className="mt-5 rounded-xl border border-[#bcd3c8] bg-[#f4f8f6] p-4 sm:p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-[#24453b]">Edit question</p>
+          <p className="mt-1 text-xs text-[#71857d]">Changes update the builder preview immediately.</p>
+        </div>
+        <Button type="button" variant="ghost" size="sm" className="text-[#45685d]" onClick={onClose}><X className="h-4 w-4" />Close</Button>
+      </div>
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <div className="space-y-2 md:col-span-2">
+          <FieldLabel htmlFor={`inline-label-${question.id}`}>Question title</FieldLabel>
+          <Textarea id={`inline-label-${question.id}`} rows={2} className="border-[#cddbd5] bg-white" value={question.label} onChange={(event) => onChange("label", event.target.value)} />
+        </div>
+        <div className="space-y-2 md:col-span-2">
+          <FieldLabel htmlFor={`inline-description-${question.id}`}>Description or help text</FieldLabel>
+          <Textarea id={`inline-description-${question.id}`} rows={2} className="border-[#cddbd5] bg-white" value={question.description || ""} onChange={(event) => onChange("description", event.target.value)} />
+        </div>
+        <div className="space-y-2">
+          <FieldLabel htmlFor={`inline-type-${question.id}`}>Answer field</FieldLabel>
+          <select id={`inline-type-${question.id}`} className={selectClassName} value={question.type} disabled={disabled} onChange={(event) => onChangeType(event.target.value)}>
+            {QUESTION_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </div>
+        <div className="space-y-2">
+          <FieldLabel htmlFor={`inline-placeholder-${question.id}`}>Placeholder</FieldLabel>
+          <Input id={`inline-placeholder-${question.id}`} className={inputClassName} value={question.placeholder || ""} onChange={(event) => onChange("placeholder", event.target.value)} />
+        </div>
+        <label className="flex items-center gap-2 text-sm font-medium text-[#38564b] md:col-span-2">
+          <input type="checkbox" className="h-4 w-4 accent-[#244D42]" checked={question.required} disabled={disabled} onChange={(event) => onChange("required", event.target.checked)} />
+          Required question
+        </label>
+      </div>
+      {showOptions ? (
+        <div className="mt-5 border-t border-[#d9e5df] pt-4">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-[#24453b]">Answer choices</p>
+            <Button type="button" variant="outline" size="sm" className="border-[#c8d9d1] bg-white text-[#38564b]" disabled={disabled || question.type === "yesNo"} onClick={onAddOption}><Plus className="h-4 w-4" />Add choice</Button>
+          </div>
+          <div className="mt-3 space-y-2">
+            {options.map((option, index) => (
+              <div key={`${option.value}-${index}`} className="flex items-center gap-2">
+                <Input aria-label={`Inline option ${index + 1}`} className={inputClassName} value={option.label} onChange={(event) => onUpdateOption(index, "label", event.target.value)} />
+                <Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" aria-label={`Remove inline option ${index + 1}`} disabled={disabled || question.type === "yesNo" || options.length <= 1} onClick={() => onDeleteOption(index)}><Trash2 className="h-4 w-4" /></Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PortalBuilderQuestion({
+  activeQuestion,
+  allPrimaryEntries,
+  disabled,
+  entry,
+  onAddOption,
+  onChangeQuestion,
+  onChangeQuestionType,
+  onCloseEditor,
+  onDeleteOption,
+  onEdit,
+  onUpdateOption,
+  options,
+  showOptions,
+}) {
+  const entryQuestions = getEntryQuestions(entry);
+  const isEditing = Boolean(activeQuestion && entryQuestions.some((question) => question.id === activeQuestion.id));
+  const primaryQuestion = entry.questions?.[0];
+
+  return (
+    <article className="group/question py-2" data-testid="portal-builder-question">
+      <div className="relative rounded-xl border border-transparent px-3 py-4 transition hover:border-[#dce6e1] hover:bg-[#fbfcfb] sm:px-4">
+        <button
+          type="button"
+          aria-label={`Edit ${entry.label}`}
+          className="absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#d2dfd8] bg-white text-[#45685d] opacity-100 shadow-sm transition hover:border-[#8eb2a3] hover:bg-[#eef7f2] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]/30 sm:opacity-0 sm:group-hover/question:opacity-100"
+          onClick={() => onEdit(primaryQuestion)}
+        >
+          <Pencil className="h-4 w-4" />
+        </button>
+        {entry.group ? <h3 className="mb-5 border-b border-[#dce5e1] pb-3 pr-12 text-xl font-semibold text-[#17372e]">{entry.group}</h3> : null}
+        <div className="pr-12">
+          <h4 className="text-sm font-medium text-[#17372e]">{entry.label}{entry.required ? <span className="ml-1 text-red-600">*</span> : null}</h4>
+          {primaryQuestion?.description ? <p className="mt-1.5 text-sm leading-6 text-[#60746d]">{primaryQuestion.description}</p> : null}
+        </div>
+        <PortalAnswerPreview entry={entry} />
+
+        {entry.conditionalGroups.map((group) => (
+          <div key={group.id} className="mt-5 border-l-2 border-[#a8cdbb] pl-4">
+            <p className="mb-3 text-xs font-semibold text-[#356352]">{describeClientCondition(group.conditions, allPrimaryEntries)}</p>
+            <div className="space-y-4">
+              {group.entries.map((conditionalEntry) => {
+                const conditionalQuestion = conditionalEntry.questions?.[0];
+                return (
+                  <div key={conditionalEntry.id} className="group/conditional relative rounded-lg bg-[#f7faf8] p-4">
+                    <button type="button" aria-label={`Edit ${conditionalEntry.label}`} className="absolute right-2 top-2 rounded-full p-2 text-[#45685d] opacity-100 hover:bg-white sm:opacity-0 sm:group-hover/conditional:opacity-100" onClick={() => onEdit(conditionalQuestion)}><Pencil className="h-4 w-4" /></button>
+                    <h5 className="pr-10 text-sm font-medium text-[#17372e]">{conditionalEntry.label}{conditionalEntry.required ? <span className="ml-1 text-red-600">*</span> : null}</h5>
+                    {conditionalQuestion?.description ? <p className="mt-1 text-xs text-[#60746d]">{conditionalQuestion.description}</p> : null}
+                    <PortalAnswerPreview entry={conditionalEntry} />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+
+        {isEditing ? (
+          <ProposedInlineQuestionEditor
+            disabled={disabled}
+            onAddOption={onAddOption}
+            onChange={onChangeQuestion}
+            onChangeType={onChangeQuestionType}
+            onClose={onCloseEditor}
+            onDeleteOption={onDeleteOption}
+            onUpdateOption={onUpdateOption}
+            options={options}
+            question={activeQuestion}
+            showOptions={showOptions}
+          />
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
 function QuestionCrmSyncPanel({ question, disabled, onChange }) {
   const mapping = normalizeCrmMapping(question?.metadata?.crm) || { mode: CRM_MAPPING_MODES.unconfigured };
   const mode = mapping.mode || CRM_MAPPING_MODES.unconfigured;
@@ -2235,7 +2481,7 @@ export default function AdminQuestionnaireBuilder({
     });
   }
 
-  function addQuestion() {
+  function addQuestionAt(insertIndex = activePage?.questions?.length || 0, openEditor = false) {
     if (!activePage) return;
     const existingIds = new Set();
     const existingAnswerKeys = new Set();
@@ -2253,9 +2499,17 @@ export default function AdminQuestionnaireBuilder({
     });
     updateActivePage((page) => {
       const editablePage = promotePageForStructure(page);
-      return { ...editablePage, questions: [...editablePage.questions, question] };
+      const questions = [...editablePage.questions];
+      const safeInsertIndex = Math.max(0, Math.min(insertIndex, questions.length));
+      questions.splice(safeInsertIndex, 0, question);
+      return { ...editablePage, questions };
     });
     setActiveQuestionId(question.id);
+    if (openEditor) setQuestionEditorOpen(true);
+  }
+
+  function addQuestion() {
+    addQuestionAt(activePage?.questions?.length || 0);
   }
 
   function deleteQuestion() {
@@ -3080,7 +3334,129 @@ export default function AdminQuestionnaireBuilder({
                 )}
 
                 <main ref={adminContentRef} className={editorLayout === BUILDER_LAYOUTS.PROPOSED ? "min-w-0 scroll-mt-6 p-5 sm:p-8 lg:p-10" : "min-w-0 scroll-mt-6"}>
-                  {!activePage ? (
+                  {editorLayout === BUILDER_LAYOUTS.PROPOSED ? (
+                    !activePage ? (
+                      <section className="flex min-h-[500px] flex-col items-center justify-center rounded-[22px] border border-[#dce6e1] bg-white px-6 text-center shadow-[0_6px_20px_rgba(23,55,46,0.08)]">
+                        <FileText className="h-10 w-10 text-[#9fb4ac]" />
+                        <h2 className="mt-4 text-lg font-semibold text-[#17372e]">Add your first section</h2>
+                        <p className="mt-2 max-w-md text-sm text-[#71857d]">Sections group related questions and preserve the existing Client Portal routes and answer storage.</p>
+                        <Button type="button" className="mt-5 bg-[#244D42] text-white hover:bg-[#183a31]" onClick={() => { addPage(); setSectionSettingsOpen(true); }}><Plus />Add section</Button>
+                      </section>
+                    ) : (
+                      <section data-testid="portal-style-builder" className="overflow-hidden rounded-[22px] border border-[#dbe4e0] bg-white shadow-[0_6px_20px_rgba(23,55,46,0.10)]">
+                        <div className="px-5 py-6 sm:px-8 sm:py-8">
+                          <div className="group/section relative border-b border-[#dce5e1] pb-6">
+                            <button
+                              type="button"
+                              aria-label="Edit section title and description"
+                              className="absolute right-0 top-0 inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#d2dfd8] bg-white text-[#45685d] opacity-100 shadow-sm transition hover:border-[#8eb2a3] hover:bg-[#eef7f2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]/30 sm:opacity-0 sm:group-hover/section:opacity-100"
+                              onClick={() => setSectionSettingsOpen((current) => !current)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                            <div className="pr-14">
+                              <h2 className="text-2xl font-semibold tracking-tight text-[#17372e] sm:text-3xl">{activePage.title}</h2>
+                              {getIntroText(activePage) ? <p className="mt-3 max-w-4xl text-sm leading-6 text-[#506a61]">{getIntroText(activePage)}</p> : <p className="mt-3 text-sm text-[#8a9b95]">Add a short description to guide the client through this section.</p>}
+                            </div>
+
+                            {sectionSettingsOpen ? (
+                              <div className="mt-6 rounded-xl border border-[#bcd3c8] bg-[#f4f8f6] p-4 sm:p-5">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <div><p className="text-sm font-semibold text-[#24453b]">Edit section</p><p className="mt-1 text-xs text-[#71857d]">The title and description update above as you type.</p></div>
+                                  <div className="flex items-center gap-1">
+                                    <Button type="button" variant="ghost" size="icon" disabled={isBusy || activePageIndex === 0} onClick={() => movePage(-1)} aria-label="Move section up"><ArrowUp /></Button>
+                                    <Button type="button" variant="ghost" size="icon" disabled={isBusy || activePageIndex === definition.pages.length - 1} onClick={() => movePage(1)} aria-label="Move section down"><ArrowDown /></Button>
+                                    <Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" disabled={isBusy} onClick={deletePage} aria-label="Delete section"><Trash2 /></Button>
+                                    <Button type="button" variant="ghost" size="sm" className="text-[#45685d]" onClick={() => setSectionSettingsOpen(false)}><X className="h-4 w-4" />Close</Button>
+                                  </div>
+                                </div>
+                                <div className="mt-4 grid gap-4">
+                                  <div className="space-y-2"><FieldLabel htmlFor="proposed-page-title">Section title</FieldLabel><Input id="proposed-page-title" className={inputClassName} value={activePage.title} onChange={(event) => updatePageField("title", event.target.value)} /></div>
+                                  <div className="space-y-2"><FieldLabel htmlFor="proposed-page-intro">Section description</FieldLabel><Textarea id="proposed-page-intro" rows={3} className="border-[#cddbd5] bg-white" disabled={legacyPage && !activePage.metadata?.originalIntroBlocks?.length} value={getIntroText(activePage)} onChange={(event) => updateActivePage((page) => setIntroText(page, event.target.value))} /></div>
+                                  <details className="group/settings">
+                                    <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold text-[#45685d]"><Settings2 className="h-4 w-4" />Route and storage settings<ChevronRight className="h-4 w-4 transition group-open/settings:rotate-90" /></summary>
+                                    <div className="mt-4 grid gap-4 md:grid-cols-2">
+                                      <div className="space-y-2"><FieldLabel htmlFor="proposed-page-id" hint="machine key">Section ID</FieldLabel><Input id="proposed-page-id" className={`${inputClassName} font-mono`} value={activePage.id} disabled={machineKeysLocked} onChange={(event) => updatePageField("id", event.target.value)} /></div>
+                                      <div className="space-y-2"><FieldLabel htmlFor="proposed-page-section" hint="answer storage key">Section key</FieldLabel><Input id="proposed-page-section" className={`${inputClassName} font-mono`} value={activePage.sectionKey} disabled={machineKeysLocked} onChange={(event) => updatePageField("sectionKey", event.target.value)} /></div>
+                                      <div className="space-y-2 md:col-span-2"><FieldLabel htmlFor="proposed-page-route" hint="existing Client Portal route">Client route</FieldLabel><Input id="proposed-page-route" list="registered-questionnaire-routes-proposed" className={`${inputClassName} font-mono`} value={activePage.route} disabled={machineKeysLocked} onChange={(event) => { const route = event.target.value; updateActivePage((page) => ({ ...page, route, completionKey: route.replace(/^\/intake\//, ""), scope: getRouteScope(route) })); }} /><datalist id="registered-questionnaire-routes-proposed">{registeredRoutes.map((route) => <option key={route.href} value={route.href}>{route.title}</option>)}</datalist></div>
+                                    </div>
+                                  </details>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+
+                          <div className="mt-5">
+                            <QuestionInsertControl label="Add question at the beginning of this section" onInsert={() => addQuestionAt(0, true)} />
+                            {activePagePresentation.primaryEntries.map((entry) => (
+                              <div key={entry.id}>
+                                <PortalBuilderQuestion
+                                  activeQuestion={questionEditorOpen ? activeQuestion : null}
+                                  allPrimaryEntries={activePagePresentation.primaryEntries}
+                                  disabled={isBusy}
+                                  entry={entry}
+                                  onAddOption={addOption}
+                                  onChangeQuestion={updateQuestionField}
+                                  onChangeQuestionType={changeQuestionType}
+                                  onCloseEditor={() => setQuestionEditorOpen(false)}
+                                  onDeleteOption={deleteOption}
+                                  onEdit={(question) => { setActiveQuestionId(question.id); setQuestionEditorOpen(true); }}
+                                  onUpdateOption={updateOption}
+                                  options={activeQuestionOptions}
+                                  showOptions={showOptions}
+                                />
+                                <QuestionInsertControl label={`Add question after ${entry.label}`} onInsert={() => addQuestionAt(getEntryInsertIndex(entry, activePage.questions), true)} />
+                              </div>
+                            ))}
+
+                            {activePagePresentation.orphanConditionalGroups.flatMap((group) => group.entries).map((entry) => (
+                              <div key={`orphan-${entry.id}`} className="rounded-xl border-l-2 border-[#a8cdbb] pl-3">
+                                <PortalBuilderQuestion
+                                  activeQuestion={questionEditorOpen ? activeQuestion : null}
+                                  allPrimaryEntries={activePagePresentation.primaryEntries}
+                                  disabled={isBusy}
+                                  entry={{ ...entry, conditionalGroups: [] }}
+                                  onAddOption={addOption}
+                                  onChangeQuestion={updateQuestionField}
+                                  onChangeQuestionType={changeQuestionType}
+                                  onCloseEditor={() => setQuestionEditorOpen(false)}
+                                  onDeleteOption={deleteOption}
+                                  onEdit={(question) => { setActiveQuestionId(question.id); setQuestionEditorOpen(true); }}
+                                  onUpdateOption={updateOption}
+                                  options={activeQuestionOptions}
+                                  showOptions={showOptions}
+                                />
+                                <QuestionInsertControl label={`Add question after ${entry.label}`} onInsert={() => addQuestionAt(getEntryInsertIndex(entry, activePage.questions), true)} />
+                              </div>
+                            ))}
+
+                            {!activePage.questions.length ? (
+                              <div className="rounded-xl border border-dashed border-[#cbdad3] bg-[#fbfcfb] px-6 py-14 text-center">
+                                <p className="text-sm text-[#71857d]">No questions in this section yet.</p>
+                                <Button type="button" className="mt-4 bg-[#244D42] text-white hover:bg-[#183a31]" disabled={isBusy} onClick={() => addQuestionAt(0, true)}><Plus />Add first question</Button>
+                              </div>
+                            ) : null}
+
+                            {activePagePresentation.storageQuestions.length ? (
+                              <details className="mt-4 rounded-xl border border-dashed border-[#cbdad3] bg-[#f6f8f7] px-4 py-3">
+                                <summary className="cursor-pointer text-xs font-semibold text-[#60786f]">{activePagePresentation.storageQuestions.length} storage-only field{activePagePresentation.storageQuestions.length === 1 ? "" : "s"}</summary>
+                                <p className="mt-2 text-xs leading-5 text-[#7a8d86]">These compatibility fields remain saved but are not displayed to clients.</p>
+                              </details>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-3 border-t border-[#e0e7e3] bg-[#fbfcfb] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+                          <Button type="button" variant="outline" className="border-[#d2dfd8] bg-white text-[#38564b]" disabled={isBusy || activePageIndex === 0} onClick={() => { const page = definition.pages[activePageIndex - 1]; setActivePageId(page.id); setActiveQuestionId(page.questions?.[0]?.id || ""); setQuestionEditorOpen(false); setSectionSettingsOpen(false); }}><ArrowLeft />Previous section</Button>
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            <span className="mr-2 text-xs text-[#748880]">{isDirty ? "Draft changes not saved" : "All changes saved"}</span>
+                            <Button type="button" variant="outline" className="border-[#d2dfd8] bg-white text-[#38564b]" disabled={isBusy || !isDirty} onClick={() => saveDefinition()}>{isSaving ? <Loader2 className="animate-spin" /> : <Save />}Save changes</Button>
+                            <Button type="button" className="bg-[#4F726B] text-white hover:bg-[#3d625a]" disabled={isBusy || activePageIndex === definition.pages.length - 1} onClick={() => { const page = definition.pages[activePageIndex + 1]; setActivePageId(page.id); setActiveQuestionId(page.questions?.[0]?.id || ""); setQuestionEditorOpen(false); setSectionSettingsOpen(false); }}>Next section<ChevronRight /></Button>
+                          </div>
+                        </div>
+                      </section>
+                    )
+                  ) : !activePage ? (
                     <section className="flex min-h-[500px] flex-col items-center justify-center rounded-xl border border-[#dce6e1] bg-white px-6 text-center">
                       <FileText className="h-10 w-10 text-[#9fb4ac]" />
                       <h2 className="mt-4 text-lg font-semibold text-[#17372e]">Add your first section</h2>

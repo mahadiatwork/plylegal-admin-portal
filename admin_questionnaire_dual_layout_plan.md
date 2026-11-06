@@ -28,6 +28,10 @@ The selected mode is represented in the URL so each version can be opened direct
 8. The proposed layout is explicitly labelled **Design preview**.
 9. The proposed section navigation can be shown or hidden on small screens.
 10. Existing builder tests continue to pass, with focused coverage proving that both layouts coexist.
+11. The proposed canvas visually follows the Client Portal questionnaire: a white form surface, section heading, help text, and field-shaped previews.
+12. Pencil controls allow section titles/descriptions and question wording/settings to be edited without leaving the proposed canvas.
+13. A keyboard-accessible plus control appears between questions on hover or focus and inserts a new question at that exact position.
+14. The current layout and its existing editing canvas remain unchanged.
 
 ## Scope
 
@@ -39,7 +43,9 @@ The selected mode is represented in the URL so each version can be opened direct
 - Client-style proposed layout shell.
 - Numbered, collapsible navigation grouped by applicant or shared section.
 - Responsive View steps / Hide steps navigation.
-- Reuse of the current page canvas and all existing editor actions.
+- A Client Portal-style form canvas backed by the current builder state and editor actions.
+- Inline section and question editing opened from pencil controls.
+- Hover/focus insertion controls before, between, and after questions.
 - Focused automated regression coverage.
 
 ### Not included
@@ -56,7 +62,9 @@ The admin page reads the `layout` search parameter using the Next.js 16 asynchro
 
 The builder owns a small presentation-only layout state. Changing it updates the URL with `window.history.replaceState`, which keeps the current React state and unsaved questionnaire edits intact.
 
-The current layout markup remains on its existing render path. The proposed path supplies a different navigation shell, while the page/question canvas, mutation handlers, dirty-state calculation, API requests, and publishing controls remain shared.
+The current layout markup remains on its existing render path. The proposed path supplies a different navigation shell and Client Portal-style form canvas. Both paths share the questionnaire state, mutation handlers, dirty-state calculation, API requests, validation, and publishing controls.
+
+Question insertion extends the existing add-question mutation with an insertion index. It creates the same normalized question object as the current append action, but places it before or after the selected client-facing field.
 
 No database migration or questionnaire-definition transformation is required.
 
@@ -68,9 +76,13 @@ No database migration or questionnaire-definition transformation is required.
 - [x] Add a direct Show new layout action to questionnaire library rows.
 - [x] Add the proposed client-style desktop section stepper.
 - [x] Add responsive section navigation for smaller screens.
-- [x] Keep the existing editing canvas and actions shared between layouts.
+- [x] Keep the existing questionnaire state, mutation handlers, and save actions shared between layouts.
 - [x] Label the proposed view as a design preview.
 - [x] Add a regression test proving the proposed layout can switch back to the current layout.
+- [x] Replace the proposed question cards with Client Portal-style field previews.
+- [x] Add pencil editing for section titles, descriptions, and question settings.
+- [x] Add hover/focus insertion controls between questions.
+- [x] Add regression coverage proving middle insertion preserves question order.
 - [ ] Complete product-owner review and record the preferred direction.
 - [ ] If approved, capture any requested visual refinements as a separate implementation pass.
 
@@ -92,6 +104,8 @@ Manual verification:
 6. Switch back to Current layout and confirm the same section and unsaved edit remain selected.
 7. Refresh each direct URL and confirm it opens the requested layout.
 8. Check the proposed navigation at desktop and narrow/mobile widths.
+9. Hover between two questions and add a question at that position.
+10. Use the pencil controls to edit a section title, description, question label, help text, field type, placeholder, requirement, and choices.
 
 ## Product-owner show-and-tell
 

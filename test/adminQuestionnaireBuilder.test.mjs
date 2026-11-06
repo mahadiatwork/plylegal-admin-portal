@@ -1112,3 +1112,45 @@ test("the proposed questionnaire layout can be presented without removing the cu
   );
   assert.equal(text(harness.tree).includes("Design preview."), false);
 });
+
+test("the proposed layout supports pencil editing and inserts a question between client fields", async (t) => {
+  const { harness, calls } = await mountBuilder(t, {
+    definition: richDefinition(),
+    embeddedInMatter: false,
+  });
+
+  await harness.button("Show new layout").props.onClick();
+  harness.render();
+
+  assert.ok(harness.find((node) => node.props?.["data-testid"] === "portal-style-builder"));
+  harness.control("Edit section title and description").props.onClick();
+  harness.render();
+  harness.control("proposed-page-title").props.onChange({ target: { value: "Client-style identity details" } });
+  harness.render();
+  assert.ok(text(harness.tree).includes("Client-style identity details"));
+
+  harness.control("Edit Eligibility source").props.onClick();
+  harness.render();
+  const inlineTitle = harness.control("inline-label-eligibility-internal-id");
+  inlineTitle.props.onChange({ target: { value: "Are you eligible?" } });
+  harness.render();
+  assert.ok(harness.control("Edit Are you eligible?"), "Expected the portal preview to update immediately");
+
+  const insertControl = harness.control("Add question after Are you eligible?");
+  assert.match(insertControl.props.className, /group-hover\/insert:opacity-100/);
+  insertControl.props.onClick();
+  harness.render();
+  assert.ok(harness.find((node) => node.props?.["data-testid"] === "inline-question-editor"));
+
+  await harness.button("Save changes").props.onClick();
+  const saveCall = calls.find(({ url, options }) =>
+    url === "/api/questionnaire-definitions/rich-questionnaire" && options.method === "PUT"
+  );
+  assert.ok(saveCall, "Expected the portal-style builder changes to be saved");
+  const savedPage = JSON.parse(saveCall.options.body).pages[0];
+  assert.equal(savedPage.title, "Client-style identity details");
+  assert.deepEqual(
+    savedPage.questions.map((question) => question.label),
+    ["Original question text?", "Are you eligible?", "New question", "Record question"],
+  );
+});
