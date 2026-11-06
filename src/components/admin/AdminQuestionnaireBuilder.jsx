@@ -70,7 +70,7 @@ const QUESTION_TYPES = [
   ["select", "Dropdown"],
   ["checkbox", "Checkbox"],
   ["dateParts", "Date (day / month / year)"],
-  ["repeater", "Repeating records (developer component required)"],
+  ["repeater", "Repeating list / records"],
 ];
 
 const CONDITION_OPERATORS = [
@@ -858,15 +858,16 @@ function getEntryInsertIndex(entry, questions = []) {
 function PortalAnswerPreview({ entry }) {
   const question = entry.questions?.[0] || {};
   const options = getQuestionOptions(question);
-  const answerClassName = "border border-[#a9beb6] bg-[#eef3ff] text-[#17372e]";
+  const answerClassName = "border-2 border-[#a9beb6] bg-[#E9F0FE] text-[#17372e]";
+  const dateAnswerClassName = "border border-[#a9beb6] bg-[#E9F0FE] text-[#17372e]";
 
   if (entry.kind === "date" || question.type === "dateParts") {
     return (
-      <div className="mt-3 grid gap-4 sm:grid-cols-3">
+      <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-3">
         {["Day", "Month", "Year"].map((part) => (
-          <div key={part}>
-            <p className="mb-1.5 text-xs text-[#405c53]">{part}</p>
-            <div className={`flex h-12 items-center justify-between rounded-lg px-4 text-sm ${answerClassName}`}>
+          <div key={part} className="space-y-2">
+            <p className="text-xs text-gray-600">{part}</p>
+            <div className={`flex h-9 items-center justify-between rounded-md px-3 py-2 text-sm ${dateAnswerClassName}`}>
               <span>{part}</span><ChevronDown className="h-4 w-4 text-[#779087]" />
             </div>
           </div>
@@ -877,10 +878,10 @@ function PortalAnswerPreview({ entry }) {
 
   if (["yesNo", "radio"].includes(question.type)) {
     return (
-      <div className="mt-3 flex flex-wrap gap-x-7 gap-y-3">
+      <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:flex-wrap">
         {options.map((option) => (
-          <span key={option.value} className="flex items-center gap-2 text-sm text-[#17372e]">
-            <span className="h-5 w-5 rounded-full border border-[#759289] bg-[#eef3ff]" />
+          <span key={option.value} className="flex items-center space-x-2 text-sm font-normal leading-none text-[#17372e]">
+            <span className="h-4 w-4 rounded-full border border-[#244D42] bg-[#E9F0FE]" />
             {option.label}
           </span>
         ))}
@@ -890,8 +891,8 @@ function PortalAnswerPreview({ entry }) {
 
   if (question.type === "checkbox") {
     return (
-      <div className="mt-3 flex items-center gap-2 text-sm text-[#17372e]">
-        <span className="h-5 w-5 rounded border border-[#759289] bg-[#eef3ff]" />
+      <div className="mt-3 flex items-start space-x-3 text-sm text-[#17372e]">
+        <span className="mt-1 h-4 w-4 shrink-0 rounded-sm border border-[#244D42] bg-[#E9F0FE]" />
         <span>{question.placeholder || "Select if applicable"}</span>
       </div>
     );
@@ -901,41 +902,41 @@ function PortalAnswerPreview({ entry }) {
     return (
       <div className="mt-4 space-y-3">
         <div className="flex justify-end">
-          <span className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#244D42] px-4 text-sm font-semibold text-white"><Plus className="h-4 w-4" />Add</span>
+          <span className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#244D42] px-3 text-xs font-semibold text-white"><Plus className="h-3.5 w-3.5" />Add</span>
         </div>
         <div className="overflow-hidden rounded-xl border border-[#dce5e1]">
           <div className="grid grid-cols-3 gap-3 bg-[#f8faf9] px-4 py-3 text-xs font-semibold text-[#405c53]">
             <span>Record</span><span>Details</span><span className="text-right">Actions</span>
           </div>
-          <div className="px-4 py-5 text-sm text-[#84958f]">Added records will appear here.</div>
+          <div className="px-4 py-4 text-xs text-[#84958f]">Added records will appear here.</div>
         </div>
       </div>
     );
   }
 
   if (question.type === "textarea") {
-    return <div className={`mt-3 min-h-24 rounded-lg px-4 py-3 text-sm text-[#779087] ${answerClassName}`}>{question.placeholder || "Enter your answer"}</div>;
+    return <div data-testid="portal-textarea-preview" className={`mt-2 min-h-[80px] rounded-md px-3 py-2 text-base text-[#779087] md:text-sm ${answerClassName}`}>{question.placeholder || "Enter your answer"}</div>;
   }
 
   if (question.type === "select") {
     return (
-      <div className={`mt-3 flex h-12 items-center justify-between rounded-lg px-4 text-sm text-[#779087] ${answerClassName}`}>
+      <div data-testid="portal-select-preview" className={`mt-2 flex h-9 items-center justify-between rounded-md px-3 py-2 text-sm text-[#779087] ${answerClassName}`}>
         <span>{question.placeholder || "Choose an option"}</span><ChevronDown className="h-4 w-4" />
       </div>
     );
   }
 
-  return <div className={`mt-3 flex h-12 items-center rounded-lg px-4 text-sm text-[#779087] ${answerClassName}`}>{question.placeholder || "Enter your answer"}</div>;
+  return <div data-testid="portal-text-input-preview" className={`mt-2 flex h-11 items-center rounded-md px-3 py-2 text-base text-[#779087] md:text-sm ${answerClassName}`}>{question.placeholder || "Enter your answer"}</div>;
 }
 
 function QuestionInsertControl({ label, onInsert }) {
   return (
     <div className="group/insert relative flex h-10 items-center justify-center" data-testid="question-insert-control">
-      <span className="absolute inset-x-0 top-1/2 h-px bg-[#dce6e1] opacity-0 transition group-hover/insert:opacity-100 group-focus-within/insert:opacity-100" />
+      <span className="absolute inset-x-0 top-1/2 h-px bg-[#dce6e1] opacity-40 transition group-hover/insert:opacity-100 group-focus-within/insert:opacity-100" />
       <button
         type="button"
         aria-label={label}
-        className="relative z-10 inline-flex h-8 items-center gap-1.5 rounded-full border border-[#96b5a8] bg-white px-3 text-xs font-semibold text-[#315f50] opacity-0 shadow-sm transition hover:bg-[#eef7f2] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]/30 group-hover/insert:opacity-100"
+        className="relative z-10 inline-flex h-8 items-center gap-1.5 rounded-full border border-[#96b5a8] bg-white px-3 text-xs font-semibold text-[#315f50] opacity-40 shadow-sm transition hover:bg-[#eef7f2] hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]/30 group-hover/insert:opacity-100"
         onClick={onInsert}
       >
         <Plus className="h-3.5 w-3.5" />Add question here
@@ -1029,8 +1030,8 @@ function PortalBuilderQuestion({
   const primaryQuestion = entry.questions?.[0];
 
   return (
-    <article className="group/question py-2" data-testid="portal-builder-question">
-      <div className="relative rounded-xl border border-transparent px-3 py-4 transition hover:border-[#dce6e1] hover:bg-[#fbfcfb] sm:px-4">
+    <article className="group/question space-y-3 border-b border-[#dce5e1] pb-6 last:border-0 last:pb-0" data-testid="portal-builder-question">
+      <div className="relative rounded-xl border border-transparent transition hover:border-[#dce6e1] hover:bg-[#fbfcfb]">
         <button
           type="button"
           aria-label={`Edit ${entry.label}`}
@@ -1039,24 +1040,24 @@ function PortalBuilderQuestion({
         >
           <Pencil className="h-4 w-4" />
         </button>
-        {entry.group ? <h3 className="mb-5 border-b border-[#dce5e1] pb-3 pr-12 text-xl font-semibold text-[#17372e]">{entry.group}</h3> : null}
-        <div className="pr-12">
-          <h4 className="text-sm font-medium text-[#17372e]">{entry.label}{entry.required ? <span className="ml-1 text-red-600">*</span> : null}</h4>
-          {primaryQuestion?.description ? <p className="mt-1.5 text-sm leading-6 text-[#60746d]">{primaryQuestion.description}</p> : null}
+        {entry.group ? <h3 data-testid="portal-group-heading" className="border-b border-[#dce5e1] pb-2 pt-2 pr-12 text-lg font-semibold text-[#17372e]">{entry.group}</h3> : null}
+        <div className="px-0.5 pt-3 pr-12">
+          <p className="text-sm font-medium leading-none text-[#17372e]">{entry.label}{entry.required ? <span className="ml-1 text-red-600">*</span> : null}</p>
+          {primaryQuestion?.description ? <p className="mt-2 text-sm font-normal text-gray-600">{primaryQuestion.description}</p> : null}
         </div>
-        <PortalAnswerPreview entry={entry} />
+        <div className="px-0.5"><PortalAnswerPreview entry={entry} /></div>
 
         {entry.conditionalGroups.map((group) => (
           <div key={group.id} className="mt-5 border-l-2 border-[#a8cdbb] pl-4">
-            <p className="mb-3 text-xs font-semibold text-[#356352]">{describeClientCondition(group.conditions, allPrimaryEntries)}</p>
+              <p className="mb-3 text-sm font-semibold text-[#356352]">{describeClientCondition(group.conditions, allPrimaryEntries)}</p>
             <div className="space-y-4">
               {group.entries.map((conditionalEntry) => {
                 const conditionalQuestion = conditionalEntry.questions?.[0];
                 return (
                   <div key={conditionalEntry.id} className="group/conditional relative rounded-lg bg-[#f7faf8] p-4">
                     <button type="button" aria-label={`Edit ${conditionalEntry.label}`} className="absolute right-2 top-2 rounded-full p-2 text-[#45685d] opacity-100 hover:bg-white sm:opacity-0 sm:group-hover/conditional:opacity-100" onClick={() => onEdit(conditionalQuestion)}><Pencil className="h-4 w-4" /></button>
-                    <h5 className="pr-10 text-sm font-medium text-[#17372e]">{conditionalEntry.label}{conditionalEntry.required ? <span className="ml-1 text-red-600">*</span> : null}</h5>
-                    {conditionalQuestion?.description ? <p className="mt-1 text-xs text-[#60746d]">{conditionalQuestion.description}</p> : null}
+                    <p className="pr-10 text-sm font-medium leading-none text-[#17372e]">{conditionalEntry.label}{conditionalEntry.required ? <span className="ml-1 text-red-600">*</span> : null}</p>
+                    {conditionalQuestion?.description ? <p className="mt-2 text-sm font-normal text-gray-600">{conditionalQuestion.description}</p> : null}
                     <PortalAnswerPreview entry={conditionalEntry} />
                   </div>
                 );
@@ -1701,6 +1702,16 @@ export default function AdminQuestionnaireBuilder({
     const usedRoutes = new Set(definition?.pages?.map((page) => page.route));
     return registeredRoutes.find((route) => !usedRoutes.has(route.href)) || null;
   }, [definition?.pages, registeredRoutes]);
+  const availableRoutesByGroup = useMemo(() => {
+    const usedRoutes = new Set(definition?.pages?.map((page) => page.route));
+    const routesByGroup = new Map();
+    registeredRoutes.forEach((route) => {
+      if (usedRoutes.has(route.href)) return;
+      const groupKey = getQuestionnairePageGroupKey({ route: route.href });
+      if (!routesByGroup.has(groupKey)) routesByGroup.set(groupKey, route);
+    });
+    return routesByGroup;
+  }, [definition?.pages, registeredRoutes]);
   const pageQuestions = useMemo(
     () => flattenQuestions(activePage?.questions),
     [activePage]
@@ -2273,11 +2284,15 @@ export default function AdminQuestionnaireBuilder({
     if (field === "id") setActivePageId(value);
   }
 
-  function addPage() {
+  function addPage(groupKey = null) {
     const existingIds = new Set((definition?.pages || []).map((page) => page.id));
     const pageNum = (definition?.pages?.length || 0) + 1;
     const id = uniqueId(existingIds, `page-${pageNum}`);
-    const registeredRoute = nextAvailableRoute;
+    const registeredRoute = groupKey ? availableRoutesByGroup.get(groupKey) : nextAvailableRoute;
+    if (groupKey && !registeredRoute) {
+      setError("Every available Client Portal section in this sidebar group has already been added.");
+      return;
+    }
     const route = registeredRoute?.href || `/intake/${definition.visaType}/${id}`;
     const page = normalizePage({
       id,
@@ -2294,9 +2309,25 @@ export default function AdminQuestionnaireBuilder({
       },
     });
 
-    setDefinition((current) => ({ ...current, pages: [...current.pages, page] }));
+    setDefinition((current) => {
+      const pages = [...current.pages];
+      const lastGroupIndex = groupKey
+        ? pages.reduce((lastIndex, candidate, index) =>
+            getQuestionnairePageGroupKey(candidate) === groupKey ? index : lastIndex, -1)
+        : -1;
+      pages.splice(lastGroupIndex >= 0 ? lastGroupIndex + 1 : pages.length, 0, page);
+      return {
+        ...current,
+        pages: pages.map((candidate, index) => ({ ...candidate, order: (index + 1) * 10 })),
+      };
+    });
     setActivePageId(page.id);
     setActiveQuestionId("");
+    if (groupKey) {
+      setExpandedPageGroupKeys((current) => Array.from(new Set([...current, groupKey])));
+      setSectionSettingsOpen(true);
+      setQuestionEditorOpen(false);
+    }
     setError("");
   }
 
@@ -2458,26 +2489,56 @@ export default function AdminQuestionnaireBuilder({
   }
 
   function changeQuestionType(type) {
+    const existingIds = new Set();
+    const existingAnswerKeys = new Set();
+    definition.pages.forEach((page) =>
+      collectQuestionMachineKeys(page.questions, existingIds, existingAnswerKeys)
+    );
     updateActiveQuestionStructure((question) => {
+      const metadata = { ...(question.metadata || {}) };
+      if (type !== "repeater") {
+        delete metadata.fields;
+        delete metadata.collection;
+      }
+      const nextQuestion = { ...question, type };
+      if (Object.keys(metadata).length) nextQuestion.metadata = metadata;
+      else delete nextQuestion.metadata;
       if (type === "yesNo") {
         return {
-          ...question,
-          type,
+          ...nextQuestion,
           options: [
             { value: "yes", label: "Yes" },
             { value: "no", label: "No" },
           ],
         };
       }
+      if (type === "repeater") {
+        const fields = Array.isArray(question.metadata?.fields) && question.metadata.fields.length
+          ? question.metadata.fields
+          : [normalizeQuestion({
+              id: uniqueId(existingIds, `${question.id}-item`),
+              answerKey: uniqueId(existingAnswerKeys, `${question.answerKey}_item`).replace(/-/g, "_"),
+              label: "Item",
+              type: "text",
+              required: false,
+            })];
+        return {
+          ...nextQuestion,
+          metadata: { ...metadata, collection: question.metadata?.collection || "array", fields },
+        };
+      }
       if (!["select", "radio"].includes(type) || question.options?.length) {
-        return { ...question, type };
+        return nextQuestion;
       }
 
       const options = [
         { value: "option_1", label: "Option 1" },
         { value: "option_2", label: "Option 2" },
       ];
-      return { ...question, type, options };
+      return {
+        ...nextQuestion,
+        options,
+      };
     });
   }
 
@@ -3213,19 +3274,19 @@ export default function AdminQuestionnaireBuilder({
                 </div>
               ) : null}
               <div className={editorLayout === BUILDER_LAYOUTS.PROPOSED
-                ? "grid overflow-hidden rounded-2xl border border-white/70 bg-[#FAF8F5] shadow-[0_4px_24px_rgba(20,40,30,0.05)] lg:grid-cols-[320px_minmax(0,1fr)]"
+                ? "questionnaire-proposed-portal grid overflow-hidden rounded-2xl border border-white/70 bg-[#FAF8F5] text-sm font-normal shadow-[0_4px_24px_rgba(20,40,30,0.05)] lg:grid-cols-[320px_minmax(0,1fr)]"
                 : "grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]"}>
                 {editorLayout === BUILDER_LAYOUTS.PROPOSED ? (
-                  <aside className={`${proposedNavigationOpen ? "block" : "hidden"} w-full shrink-0 border-b border-[#EBE7DF]/80 p-5 sm:p-6 lg:block lg:border-b-0 lg:border-r`}>
+                  <aside className={`${proposedNavigationOpen ? "block" : "hidden"} w-full shrink-0 border-b border-[#EBE7DF]/80 p-5 shadow-sm sm:p-6 lg:block lg:border-b-0 lg:border-r`}>
                     <div>
-                      <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Questionnaire</span>
-                      <p className="mt-1 text-sm font-medium text-slate-700">{definition.pages.length} section{definition.pages.length === 1 ? "" : "s"}</p>
-                      <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                      <span className="mb-1 block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Questionnaire</span>
+                      <p className="text-sm font-semibold text-slate-800">{definition.pages.length} section{definition.pages.length === 1 ? "" : "s"}</p>
+                      <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
                         <div className="h-full rounded-full bg-[#244D42] transition-all duration-500" style={{ width: `${definition.pages.length ? ((pageNumberById.get(activePageId) || 1) / definition.pages.length) * 100 : 0}%` }} />
                       </div>
                     </div>
 
-                    <ScrollArea className="mt-5 h-[min(62vh,680px)] pr-2">
+                    <ScrollArea className="mt-6 h-[min(62vh,680px)] pr-2">
                       <nav className="space-y-2" aria-label="Questionnaire sections">
                         {pageGroups.map((group) => {
                           const isExpanded = group.key === activePageGroupKey
@@ -3259,14 +3320,24 @@ export default function AdminQuestionnaireBuilder({
                                         setSectionSettingsOpen(false);
                                         setProposedNavigationOpen(false);
                                       }}
-                                      className={`group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs transition-colors ${isActive ? "bg-[#EEF7F2] font-semibold text-[#244D42]" : "text-slate-600 hover:bg-slate-50"}`}
+                                      className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${isActive ? "bg-[#EEF7F2]/60 font-semibold text-slate-900" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
                                     >
-                                      <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] ${isActive ? "bg-[#244D42] font-bold text-white" : "border border-slate-200 text-slate-400"}`}>{stepNumber}</span>
+                                      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs transition-colors ${isActive ? "bg-[#244D42] font-bold text-white shadow-sm" : "border border-slate-200 font-medium text-slate-400"}`}>{stepNumber}</span>
                                       <span className="flex-1 truncate">{page.title}</span>
-                                      <span className="text-[10px] text-slate-400" title="Client-facing questions">{pagePresentations.get(page.id)?.primaryCount ?? 0}</span>
+                                      <span className="text-xs text-slate-400" title="Client-facing questions">{pagePresentations.get(page.id)?.primaryCount ?? 0}</span>
                                     </button>
                                   );
                                 })}
+                                <button
+                                  type="button"
+                                  className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[#b9ccc3] bg-white px-2.5 py-2 text-xs font-semibold text-[#45685d] transition hover:border-[#7fa494] hover:bg-[#eef7f2] disabled:cursor-not-allowed disabled:opacity-50"
+                                  disabled={isBusy || !availableRoutesByGroup.has(group.key)}
+                                  title={availableRoutesByGroup.has(group.key) ? `Add the next available section to ${group.label}` : `All available ${group.label.toLowerCase()} sections are already included`}
+                                  onClick={() => addPage(group.key)}
+                                >
+                                  <Plus className="h-3.5 w-3.5" />
+                                  {availableRoutesByGroup.has(group.key) ? "Add section here" : "All sections added"}
+                                </button>
                               </CollapsibleContent>
                             </Collapsible>
                           );
@@ -3343,20 +3414,23 @@ export default function AdminQuestionnaireBuilder({
                         <Button type="button" className="mt-5 bg-[#244D42] text-white hover:bg-[#183a31]" onClick={() => { addPage(); setSectionSettingsOpen(true); }}><Plus />Add section</Button>
                       </section>
                     ) : (
-                      <section data-testid="portal-style-builder" className="overflow-hidden rounded-[22px] border border-[#dbe4e0] bg-white shadow-[0_6px_20px_rgba(23,55,46,0.10)]">
-                        <div className="px-5 py-6 sm:px-8 sm:py-8">
+                      <section data-testid="portal-style-builder" className="overflow-hidden rounded-2xl border border-[#dbe4e0] bg-white shadow-md">
+                        <div className="p-6">
                           <div className="group/section relative border-b border-[#dce5e1] pb-6">
-                            <button
-                              type="button"
-                              aria-label="Edit section title and description"
-                              className="absolute right-0 top-0 inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#d2dfd8] bg-white text-[#45685d] opacity-100 shadow-sm transition hover:border-[#8eb2a3] hover:bg-[#eef7f2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]/30 sm:opacity-0 sm:group-hover/section:opacity-100"
-                              onClick={() => setSectionSettingsOpen((current) => !current)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </button>
-                            <div className="pr-14">
-                              <h2 className="text-2xl font-semibold tracking-tight text-[#17372e] sm:text-3xl">{activePage.title}</h2>
-                              {getIntroText(activePage) ? <p className="mt-3 max-w-4xl text-sm leading-6 text-[#506a61]">{getIntroText(activePage)}</p> : <p className="mt-3 text-sm text-[#8a9b95]">Add a short description to guide the client through this section.</p>}
+                            <div className="absolute right-0 top-0 flex items-center gap-2">
+                              <Button type="button" size="sm" className="bg-[#244D42] text-white hover:bg-[#183a31]" disabled={isBusy} onClick={() => addQuestionAt(activePage.questions.length, true)}><Plus className="h-4 w-4" />Add question</Button>
+                              <button
+                                type="button"
+                                aria-label="Edit section title and description"
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#d2dfd8] bg-white text-[#45685d] shadow-sm transition hover:border-[#8eb2a3] hover:bg-[#eef7f2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]/30"
+                                onClick={() => setSectionSettingsOpen((current) => !current)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                            </div>
+                            <div className="pt-12 sm:pt-0 sm:pr-44">
+                              <h2 data-testid="portal-section-title" className="text-2xl font-semibold leading-none tracking-tight text-[#17372e]">{activePage.title}</h2>
+                              {getIntroText(activePage) ? <p className="mt-3 max-w-4xl text-sm font-normal text-[#506a61]">{getIntroText(activePage)}</p> : <p className="mt-3 text-sm font-normal text-[#8a9b95]">Add a short description to guide the client through this section.</p>}
                             </div>
 
                             {sectionSettingsOpen ? (
@@ -3386,7 +3460,7 @@ export default function AdminQuestionnaireBuilder({
                             ) : null}
                           </div>
 
-                          <div className="mt-5">
+                          <div className="mt-6 space-y-6 rounded-lg border border-[#dce5e1] p-6">
                             <QuestionInsertControl label="Add question at the beginning of this section" onInsert={() => addQuestionAt(0, true)} />
                             {activePagePresentation.primaryEntries.map((entry) => (
                               <div key={entry.id}>
@@ -4051,7 +4125,7 @@ export default function AdminQuestionnaireBuilder({
                       variant="ghost"
                       size="icon"
                       disabled={isBusy}
-                      onClick={addPage}
+                      onClick={() => addPage()}
                       aria-label="Add page"
                       title="Add page"
                     >
@@ -4119,7 +4193,7 @@ export default function AdminQuestionnaireBuilder({
                         type="button"
                         className="mt-4 bg-[#4F726B] text-white"
                         disabled={isBusy}
-                        onClick={addPage}
+                        onClick={() => addPage()}
                       >
                         <Plus />
                         Add page

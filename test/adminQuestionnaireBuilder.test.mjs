@@ -1154,3 +1154,69 @@ test("the proposed layout supports pencil editing and inserts a question between
     ["Original question text?", "Are you eligible?", "New question", "Record question"],
   );
 });
+
+test("the proposed layout exposes visible question and sidebar section creation controls", async (t) => {
+  const { harness, calls } = await mountBuilder(t, {
+    definition: richDefinition(),
+    embeddedInMatter: false,
+    routes: [
+      ...questionnaireRoutes,
+      { href: "/intake/temporary-work/main-applicant/other", title: "Other names" },
+    ],
+  });
+
+  await harness.button("Show new layout").props.onClick();
+  harness.render();
+
+  const proposedShell = harness.find((node) =>
+    typeof node.props?.className === "string" && node.props.className.includes("questionnaire-proposed-portal")
+  );
+  assert.match(proposedShell.props.className, /font-normal/);
+  assert.match(proposedShell.props.className, /lg:grid-cols-\[320px_minmax\(0,1fr\)\]/);
+  const proposedTitle = harness.find((node) => node.props?.["data-testid"] === "portal-section-title");
+  assert.match(proposedTitle.props.className, /text-2xl/);
+  assert.match(proposedTitle.props.className, /font-semibold/);
+
+  harness.button("Add question").props.onClick();
+  harness.render();
+  const textPreview = harness.find((node) => node.props?.["data-testid"] === "portal-text-input-preview");
+  for (const token of ["h-11", "rounded-md", "border-2", "bg-[#E9F0FE]", "text-base", "md:text-sm"]) {
+    assert.ok(textPreview.props.className.includes(token), `Expected Client Portal field token ${token}`);
+  }
+  const questionType = harness.find((node) =>
+    node.type === "select" && String(node.props.id || "").startsWith("inline-type-")
+  );
+  assert.ok(text(questionType).includes("Repeating list / records"));
+  questionType.props.onChange({ target: { value: "radio" } });
+  harness.render();
+  harness.button("Add choice").props.onClick();
+  harness.render();
+  assert.ok(harness.control("Inline option 3"), "Expected a new radio option to be editable");
+
+  harness.button("Add question").props.onClick();
+  harness.render();
+  const repeaterType = harness.find((node) =>
+    node.type === "select" && String(node.props.id || "").startsWith("inline-type-")
+  );
+  repeaterType.props.onChange({ target: { value: "repeater" } });
+  harness.render();
+
+  harness.button("Add section here").props.onClick();
+  harness.render();
+  assert.equal(harness.control("proposed-page-route").props.value, "/intake/temporary-work/main-applicant/other");
+
+  await harness.button("Save changes").props.onClick();
+  const saveCall = calls.find(({ url, options }) =>
+    url === "/api/questionnaire-definitions/rich-questionnaire" && options.method === "PUT"
+  );
+  assert.ok(saveCall, "Expected visible creation controls to save through the existing API");
+  const saved = JSON.parse(saveCall.options.body);
+  const addedRadio = saved.pages[0].questions.at(-2);
+  const addedRepeater = saved.pages[0].questions.at(-1);
+  assert.equal(addedRadio.type, "radio");
+  assert.equal(addedRadio.options.length, 3);
+  assert.equal(addedRepeater.type, "repeater");
+  assert.equal(addedRepeater.metadata.collection, "array");
+  assert.equal(addedRepeater.metadata.fields.length, 1);
+  assert.equal(saved.pages[1].route, "/intake/temporary-work/main-applicant/other");
+});

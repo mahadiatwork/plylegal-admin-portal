@@ -34,6 +34,51 @@
   font-weight: 100 900;
 }
 
+/*
+ * The proposed questionnaire builder mirrors the Client Portal rather than
+ * inheriting the Admin Portal's Segoe UI fallback and globally heavier body
+ * weight. These dedicated faces keep that parity scoped to the preview.
+ */
+@font-face {
+  font-family: "Ply Portal Standerd";
+  src: url("/fonts/plylegal/Standerd-Regular.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Ply Portal Standerd";
+  src: url("/fonts/plylegal/Standerd-Medium.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 500;
+}
+
+@font-face {
+  font-family: "Ply Portal Standerd";
+  src: url("/fonts/plylegal/Standerd-SemiBold.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 600;
+}
+
+@font-face {
+  font-family: "Ply Portal Standerd";
+  src: url("/fonts/plylegal/Standerd-Bold.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 700;
+}
+
+@font-face {
+  font-family: "Ply Portal SeasonMix";
+  src: url("/fonts/plylegal/SeasonMix-Medium.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400 700;
+}
+
 @font-face {
   font-family: "Standerd";
   src:
@@ -259,6 +304,13 @@
 }
 
 @layer components {
+  .questionnaire-proposed-portal {
+    --font-standerd: "Ply Portal Standerd", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font-season-mix: "Ply Portal SeasonMix", Lora, Georgia, "Times New Roman", serif;
+    font-family: var(--font-standerd) !important;
+    font-weight: 400;
+  }
+
   @keyframes matter-tab-loading-wave {
     0%,
     100% {

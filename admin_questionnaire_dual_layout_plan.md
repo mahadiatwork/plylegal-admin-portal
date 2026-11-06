@@ -32,6 +32,10 @@ The selected mode is represented in the URL so each version can be opened direct
 12. Pencil controls allow section titles/descriptions and question wording/settings to be edited without leaving the proposed canvas.
 13. A keyboard-accessible plus control appears between questions on hover or focus and inserts a new question at that exact position.
 14. The current layout and its existing editing canvas remain unchanged.
+15. Proposed-layout typography, font weights, heading scale, field heights, padding, borders, and responsive text sizes use the same tokens and font files as the Client Portal questionnaire.
+16. Every selected section has a persistent Add question action, while precision insertion controls remain available between questions.
+17. Sidebar groups expose Add section here when another registered Client Portal section is available in that group.
+18. Newly added questions can be changed to every supported field type; choice fields can add and remove options, and new repeating lists receive a valid starter record field.
 
 ## Scope
 
@@ -83,6 +87,12 @@ No database migration or questionnaire-definition transformation is required.
 - [x] Add pencil editing for section titles, descriptions, and question settings.
 - [x] Add hover/focus insertion controls between questions.
 - [x] Add regression coverage proving middle insertion preserves question order.
+- [x] Reduce proposed-layout typography, spacing, field height, and sidebar width.
+- [x] Replace approximated typography with the Client Portal's exact Standerd and SeasonMix font files and component sizing tokens, scoped to the proposed layout.
+- [x] Add a persistent Add question action to the selected section.
+- [x] Add group-aware Add section here actions inside the sidebar.
+- [x] Support creation of all schema field types, including a valid starter repeating list.
+- [x] Add regression coverage for visible question/section creation and choice editing.
 - [ ] Complete product-owner review and record the preferred direction.
 - [ ] If approved, capture any requested visual refinements as a separate implementation pass.
 
@@ -106,6 +116,7 @@ Manual verification:
 8. Check the proposed navigation at desktop and narrow/mobile widths.
 9. Hover between two questions and add a question at that position.
 10. Use the pencil controls to edit a section title, description, question label, help text, field type, placeholder, requirement, and choices.
+11. Compare the proposed layout with the same Client Portal section and confirm matching title, label, help-text, input, select, textarea, radio, and sidebar sizes.
 
 ## Product-owner show-and-tell
 
