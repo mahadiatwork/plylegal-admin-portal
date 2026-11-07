@@ -71,6 +71,7 @@ async function loadComponent(relativePath, overrides = {}) {
   componentModule.require = (specifier) => {
     if (specifier in overrides) return overrides[specifier];
     if (specifier === "react") return hooks;
+    if (specifier === "next/image") return { __esModule: true, default: "img" };
     if (specifier === "next/link") return { __esModule: true, default: "a" };
     if (specifier === "next/navigation") return {
       useParams: () => navigation.params,
@@ -87,6 +88,12 @@ async function loadComponent(relativePath, overrides = {}) {
     }
     if (specifier === "@/components/matter/MatterDataContext") {
       return { MatterDataProvider: ({ children }) => children };
+    }
+    if (specifier === "@/components/matter/MatterTabLoadingState") {
+      return {
+        __esModule: true,
+        default: ({ label }) => React.createElement("section", { role: "status" }, label),
+      };
     }
     if (specifier === "@/components/admin/AdminSessionContext") {
       return { useAdminSession: () => ({ role: "super_admin" }) };
@@ -188,6 +195,7 @@ test("matter header keeps role-aware local tabs without dashboard links", async 
       async json() {
         return {
           success: true,
+          dataScope: "full",
           application: {
             id: "app-123",
             zohoId: "deal-123",
@@ -239,6 +247,65 @@ test("matter header keeps role-aware local tabs without dashboard links", async 
     linksAfterTabChange.find((node) => text(node) === "Resources")?.props["aria-current"],
     "page",
   );
+});
+
+test("non-questionnaire matter tabs load a summary and upgrade only when questionnaire data is needed", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  navigation.params = { matterId: "app-123" };
+  navigation.pathname = "/matter/app-123/resources";
+  navigation.replacements = [];
+  const fetchCalls = [];
+  globalThis.window = {
+    scrollY: 0,
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  globalThis.fetch = async (url) => {
+    fetchCalls.push(url);
+    const summary = url.endsWith("?view=summary");
+    return {
+      async json() {
+        return {
+          success: true,
+          dataScope: summary ? "summary" : "full",
+          application: {
+            id: "app-123",
+            reference: "Client matter",
+            type: "Employer Nomination Scheme (Subclass 186)",
+          },
+          percentage: summary ? null : 31,
+          ...(summary ? {} : { questionnaire: {}, completion: {}, questionnaireDefinition: {} }),
+        };
+      },
+    };
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    globalThis.window = originalWindow;
+  });
+
+  const { default: MatterLayout } = await loadComponent("src/app/matter/[matterId]/layout.js");
+  const harness = createHarness(MatterLayout, {
+    children: React.createElement("div", null, "Matter content"),
+  });
+  harness.render();
+  await flushEffects(harness);
+
+  assert.deepEqual(fetchCalls, ["/api/matter/app-123?view=summary"]);
+  assert.ok(text(harness.tree).includes("Matter content"));
+  assert.ok(text(harness.tree).includes("—"));
+
+  navigation.pathname = "/matter/app-123/questionnaire";
+  harness.render();
+  await flushEffects(harness);
+
+  assert.deepEqual(fetchCalls, [
+    "/api/matter/app-123?view=summary",
+    "/api/matter/app-123",
+  ]);
+  assert.ok(text(harness.tree).includes("31%"));
+  assert.ok(text(harness.tree).includes("Matter content"));
 });
 
 test("matter questionnaire-builder page renders the shared builder in embedded mode", async () => {

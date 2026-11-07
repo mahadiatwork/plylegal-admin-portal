@@ -47,6 +47,18 @@ async function hydrateCandidate(appDoc, matchedBy) {
   };
 }
 
+function applicationCandidate(appDoc, matchedBy) {
+  const application = appDoc.data() || {};
+  return {
+    appId: appDoc.id,
+    appDoc,
+    matchedBy,
+    application: { id: appDoc.id, ...application },
+    questionnaire: {},
+    completion: {},
+  };
+}
+
 function compareCandidates(a, b) {
   const aScore = a.duplicateScore;
   const bScore = b.duplicateScore;
@@ -61,7 +73,11 @@ function compareCandidates(a, b) {
   );
 }
 
-export async function resolveMatterApplication(db, matterId) {
+export async function resolveMatterApplication(
+  db,
+  matterId,
+  { includeQuestionnaireData = false } = {},
+) {
   if (!db || !matterId) return null;
 
   const appsRef = db.collection("applications");
@@ -69,7 +85,9 @@ export async function resolveMatterApplication(db, matterId) {
   const directDoc = await appsRef.doc(matterId).get();
 
   if (directDoc.exists) {
-    return hydrateCandidate(directDoc, "firebaseId");
+    return includeQuestionnaireData
+      ? hydrateCandidate(directDoc, "firebaseId")
+      : applicationCandidate(directDoc, "firebaseId");
   }
 
   // Client applications use the Zoho deal name as `reference`. Older records
@@ -81,6 +99,9 @@ export async function resolveMatterApplication(db, matterId) {
   for (const field of lookupFields) {
     const snapshot = await appsRef.where(field, "==", matterId).limit(25).get();
     if (!snapshot.empty) {
+      if (!includeQuestionnaireData && snapshot.docs.length === 1) {
+        return applicationCandidate(snapshot.docs[0], field);
+      }
       const candidates = await Promise.all(
         snapshot.docs.map((doc) => hydrateCandidate(doc, field))
       );

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import { useMatterData } from "@/components/matter/MatterDataContext";
 import { getWorkDrivePreviewUrl } from "@/lib/workDrivePreviewUrl.mjs";
 import {
   AlertCircle,
@@ -179,8 +180,9 @@ function isNotifyClientStatus(comment) {
 export default function DocumentReviewPage() {
   const params = useParams();
   const matterId = params.matterId;
+  const matterData = useMatterData();
+  const application = matterData?.application || null;
 
-  const [application, setApplication] = useState(null);
   const [resources, setResources] = useState([]);
   const [comments, setComments] = useState([]);
   const [selectedDocuments, setSelectedDocuments] = useState([]);
@@ -203,25 +205,18 @@ export default function DocumentReviewPage() {
         setIsLoading(true);
         setError("");
 
-        const [matterResponse, resourceResponse, commentsResponse] = await Promise.all([
-          fetch(`/api/matter/${matterId}`),
+        const [resourceResponse, commentsResponse] = await Promise.all([
           fetch(`/api/matter/${matterId}/resources`),
           fetch(`/api/review-comments/${matterId}?source=${DOCUMENT_SOURCE}`),
         ]);
 
-        const [matterData, resourceData, commentsData] = await Promise.all([
-          matterResponse.json(),
+        const [resourceData, commentsData] = await Promise.all([
           resourceResponse.json().catch(() => ({})),
           commentsResponse.json().catch(() => ({})),
         ]);
 
-        if (!matterResponse.ok || !matterData.success) {
-          throw new Error(matterData.error || "Unable to load this matter.");
-        }
-
         if (!isMounted) return;
 
-        setApplication(matterData.application || null);
         setResources(resourceData.resources || []);
         setComments(
           (commentsData.comments || []).filter((comment) => comment.source === DOCUMENT_SOURCE)

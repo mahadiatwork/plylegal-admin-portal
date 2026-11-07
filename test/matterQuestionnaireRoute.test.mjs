@@ -11,7 +11,7 @@ const hooks = registerHooks({
     const mocks = {
       "next/server": "export const NextResponse = Response;",
       "@/lib/adminSession": "export const getAdminSession = async () => globalThis.__questionnaireRouteFixture().session;",
-      "@/lib/matterResolver": "export const resolveMatterApplication = async () => globalThis.__questionnaireRouteFixture().resolved;",
+      "@/lib/matterResolver": "export const resolveMatterApplication = async (_db, _matterId, options) => { globalThis.__questionnaireRouteFixture().resolveOptions = options; return globalThis.__questionnaireRouteFixture().resolved; };",
       "@/lib/firebase-admin": "export const initResult = {}; export const db = { collection(name) { return globalThis.__questionnaireRouteFixture().collection(name); } };",
     };
     if (mocks[specifier]) return { url: `data:text/javascript,${encodeURIComponent(mocks[specifier])}`, shortCircuit: true };
@@ -26,16 +26,19 @@ function reset(questionnaire) {
   const application = { type: "Employer Nomination Scheme (Subclass 186)", status: "In progress", zohoId: "deal-186" };
   fixture = {
     session: { role: "admin" },
-    resolved: { appId: "app-186", appDoc: { id: "app-186", data: () => ({ ...application }) }, matchedBy: "deal" },
+    resolved: {
+      appId: "app-186",
+      appDoc: { id: "app-186", data: () => ({ ...application }) },
+      application: { id: "app-186", ...application },
+      questionnaire,
+      completion: {},
+      matchedBy: "deal",
+    },
     reads: [],
     collection(name) {
       this.reads.push(name);
       if (name === "questionnaireDefinitions") throw new Error("template database unavailable");
-      assert.equal(name, "applications");
-      return { doc: (id) => {
-        assert.equal(id, "app-186");
-        return { collection: () => ({ doc: (document) => ({ get: async () => ({ exists: true, data: () => document === "questionnaire" ? questionnaire : {} }) }) }) };
-      } };
+      throw new Error(`Unexpected database collection read: ${name}`);
     },
   };
 }
@@ -53,6 +56,8 @@ test("resolved deal preserves actual client answers and complete fallback during
   assert.equal(result.questionnaireDefinitionSource, "built-in");
   assert.equal(result.percentage, 0);
   assert.equal(response.headers.get("cache-control"), "private, no-store");
+  assert.deepEqual(fixture.resolveOptions, { includeQuestionnaireData: true });
+  assert.deepEqual(fixture.reads, ["questionnaireDefinitions"]);
 });
 
 test("a new matter with no answers still returns full questionnaire structure", async () => {
@@ -61,6 +66,24 @@ test("a new matter with no answers still returns full questionnaire structure", 
   assert.ok(result.questionnaireDefinition.pages.some((page) => page.route.endsWith("/main-applicant/details")));
   assert.deepEqual(result.questionnaire, {});
   assert.ok(result.progress.totalSections > 0);
+});
+
+test("matter summary returns application metadata without questionnaire or definition reads", async () => {
+  reset({ profiles: [{ id: "main", role: "mainApplicant" }] });
+  const response = await GET(
+    new Request("http://localhost/api/matter/deal-186?view=summary"),
+    { params: Promise.resolve({ matterId: "deal-186" }) },
+  );
+  const result = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(result.dataScope, "summary");
+  assert.equal(result.application.id, "app-186");
+  assert.equal(result.percentage, null);
+  assert.equal(Object.hasOwn(result, "questionnaire"), false);
+  assert.equal(Object.hasOwn(result, "questionnaireDefinition"), false);
+  assert.equal(fixture.resolveOptions, undefined);
+  assert.deepEqual(fixture.reads, []);
 });
 
 test("anonymous matter access cannot read either answers or templates", async () => {

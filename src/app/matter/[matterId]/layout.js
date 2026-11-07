@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { Loader2, AlertCircle } from "lucide-react";
@@ -11,9 +12,17 @@ import AdminAccountMenu from "@/components/admin/AdminAccountMenu";
 import { useAdminSession } from "@/components/admin/AdminSessionContext";
 import { canAccessQuestionnaireBuilder } from "@/lib/adminRoles";
 import { MatterDataProvider } from "@/components/matter/MatterDataContext";
+import MatterTabLoadingState from "@/components/matter/MatterTabLoadingState";
 
 const HEADER_COLLAPSE_SCROLL_Y = 120;
 const HEADER_EXPAND_SCROLL_Y = 24;
+
+function routeNeedsFullMatterData(pathname) {
+  const match = String(pathname || "").match(/^\/matter\/[^/]+(?:\/(.*))?$/);
+  const suffix = match?.[1] || "";
+  return !suffix || suffix === "questionnaire" || suffix.startsWith("questionnaire/")
+    || suffix === "questionnaire-builder" || suffix.startsWith("questionnaire-builder/");
+}
 
 export default function MatterLayout({ children }) {
   const params = useParams();
@@ -27,10 +36,12 @@ export default function MatterLayout({ children }) {
 
   const [matterData, setMatterData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingFullData, setIsLoadingFullData] = useState(false);
   const [error, setError] = useState(null);
   const [headerHeight, setHeaderHeight] = useState(255);
 
   const [isScrolled, setIsScrolled] = useState(false);
+  const needsFullMatterData = routeNeedsFullMatterData(pathname);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -50,26 +61,63 @@ export default function MatterLayout({ children }) {
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
+    let cancelled = false;
+
     async function fetchMatter() {
+      const canonicalApplicationId = matterData?.application?.id;
+      const sameMatter = Boolean(
+        matterData && (matterId === canonicalApplicationId || matterId === matterData.requestedMatterId)
+      );
+      const currentScope = matterData?.dataScope;
+      if (sameMatter && (currentScope === "full" || !needsFullMatterData)) {
+        setIsLoading(false);
+        setIsLoadingFullData(false);
+        return;
+      }
+
       try {
-        setIsLoading(true);
+        setIsLoading(!sameMatter);
+        setIsLoadingFullData(sameMatter && needsFullMatterData);
         setError(null);
-        const res = await fetch(`/api/matter/${matterId}`);
+        const scopeQuery = needsFullMatterData ? "" : "?view=summary";
+        const res = await fetch(
+          `/api/matter/${encodeURIComponent(matterId)}${scopeQuery}`,
+          { cache: "no-store", signal: controller.signal },
+        );
         const data = await res.json();
 
+        if (cancelled) return;
         if (data.success) {
-          setMatterData(data);
+          setMatterData((current) => {
+            const currentMatchesRequest = current?.requestedMatterId === matterId
+              || current?.application?.id === matterId;
+            if (
+              data.dataScope === "summary"
+              && current?.dataScope === "full"
+              && currentMatchesRequest
+            ) return current;
+            return { ...data, requestedMatterId: matterId };
+          });
         } else {
           setError(data.error + (data.details ? `: ${data.details}` : ""));
         }
       } catch (err) {
+        if (controller.signal.aborted) return;
         setError("Error connecting to server");
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+          setIsLoadingFullData(false);
+        }
       }
     }
     fetchMatter();
-  }, [matterId]);
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [matterId, needsFullMatterData, matterData]);
 
   useEffect(() => {
     const canonicalApplicationId = matterData?.application?.id;
@@ -145,6 +193,10 @@ export default function MatterLayout({ children }) {
   }
 
   const { application, percentage } = matterData;
+  const hasPercentage = percentage !== null
+    && percentage !== undefined
+    && Number.isFinite(Number(percentage));
+  const displayedPercentage = hasPercentage ? Math.max(0, Math.min(100, Number(percentage))) : 0;
   const canonicalMatterId = application.id || matterId;
   const dealId = application.zohoId || application.zohoDealId || application.dealId;
   const tabs = [
@@ -168,7 +220,13 @@ export default function MatterLayout({ children }) {
         style={{ overflowAnchor: "none" }}
       >
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-100 px-4 py-4 sm:px-8">
-          <img src="/Ply_Logo_black.png" alt="Ply Legal" className="h-7 sm:h-9" />
+          <Image
+            src="/Ply_Logo_black.png"
+            alt="Ply Legal"
+            width={131}
+            height={36}
+            className="h-7 w-auto sm:h-9"
+          />
           <div className="flex items-center gap-2">
             <AdminSessionMonitor />
             <AdminAccountMenu user={user} />
@@ -207,7 +265,7 @@ export default function MatterLayout({ children }) {
                     />
                     <path
                       className="text-[#4F726B]"
-                      strokeDasharray={`${percentage || 0}, 100`}
+                      strokeDasharray={`${displayedPercentage}, 100`}
                       d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                       fill="none"
                       stroke="currentColor"
@@ -215,7 +273,7 @@ export default function MatterLayout({ children }) {
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-[#4F726B]">
-                    {percentage || 0}%
+                    {hasPercentage ? `${displayedPercentage}%` : "—"}
                   </div>
                 </div>
                 <div>
@@ -250,9 +308,13 @@ export default function MatterLayout({ children }) {
 
       {/* Main Content Area */}
       <main className="mx-auto w-full max-w-[100rem] flex-1 px-4 py-8 sm:px-6 lg:px-8">
-        <MatterDataProvider value={matterData}>
-          {children}
-        </MatterDataProvider>
+        {needsFullMatterData && (matterData.dataScope !== "full" || isLoadingFullData) ? (
+          <MatterTabLoadingState label="Loading questionnaire data…" />
+        ) : (
+          <MatterDataProvider value={matterData}>
+            {children}
+          </MatterDataProvider>
+        )}
       </main>
     </div>
   );

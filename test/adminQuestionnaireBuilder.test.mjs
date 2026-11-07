@@ -1082,6 +1082,20 @@ test("CRM synchronization panel writes metadata.crm without dropping other metad
   assert.equal(savedQuestion.metadata.analyticsName, "identity_question");
 });
 
+test("the questionnaire library opens from the complete list payload without a duplicate detail request", async (t) => {
+  const { calls } = await mountBuilder(t, {
+    definition: richDefinition(),
+    embeddedInMatter: false,
+  });
+
+  assert.deepEqual(
+    calls
+      .filter(({ options }) => !options.method)
+      .map(({ url }) => url),
+    ["/api/questionnaire-definitions"],
+  );
+});
+
 test("the proposed questionnaire layout can be presented without removing the current layout", async (t) => {
   const { harness, replacedUrls } = await mountBuilder(t, {
     embeddedInMatter: false,
@@ -1219,4 +1233,38 @@ test("the proposed layout exposes visible question and sidebar section creation 
   assert.equal(addedRepeater.metadata.collection, "array");
   assert.equal(addedRepeater.metadata.fields.length, 1);
   assert.equal(saved.pages[1].route, "/intake/temporary-work/main-applicant/other");
+});
+
+test("the proposed inline editor can delete a newly added question", async (t) => {
+  const { harness, calls } = await mountBuilder(t, {
+    definition: richDefinition(),
+    embeddedInMatter: false,
+  });
+
+  await harness.button("Show new layout").props.onClick();
+  harness.render();
+  harness.button("Add question").props.onClick();
+  harness.render();
+
+  const deleteControl = harness.control("Delete question");
+  assert.match(deleteControl.props.className, /text-red-600/);
+  deleteControl.props.onClick();
+  harness.render();
+
+  assert.equal(
+    harness.nodes().some((node) => node.props?.["data-testid"] === "inline-question-editor"),
+    false,
+    "Expected the inline editor to close after deletion",
+  );
+  assert.equal(harness.maybeControl("Edit New question"), undefined);
+
+  await harness.button("Save changes").props.onClick();
+  const saveCall = calls.find(({ url, options }) =>
+    url === "/api/questionnaire-definitions/rich-questionnaire" && options.method === "PUT"
+  );
+  const savedPage = JSON.parse(saveCall.options.body).pages[0];
+  assert.deepEqual(
+    savedPage.questions.map((question) => question.label),
+    ["Original question text?", "Eligibility source", "Record question"],
+  );
 });

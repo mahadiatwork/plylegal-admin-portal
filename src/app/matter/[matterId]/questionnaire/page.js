@@ -35,6 +35,7 @@ import SkillsInDemandQuestionnaireReview, {
 import { buildStructuredSections, formatLabel } from "@/lib/questionnaireSections";
 import ClientQuestionnaireReview from "@/components/ClientQuestionnaireReview";
 import QuestionnairePdfLink from "@/components/QuestionnairePdfLink";
+import { useMatterData } from "@/components/matter/MatterDataContext";
 import MatterTabLoadingState from "@/components/matter/MatterTabLoadingState";
 
 // Count total questions in a section (recursively count leaf values)
@@ -620,9 +621,9 @@ function SectionSidebar({ subSections, activeKey, onChange }) {
 export default function QuestionnairePage() {
   const params = useParams();
   const matterId = params.matterId;
-  const [data, setData] = useState(null);
-  const [matterResult, setMatterResult] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const matterResult = useMatterData();
+  const data = matterResult?.questionnaire || null;
+  const isLoading = !matterResult;
   const [expandedSections, setExpandedSections] = useState(new Set());
   const [expandAll, setExpandAll] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -636,34 +637,6 @@ export default function QuestionnairePage() {
   const [drawerPath, setDrawerPath] = useState("");
   const [drawerLabel, setDrawerLabel] = useState("");
   const sectionRefs = useRef({});
-
-  useEffect(() => {
-    const controller = new AbortController();
-    async function fetchData() {
-      try {
-        setIsLoading(true);
-        const res = await fetch(`/api/matter/${encodeURIComponent(matterId)}`, { signal: controller.signal, cache: "no-store" });
-        const result = await res.json();
-        if (controller.signal.aborted) return;
-        if (result.success) {
-          setMatterResult(result);
-          setData(result.questionnaire);
-        } else {
-          setMatterResult(null);
-          setData(null);
-        }
-      } catch (e) {
-        if (controller.signal.aborted) return;
-        console.error(e);
-        setMatterResult(null);
-        setData(null);
-      } finally {
-        if (!controller.signal.aborted) setIsLoading(false);
-      }
-    }
-    fetchData();
-    return () => controller.abort();
-  }, [matterId]);
 
   // Fetch review comments
   useEffect(() => {

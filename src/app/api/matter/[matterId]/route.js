@@ -16,6 +16,9 @@ export async function GET(request, { params }) {
   try {
     // Await params since Next.js 15+ may have it async, or just destructure if earlier
     const { matterId } = await params;
+    const searchParams = request?.nextUrl?.searchParams
+      || new URL(request?.url || 'http://localhost').searchParams;
+    const summaryOnly = searchParams.get('view') === 'summary';
 
     if (!matterId) {
       return NextResponse.json({ success: false, error: 'Matter ID is required' }, { status: 400 });
@@ -33,7 +36,11 @@ export async function GET(request, { params }) {
     let resolved = null;
 
     try {
-      resolved = await resolveMatterApplication(db, matterId);
+      resolved = await resolveMatterApplication(
+        db,
+        matterId,
+        summaryOnly ? undefined : { includeQuestionnaireData: true },
+      );
     } catch (queryError) {
       console.error('Firestore query error:', queryError);
       return NextResponse.json({ 
@@ -47,21 +54,31 @@ export async function GET(request, { params }) {
       return NextResponse.json({ success: false, error: 'Matter not found' }, { status: 404 });
     }
 
-    const appsRef = db.collection('applications');
-    const appDoc = resolved.appDoc;
     const appId = resolved.appId;
+    const applicationData = {
+      ...(resolved.application || resolved.appDoc.data()),
+      id: appId,
+    };
 
-    // Fetch subcollections: questionnaire and completion
-    const [questionnaireSnap, completionSnap] = await Promise.all([
-      appsRef.doc(appId).collection('data').doc('questionnaire').get(),
-      appsRef.doc(appId).collection('data').doc('completion').get(),
-    ]);
+    // Remove any firebase-specific server timestamps from the payload.
+    if (applicationData.createdAt?.toDate) applicationData.createdAt = applicationData.createdAt.toDate().toISOString();
+    if (applicationData.updatedAt?.toDate) applicationData.updatedAt = applicationData.updatedAt.toDate().toISOString();
 
-    const applicationData = appDoc.data();
-    applicationData.id = appDoc.id;
-    
-    const questionnaireData = questionnaireSnap.exists ? questionnaireSnap.data() : {};
-    const completionData = completionSnap.exists ? completionSnap.data() : {};
+    if (summaryOnly) {
+      return NextResponse.json({
+        success: true,
+        dataScope: 'summary',
+        application: applicationData,
+        percentage: null,
+        progress: null,
+        matchedBy: resolved.matchedBy,
+        duplicateCount: resolved.duplicateCount || 1,
+        duplicateIds: resolved.duplicateIds || [appId],
+      }, { headers: { 'Cache-Control': 'private, no-store' } });
+    }
+
+    const questionnaireData = resolved.questionnaire || {};
+    const completionData = resolved.completion || {};
     const audience = inferQuestionnaireAudience(applicationData, questionnaireData);
     const builtInDefinition = getBuiltInQuestionnaireDefinition(audience);
     const questionnaireTemplate = await loadQuestionnaireReviewDefinition(db, audience, builtInDefinition);
@@ -100,12 +117,9 @@ export async function GET(request, { params }) {
       }
     }
 
-    // Remove any firebase-specific server timestamps from the payload
-    if (applicationData.createdAt?.toDate) applicationData.createdAt = applicationData.createdAt.toDate().toISOString();
-    if (applicationData.updatedAt?.toDate) applicationData.updatedAt = applicationData.updatedAt.toDate().toISOString();
-    
     return NextResponse.json({
       success: true,
+      dataScope: 'full',
       application: applicationData,
       questionnaire: questionnaireData,
       questionnaireDefinition: questionnaireTemplate.definition || null,

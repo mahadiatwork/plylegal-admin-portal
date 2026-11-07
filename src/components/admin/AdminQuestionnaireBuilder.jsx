@@ -566,6 +566,10 @@ async function fetchDefinition(id) {
   const payload = await apiRequest(`/api/questionnaire-definitions/${encodeURIComponent(id)}`);
   const definition = getDefinitionFromResponse(payload);
   if (!definition) throw new Error("The questionnaire API returned no definition.");
+  return prepareDefinition(definition);
+}
+
+function prepareDefinition(definition) {
   return normalizeDefinition(
     completeAdminQuestionnairePages(hydrateLegacyQuestionnaireDefinition(definition))
   );
@@ -951,6 +955,7 @@ function ProposedInlineQuestionEditor({
   onChange,
   onChangeType,
   onClose,
+  onDeleteQuestion,
   onDeleteOption,
   onUpdateOption,
   options,
@@ -964,7 +969,21 @@ function ProposedInlineQuestionEditor({
           <p className="text-sm font-semibold text-[#24453b]">Edit question</p>
           <p className="mt-1 text-xs text-[#71857d]">Changes update the builder preview immediately.</p>
         </div>
-        <Button type="button" variant="ghost" size="sm" className="text-[#45685d]" onClick={onClose}><X className="h-4 w-4" />Close</Button>
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="text-red-600 hover:bg-red-50 hover:text-red-700"
+            aria-label="Delete question"
+            title="Delete question"
+            disabled={disabled}
+            onClick={onDeleteQuestion}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+          <Button type="button" variant="ghost" size="sm" className="text-[#45685d]" onClick={onClose}><X className="h-4 w-4" />Close</Button>
+        </div>
       </div>
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         <div className="space-y-2 md:col-span-2">
@@ -1019,6 +1038,7 @@ function PortalBuilderQuestion({
   onChangeQuestion,
   onChangeQuestionType,
   onCloseEditor,
+  onDeleteQuestion,
   onDeleteOption,
   onEdit,
   onUpdateOption,
@@ -1073,6 +1093,7 @@ function PortalBuilderQuestion({
             onChange={onChangeQuestion}
             onChangeType={onChangeQuestionType}
             onClose={onCloseEditor}
+            onDeleteQuestion={onDeleteQuestion}
             onDeleteOption={onDeleteOption}
             onUpdateOption={onUpdateOption}
             options={options}
@@ -1851,7 +1872,7 @@ export default function AdminQuestionnaireBuilder({
             return;
           }
           if (preferredEntry?.definition) {
-            const loaded = await fetchDefinition(preferredEntry.definition.id);
+            const loaded = prepareDefinition(preferredEntry.definition);
             if (cancelled || requestId !== selectionRequestId.current) return;
 
             setSelectedId(loaded.id);
@@ -1871,7 +1892,7 @@ export default function AdminQuestionnaireBuilder({
 
         const firstId = String(ownerQuestionnaires[0].id || ownerQuestionnaires[0].definitionId || "");
         if (!firstId) return;
-        const loaded = await fetchDefinition(firstId);
+        const loaded = prepareDefinition(ownerQuestionnaires[0]);
         if (cancelled || requestId !== selectionRequestId.current) return;
 
         setSelectedId(loaded.id);
@@ -2589,6 +2610,7 @@ export default function AdminQuestionnaireBuilder({
     const remaining = activePage.questions.filter((question) => question.id !== activeQuestion.id);
     updateActivePage((page) => ({ ...promotePageForStructure(page), questions: remaining }));
     setActiveQuestionId(remaining[0]?.id || "");
+    setQuestionEditorOpen(false);
     setError("");
   }
 
@@ -3473,6 +3495,7 @@ export default function AdminQuestionnaireBuilder({
                                   onChangeQuestion={updateQuestionField}
                                   onChangeQuestionType={changeQuestionType}
                                   onCloseEditor={() => setQuestionEditorOpen(false)}
+                                  onDeleteQuestion={deleteQuestion}
                                   onDeleteOption={deleteOption}
                                   onEdit={(question) => { setActiveQuestionId(question.id); setQuestionEditorOpen(true); }}
                                   onUpdateOption={updateOption}
@@ -3494,6 +3517,7 @@ export default function AdminQuestionnaireBuilder({
                                   onChangeQuestion={updateQuestionField}
                                   onChangeQuestionType={changeQuestionType}
                                   onCloseEditor={() => setQuestionEditorOpen(false)}
+                                  onDeleteQuestion={deleteQuestion}
                                   onDeleteOption={deleteOption}
                                   onEdit={(question) => { setActiveQuestionId(question.id); setQuestionEditorOpen(true); }}
                                   onUpdateOption={updateOption}

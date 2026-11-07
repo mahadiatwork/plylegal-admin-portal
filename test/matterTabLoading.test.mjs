@@ -55,3 +55,25 @@ test("all three matter tabs replace their data area with the shared loading stat
     /embeddedInMatter && isLoading[\s\S]*?<MatterTabLoadingState label="Loading questionnaire builder data…"/,
   );
 });
+
+test("client answers reuses the persistent matter layout payload instead of fetching it again", async () => {
+  const answers = await read("src/app/matter/[matterId]/questionnaire/page.js");
+
+  assert.match(answers, /const matterResult = useMatterData\(\)/);
+  assert.match(answers, /const data = matterResult\?\.questionnaire \|\| null/);
+  assert.doesNotMatch(
+    answers,
+    /fetch\(`\/api\/matter\/\$\{encodeURIComponent\(matterId\)\}`/,
+  );
+});
+
+test("document review reuses the layout application instead of fetching the full matter", async () => {
+  const documentReview = await read("src/app/matter/[matterId]/document-review/page.js");
+
+  assert.match(documentReview, /const matterData = useMatterData\(\)/);
+  assert.match(documentReview, /const application = matterData\?\.application \|\| null/);
+  assert.doesNotMatch(
+    documentReview,
+    /fetch\(`\/api\/matter\/\$\{matterId\}`\)/,
+  );
+});

@@ -18,12 +18,16 @@ hooks.deregister();
 
 function mockDatabase(applications) {
   const queries = [];
+  const dataReads = [];
   const documents = applications.map(({ id, ...data }) => ({
     id,
     data: () => data,
     ref: {
-      collection: () => ({
-        doc: () => ({ get: async () => ({ exists: false }) }),
+      collection: (collectionName) => ({
+        doc: (documentName) => ({ get: async () => {
+          dataReads.push({ applicationId: id, collectionName, documentName });
+          return { exists: false };
+        } }),
       }),
     },
   }));
@@ -42,7 +46,7 @@ function mockDatabase(applications) {
       };
     },
   };
-  return { db: { collection: () => collection }, queries };
+  return { db: { collection: () => collection }, queries, dataReads };
 }
 
 test("matter lookup accepts the displayed Zoho deal name stored as reference", async () => {
@@ -62,4 +66,17 @@ test("matter lookup retains ID precedence and recognizes a legacy name field", a
   const legacy = await resolveMatterApplication(db, "Legacy matter");
   assert.equal(legacy.appId, "application-2");
   assert.equal(legacy.matchedBy, "Deal_Name");
+});
+
+test("ordinary matter resolution avoids questionnaire reads unless the caller requests them", async () => {
+  const { db, dataReads } = mockDatabase([{ id: "application-1", reference: "Matter 1" }]);
+
+  await resolveMatterApplication(db, "application-1");
+  assert.deepEqual(dataReads, []);
+
+  await resolveMatterApplication(db, "application-1", { includeQuestionnaireData: true });
+  assert.deepEqual(
+    dataReads.map(({ documentName }) => documentName).sort(),
+    ["completion", "questionnaire"],
+  );
 });
