@@ -3,9 +3,18 @@ import {
   questionnaireBuiltInTemplates,
 } from './questionnaireBuiltIns.js';
 
-const legacyPages = questionnaireBuiltInTemplates.flatMap(definition => definition.pages)
-  .filter(page => page.metadata?.renderer === 'legacy');
-const legacyPagesByRoute = new Map(legacyPages.map(page => [page.route, page]));
+function definitionContextKey(definition) {
+  const context = definition?.visaContext
+    || (Array.isArray(definition?.visaContexts) ? definition.visaContexts[0] : "");
+  return `${definition?.visaType || ''}:${context || ''}`;
+}
+
+const legacyPages = questionnaireBuiltInTemplates.flatMap(definition => (
+  definition.pages
+    .filter(page => page.metadata?.renderer === 'legacy')
+    .map(page => ({ key: `${definitionContextKey(definition)}:${page.route}`, page }))
+));
+const legacyPagesByRoute = new Map(legacyPages.map(({ key, page }) => [key, page]));
 
 function questionsById(questions, result = new Map()) {
   for (const question of questions || []) {
@@ -156,13 +165,13 @@ export function hydrateLegacyQuestionnaireDefinition(definition) {
   const needsMigration = definition.pages.some(page =>
     page?.metadata?.renderer === 'legacy'
       && page.metadata?.legacyCatalogVersion !== QUESTIONNAIRE_LEGACY_CATALOG_VERSION
-      && legacyPagesByRoute.has(page.route)
+      && legacyPagesByRoute.has(`${definitionContextKey(definition)}:${page.route}`)
   );
   if (!needsMigration) return definition;
 
   let changed = false;
   const pages = definition.pages.map(page => {
-    const baseline = legacyPagesByRoute.get(page.route);
+    const baseline = legacyPagesByRoute.get(`${definitionContextKey(definition)}:${page.route}`);
     if (
       !baseline
       || page.metadata?.legacyCatalogVersion === QUESTIONNAIRE_LEGACY_CATALOG_VERSION
@@ -266,7 +275,7 @@ export function getLegacyQuestionnairePublishIssues(definition) {
     // may now change through the owner-facing builder.
     if (page.metadata?.renderer !== 'legacy') continue;
 
-    const baseline = legacyPages.find(candidate => candidate.route === page.route);
+    const baseline = legacyPagesByRoute.get(`${definitionContextKey(definition)}:${page.route}`);
     if (!baseline) {
       if (page.metadata?.renderer === 'legacy') issues.push(`${page.title}: the original built-in page could not be found`);
       continue;

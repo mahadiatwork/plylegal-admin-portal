@@ -273,7 +273,7 @@ test('schema backed records reject unsafe nested keys before persistence', () =>
 
 test('copy edits cannot give the same ambiguous static label conflicting wording', () => {
   const template = structuredClone(questionnaireBuiltInTemplates[0]);
-  const page = template.pages.find(page => page.route.endsWith('/main-applicant/identity'));
+  const page = template.pages.find(page => page.route.endsWith('/main-applicant/contact-details'));
   const seen = new Map();
   let duplicate;
   const visit = questions => questions.forEach(question => {

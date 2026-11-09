@@ -24,6 +24,47 @@ export const QUESTIONNAIRE_CONDITION_OPERATORS = [
   "exists",
   "notExists",
 ];
+export const QUESTIONNAIRE_OPTION_SOURCES = [
+  "applicants",
+  "countries",
+  "daysOfMonth",
+  "months",
+  "rollingYears",
+  "commonLanguages",
+  "qualificationTypes",
+  "englishTestTypes",
+  "skillsAssessmentTypes",
+  "skillsAssessmentOutcomes",
+  "profileRoles",
+];
+export const QUESTIONNAIRE_ROW_FORMATTERS = [
+  "groupedDate",
+  "groupedDateOrOngoing",
+  "yearFromDateParts",
+  "applicantNames",
+  "yesNoLabel",
+  "commaSeparatedLabels",
+  // Protection-named aliases remain supported for already-saved definitions.
+  "protectionDate",
+  "protectionDateOrOngoing",
+];
+export const QUESTIONNAIRE_VALIDATOR_IDS = [
+  "datePartsAllOrNone",
+  "datePartsRequiredUnlessValue",
+  "dateToNotBeforeDateFrom",
+  "maxLength",
+  "minRowsWhenEquals",
+  "requiredWhenStatusIn",
+  "requiredWhenEquals",
+  "continuousHistoryCoverage",
+  "residenceHistoryCoverage",
+  "emailFormat",
+];
+export const QUESTIONNAIRE_INTERPOLATION_TOKENS = [
+  "{mainApplicantName}",
+  "{spouseName}",
+  "{profileName}",
+];
 
 export const QUESTIONNAIRE_DEFINITION_LIMITS = Object.freeze({
   maxBytes: 900 * 1024,
@@ -108,11 +149,34 @@ const QUESTION_FIELDS = new Set([
   "component",
   "metadata",
   "validation",
+  "visaContexts",
 ]);
 const OPTION_FIELDS = new Set(["value", "label"]);
 const CONDITION_FIELDS = new Set(["field", "op", "value"]);
 const PART_FIELDS = new Set(["day", "month", "year"]);
-const VALIDATION_FIELDS = new Set(["requiredMessage"]);
+const VALIDATION_FIELDS = new Set(["requiredMessage", "rules"]);
+const VALIDATION_RULE_FIELDS = new Set(["id", "field", "config"]);
+const PRESENTATION_FIELDS = new Set([
+  "addLabel",
+  "emptyMessage",
+  "addDialogTitle",
+  "editDialogTitle",
+  "dialogSubtitle",
+  "columns",
+  "actions",
+  "rowFormatter",
+  "sections",
+]);
+const PRESENTATION_COLUMN_FIELDS = new Set(["key", "label", "format"]);
+const PRESENTATION_SECTION_FIELDS = new Set(["heading", "description"]);
+const FIELD_GROUP_FIELDS = new Set(["id", "label", "kind", "order"]);
+const PRESENTATION_ACTION_FIELDS = new Set([
+  "edit",
+  "delete",
+  "cancel",
+  "confirm",
+  "actionsHeading",
+]);
 
 function hasOwn(value, key) {
   return Object.prototype.hasOwnProperty.call(value, key);
@@ -281,6 +345,142 @@ function validateConditions(conditions, path, issues) {
   });
 }
 
+function validatePresentationMetadata(presentation, path, issues) {
+  if (presentation === undefined) return;
+  if (!isPlainObject(presentation)) {
+    issues.push(`${path} must be an object`);
+    return;
+  }
+  pushUnknownFields(presentation, PRESENTATION_FIELDS, path, issues);
+  validateString(presentation.addLabel, `${path}.addLabel`, issues, { max: MAX_SHORT_TEXT_LENGTH });
+  validateString(presentation.emptyMessage, `${path}.emptyMessage`, issues, { max: MAX_SHORT_TEXT_LENGTH });
+  validateString(presentation.addDialogTitle, `${path}.addDialogTitle`, issues, { max: MAX_SHORT_TEXT_LENGTH });
+  validateString(presentation.editDialogTitle, `${path}.editDialogTitle`, issues, { max: MAX_SHORT_TEXT_LENGTH });
+  validateString(presentation.dialogSubtitle, `${path}.dialogSubtitle`, issues, { max: MAX_LONG_TEXT_LENGTH });
+  if (presentation.rowFormatter !== undefined && !QUESTIONNAIRE_ROW_FORMATTERS.includes(presentation.rowFormatter)) {
+    issues.push(`${path}.rowFormatter "${String(presentation.rowFormatter)}" is unsupported`);
+  }
+  if (presentation.columns !== undefined) {
+    if (!Array.isArray(presentation.columns)) {
+      issues.push(`${path}.columns must be an array`);
+    } else {
+      presentation.columns.forEach((column, index) => {
+        const columnPath = `${path}.columns[${index}]`;
+        if (!isPlainObject(column)) {
+          issues.push(`${columnPath} must be an object`);
+          return;
+        }
+        pushUnknownFields(column, PRESENTATION_COLUMN_FIELDS, columnPath, issues);
+        validateString(column.key, `${columnPath}.key`, issues, { required: true, max: MAX_KEY_LENGTH, pattern: SAFE_DATA_KEY });
+        validateString(column.label, `${columnPath}.label`, issues, { required: true, max: MAX_SHORT_TEXT_LENGTH });
+        if (column.format !== undefined && !QUESTIONNAIRE_ROW_FORMATTERS.includes(column.format)) {
+          issues.push(`${columnPath}.format "${String(column.format)}" is unsupported`);
+        }
+      });
+    }
+  }
+  if (presentation.sections !== undefined) {
+    if (!Array.isArray(presentation.sections)) {
+      issues.push(`${path}.sections must be an array`);
+    } else {
+      presentation.sections.forEach((section, index) => {
+        const sectionPath = `${path}.sections[${index}]`;
+        if (!isPlainObject(section)) {
+          issues.push(`${sectionPath} must be an object`);
+          return;
+        }
+        pushUnknownFields(section, PRESENTATION_SECTION_FIELDS, sectionPath, issues);
+        validateString(section.heading, `${sectionPath}.heading`, issues, { required: true, max: MAX_SHORT_TEXT_LENGTH });
+        validateString(section.description, `${sectionPath}.description`, issues, { max: MAX_LONG_TEXT_LENGTH });
+      });
+    }
+  }
+  if (presentation.actions !== undefined) {
+    if (!isPlainObject(presentation.actions)) {
+      issues.push(`${path}.actions must be an object`);
+    } else {
+      pushUnknownFields(presentation.actions, PRESENTATION_ACTION_FIELDS, `${path}.actions`, issues);
+      for (const action of PRESENTATION_ACTION_FIELDS) {
+        validateString(presentation.actions[action], `${path}.actions.${action}`, issues, { max: MAX_SHORT_TEXT_LENGTH });
+      }
+    }
+  }
+}
+
+function validateFieldGroupMetadata(fieldGroup, path, issues) {
+  if (fieldGroup === undefined) return;
+  if (!isPlainObject(fieldGroup)) {
+    issues.push(`${path} must be an object`);
+    return;
+  }
+  pushUnknownFields(fieldGroup, FIELD_GROUP_FIELDS, path, issues);
+  validateString(fieldGroup.id, `${path}.id`, issues, { required: true, max: MAX_KEY_LENGTH, pattern: SAFE_DATA_KEY });
+  validateString(fieldGroup.label, `${path}.label`, issues, { required: true, max: MAX_SHORT_TEXT_LENGTH });
+  if (["dateParts", "address", "score", "section"].includes(fieldGroup.kind) === false) {
+    issues.push(`${path}.kind "${String(fieldGroup.kind)}" is unsupported`);
+  }
+  if (!Array.isArray(fieldGroup.order)) {
+    issues.push(`${path}.order must be an array`);
+  } else {
+    fieldGroup.order.forEach((part, index) => {
+      if (!["day", "month", "year"].includes(part)) {
+        issues.push(`${path}.order[${index}] "${String(part)}" is unsupported`);
+      }
+    });
+  }
+}
+
+function validateVisaContexts(value, path, issues) {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) {
+    issues.push(`${path} must be an array`);
+    return;
+  }
+  const seen = new Set();
+  value.forEach((context, index) => {
+    validateString(context, `${path}[${index}]`, issues, { required: true, max: MAX_ID_LENGTH, pattern: SAFE_NODE_ID });
+    if (typeof context === "string" && context.trim()) {
+      const key = context.trim().toLocaleLowerCase("en");
+      if (seen.has(key)) issues.push(`${path}[${index}] "${key}" is duplicated`);
+      seen.add(key);
+      if (!TEMPORARY_WORK_VISA_CONTEXTS.has(context.trim())) {
+        issues.push(`${path}[${index}] must be "482" or "186"`);
+      }
+    }
+  });
+}
+
+function validateValidationMetadata(validation, path, issues) {
+  if (validation === undefined) return;
+  if (!isPlainObject(validation)) {
+    issues.push(`${path} must be an object`);
+    return;
+  }
+  pushUnknownFields(validation, VALIDATION_FIELDS, path, issues);
+  validateString(validation.requiredMessage, `${path}.requiredMessage`, issues, { max: MAX_SHORT_TEXT_LENGTH });
+  if (validation.rules !== undefined) {
+    if (!Array.isArray(validation.rules)) {
+      issues.push(`${path}.rules must be an array`);
+    } else {
+      validation.rules.forEach((rule, index) => {
+        const rulePath = `${path}.rules[${index}]`;
+        if (!isPlainObject(rule)) {
+          issues.push(`${rulePath} must be an object`);
+          return;
+        }
+        pushUnknownFields(rule, VALIDATION_RULE_FIELDS, rulePath, issues);
+        if (!QUESTIONNAIRE_VALIDATOR_IDS.includes(rule.id)) {
+          issues.push(`${rulePath}.id "${String(rule.id)}" is unsupported`);
+        }
+        validateDataKey(rule.field, `${rulePath}.field`, issues);
+        if (rule.config !== undefined && !isPlainObject(rule.config)) {
+          issues.push(`${rulePath}.config must be an object`);
+        }
+      });
+    }
+  }
+}
+
 function reserveScopedStorageKey(value, path, state, answerKeyScope, issues) {
   if (typeof value !== "string" || !value.trim()) return;
 
@@ -339,12 +539,12 @@ function validateQuestion(question, path, state, answerKeyScope, issues, depth) 
 
   validateOptions(question.options, `${path}.options`, issues);
   validateOptions(question.monthOptions, `${path}.monthOptions`, issues);
-  if (question.optionsSource !== undefined && question.optionsSource !== "applicants") {
-    issues.push(`${path}.optionsSource is unsupported`);
+  if (question.optionsSource !== undefined && !QUESTIONNAIRE_OPTION_SOURCES.includes(question.optionsSource)) {
+    issues.push(`${path}.optionsSource "${String(question.optionsSource)}" is unsupported`);
   }
   if (["radio", "select"].includes(question.type)) {
     const hasOptions = Array.isArray(question.options) && question.options.length > 0;
-    if (!hasOptions && question.optionsSource !== "applicants") {
+    if (!hasOptions && !QUESTIONNAIRE_OPTION_SOURCES.includes(question.optionsSource)) {
       issues.push(`${path} requires options or optionsSource`);
     }
   }
@@ -365,22 +565,43 @@ function validateQuestion(question, path, state, answerKeyScope, issues, depth) 
   }
   if (hasOwn(question, "metadata")) {
     if (!isPlainObject(question.metadata)) issues.push(`${path}.metadata must be an object`);
-    else validateJsonValue(question.metadata, `${path}.metadata`, issues);
+    else {
+      validateJsonValue(question.metadata, `${path}.metadata`, issues);
+      validatePresentationMetadata(question.metadata.presentation, `${path}.metadata.presentation`, issues);
+      validateValidationMetadata(question.metadata.validation, `${path}.metadata.validation`, issues);
+      validateFieldGroupMetadata(question.metadata.fieldGroup, `${path}.metadata.fieldGroup`, issues);
+      validateVisaContexts(question.metadata.visaContexts, `${path}.metadata.visaContexts`, issues);
+    }
   }
+  validateVisaContexts(question.visaContexts, `${path}.visaContexts`, issues);
   if (question.metadata?.fields !== undefined) {
     if (question.type !== "repeater") {
       issues.push(`${path}.metadata.fields is only supported for repeater questions`);
     } else if (!Array.isArray(question.metadata.fields) || question.metadata.fields.length === 0) {
       issues.push(`${path}.metadata.fields must contain row questions`);
     } else {
-      if (question.metadata.collection !== undefined && !["array", "object"].includes(question.metadata.collection)) {
-        issues.push(`${path}.metadata.collection must be "array" or "object"`);
+      if (question.metadata.collection !== undefined && !["array", "object", "nested-array", "multi-select-array"].includes(question.metadata.collection)) {
+        issues.push(`${path}.metadata.collection must be "array", "object", "nested-array" or "multi-select-array"`);
       }
       const rowScope = `${answerKeyScope}:${question.answerKey}`;
       question.metadata.fields.forEach((field, index) => {
         validateQuestion(field, `${path}.metadata.fields[${index}]`, state, rowScope, issues, depth + 1);
       });
       validatePageConditionReferences(question.metadata.fields, `${path}.metadata.fields`, issues);
+      if (Array.isArray(question.metadata.presentation?.columns)) {
+        const rowFieldKeys = new Set();
+        question.metadata.fields.forEach((field) => {
+          if (field.answerKey) rowFieldKeys.add(field.answerKey);
+          if (field.type === "dateParts" && field.parts) {
+            Object.values(field.parts).forEach((partKey) => { if (partKey) rowFieldKeys.add(partKey); });
+          }
+        });
+        question.metadata.presentation.columns.forEach((column, index) => {
+          if (typeof column.key === "string" && column.key.trim() && !rowFieldKeys.has(column.key.trim())) {
+            issues.push(`${path}.metadata.presentation.columns[${index}].key "${column.key.trim()}" does not match a row field`);
+          }
+        });
+      }
     }
   }
   if (hasOwn(question, "validation")) {

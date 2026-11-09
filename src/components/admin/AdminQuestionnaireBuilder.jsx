@@ -949,14 +949,122 @@ function QuestionInsertControl({ label, onInsert }) {
   );
 }
 
+function InlinePresentationEditor({ presentation = {}, onChange }) {
+  const update = (key, value) => onChange({ [key]: value });
+  const updateAction = (key, value) => update("actions", { ...presentation.actions, [key]: value });
+  const updateColumn = (index, key, value) => {
+    const columns = [...(presentation.columns || [])];
+    columns[index] = { ...columns[index], [key]: value };
+    update("columns", columns);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="space-y-2">
+          <FieldLabel htmlFor="presentation-add-label">Add button</FieldLabel>
+          <Input id="presentation-add-label" className={inputClassName} value={presentation.addLabel || ""} onChange={(event) => update("addLabel", event.target.value)} />
+        </div>
+        <div className="space-y-2">
+          <FieldLabel htmlFor="presentation-empty-message">Empty state</FieldLabel>
+          <Input id="presentation-empty-message" className={inputClassName} value={presentation.emptyMessage || ""} onChange={(event) => update("emptyMessage", event.target.value)} />
+        </div>
+        <div className="space-y-2">
+          <FieldLabel htmlFor="presentation-add-dialog-title">Add dialog title</FieldLabel>
+          <Input id="presentation-add-dialog-title" className={inputClassName} value={presentation.addDialogTitle || ""} onChange={(event) => update("addDialogTitle", event.target.value)} />
+        </div>
+        <div className="space-y-2">
+          <FieldLabel htmlFor="presentation-edit-dialog-title">Edit dialog title</FieldLabel>
+          <Input id="presentation-edit-dialog-title" className={inputClassName} value={presentation.editDialogTitle || ""} onChange={(event) => update("editDialogTitle", event.target.value)} />
+        </div>
+      </div>
+      <div className="space-y-2">
+        <FieldLabel htmlFor="presentation-dialog-subtitle">Dialog subtitle</FieldLabel>
+        <Textarea id="presentation-dialog-subtitle" rows={2} className="border-[#cddbd5] bg-white" value={presentation.dialogSubtitle || ""} onChange={(event) => update("dialogSubtitle", event.target.value)} />
+      </div>
+      <div className="space-y-2">
+        <FieldLabel>Table columns</FieldLabel>
+        <div className="space-y-2">
+          {(presentation.columns || []).map((column, index) => (
+            <div key={column.key || index} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_110px]">
+              <Input aria-label={`Column ${index + 1} label`} className={inputClassName} value={column.label || ""} onChange={(event) => updateColumn(index, "label", event.target.value)} />
+              <select aria-label={`Column ${index + 1} formatter`} className={selectClassName} value={column.format || ""} onChange={(event) => updateColumn(index, "format", event.target.value || undefined)}>
+                <option value="">No formatter</option>
+                <option value="groupedDate">Date</option>
+                <option value="groupedDateOrOngoing">Date or Ongoing</option>
+                <option value="protectionDate">Date (866 alias)</option>
+                <option value="protectionDateOrOngoing">Date or Ongoing (866 alias)</option>
+                <option value="yearFromDateParts">Year</option>
+                <option value="applicantNames">Applicant names</option>
+                <option value="yesNoLabel">Yes/No</option>
+                <option value="commaSeparatedLabels">Comma-separated labels</option>
+              </select>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="space-y-2">
+        <FieldLabel>Popup sections</FieldLabel>
+        <div className="space-y-2">
+          {(presentation.sections || []).map((section, index) => (
+            <div key={index} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+              <Input
+                aria-label={`Section ${index + 1} heading`}
+                className={inputClassName}
+                value={section.heading || ""}
+                onChange={(event) => {
+                  const sections = [...(presentation.sections || [])];
+                  sections[index] = { ...sections[index], heading: event.target.value };
+                  update("sections", sections);
+                }}
+              />
+              <Input
+                aria-label={`Section ${index + 1} description`}
+                className={inputClassName}
+                value={section.description || ""}
+                onChange={(event) => {
+                  const sections = [...(presentation.sections || [])];
+                  sections[index] = { ...sections[index], description: event.target.value };
+                  update("sections", sections);
+                }}
+              />
+            </div>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="border-[#cfddd6] bg-white text-[#38564b]"
+            onClick={() => update("sections", [...(presentation.sections || []), { heading: "Section heading", description: "" }])}
+          >
+            <Plus />
+            Add popup section
+          </Button>
+        </div>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        {["edit", "delete", "cancel", "confirm", "actionsHeading"].map((action) => (
+          <div key={action} className="space-y-2">
+            <FieldLabel htmlFor={`presentation-action-${action}`}>{action === "actionsHeading" ? "Actions heading" : action.charAt(0).toUpperCase() + action.slice(1)}</FieldLabel>
+            <Input id={`presentation-action-${action}`} className={inputClassName} value={presentation.actions?.[action] || ""} onChange={(event) => updateAction(action, event.target.value)} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ProposedInlineQuestionEditor({
   disabled,
+  legacy,
   onAddOption,
   onChange,
   onChangeType,
   onClose,
+  onDeleteNestedOption,
   onDeleteQuestion,
   onDeleteOption,
+  onUpdateNestedQuestion,
   onUpdateOption,
   options,
   question,
@@ -1025,6 +1133,41 @@ function ProposedInlineQuestionEditor({
           </div>
         </div>
       ) : null}
+
+      {question.type === "repeater" && Array.isArray(question.metadata?.fields) && question.metadata.fields.length > 0 ? (
+        <div className="mt-5 border-t border-[#d9e5df] pt-4">
+          <p className="text-sm font-semibold text-[#24453b]">Entry fields</p>
+          <p className="mt-1 text-xs text-[#71857d]">Edit the wording shown inside each Add/Edit dialog.</p>
+          <div className="mt-3 space-y-3">
+            {question.metadata.fields.map((field) => (
+              <EmbeddedNestedQuestionEditor
+                key={field.id}
+                question={field}
+                kind="record"
+                legacy={legacy}
+                sourceQuestions={flattenQuestions(question.metadata.fields)}
+                onUpdate={onUpdateNestedQuestion}
+                onDeleteOption={onDeleteNestedOption}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {question.type === "repeater" && question.metadata?.presentation ? (
+        <Collapsible className="mt-5 border-t border-[#d9e5df] pt-4">
+          <CollapsibleTrigger className="flex w-full items-center justify-between text-left">
+            <div>
+              <p className="text-sm font-semibold text-[#24453b]">Table and popup wording</p>
+              <p className="mt-1 text-xs text-[#71857d]">Edit add/empty/dialog text, column labels and row formatting.</p>
+            </div>
+            <ChevronDown className="h-4 w-4 text-[#60786f] transition-transform data-[state=open]:rotate-180" />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="mt-3 space-y-3">
+            <InlinePresentationEditor presentation={question.metadata.presentation} onChange={(patch) => onChange("metadata", { ...question.metadata, presentation: { ...question.metadata.presentation, ...patch } })} />
+          </CollapsibleContent>
+        </Collapsible>
+      ) : null}
     </div>
   );
 }
@@ -1034,13 +1177,16 @@ function PortalBuilderQuestion({
   allPrimaryEntries,
   disabled,
   entry,
+  legacy,
   onAddOption,
   onChangeQuestion,
   onChangeQuestionType,
   onCloseEditor,
+  onDeleteNestedOption,
   onDeleteQuestion,
   onDeleteOption,
   onEdit,
+  onUpdateNestedQuestion,
   onUpdateOption,
   options,
   showOptions,
@@ -1089,12 +1235,15 @@ function PortalBuilderQuestion({
         {isEditing ? (
           <ProposedInlineQuestionEditor
             disabled={disabled}
+            legacy={legacy}
             onAddOption={onAddOption}
             onChange={onChangeQuestion}
             onChangeType={onChangeQuestionType}
             onClose={onCloseEditor}
+            onDeleteNestedOption={onDeleteNestedOption}
             onDeleteQuestion={onDeleteQuestion}
             onDeleteOption={onDeleteOption}
+            onUpdateNestedQuestion={onUpdateNestedQuestion}
             onUpdateOption={onUpdateOption}
             options={options}
             question={activeQuestion}
@@ -3491,13 +3640,16 @@ export default function AdminQuestionnaireBuilder({
                                   allPrimaryEntries={activePagePresentation.primaryEntries}
                                   disabled={isBusy}
                                   entry={entry}
+                                  legacy={legacyPage}
                                   onAddOption={addOption}
                                   onChangeQuestion={updateQuestionField}
                                   onChangeQuestionType={changeQuestionType}
                                   onCloseEditor={() => setQuestionEditorOpen(false)}
+                                  onDeleteNestedOption={deleteNestedOption}
                                   onDeleteQuestion={deleteQuestion}
                                   onDeleteOption={deleteOption}
                                   onEdit={(question) => { setActiveQuestionId(question.id); setQuestionEditorOpen(true); }}
+                                  onUpdateNestedQuestion={updateNestedQuestion}
                                   onUpdateOption={updateOption}
                                   options={activeQuestionOptions}
                                   showOptions={showOptions}
@@ -3513,13 +3665,16 @@ export default function AdminQuestionnaireBuilder({
                                   allPrimaryEntries={activePagePresentation.primaryEntries}
                                   disabled={isBusy}
                                   entry={{ ...entry, conditionalGroups: [] }}
+                                  legacy={legacyPage}
                                   onAddOption={addOption}
                                   onChangeQuestion={updateQuestionField}
                                   onChangeQuestionType={changeQuestionType}
                                   onCloseEditor={() => setQuestionEditorOpen(false)}
+                                  onDeleteNestedOption={deleteNestedOption}
                                   onDeleteQuestion={deleteQuestion}
                                   onDeleteOption={deleteOption}
                                   onEdit={(question) => { setActiveQuestionId(question.id); setQuestionEditorOpen(true); }}
+                                  onUpdateNestedQuestion={updateNestedQuestion}
                                   onUpdateOption={updateOption}
                                   options={activeQuestionOptions}
                                   showOptions={showOptions}
@@ -3571,6 +3726,13 @@ export default function AdminQuestionnaireBuilder({
                         </div>
                         <Button type="button" variant="outline" className="border-[#cfddd6] bg-white text-[#38564b]" onClick={() => setQuestionEditorOpen(false)}><ArrowLeft />Back to questions</Button>
                       </div>
+
+                      {legacyPage && ["protection", "temporary-work"].includes(definition.visaType) ? (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                          <p className="font-semibold">{definition.visaType === "protection" ? "Protection Visa" : `${definition.visaContext || "Temporary Work"} Visa`} pages use the original client form</p>
+                          <p className="mt-1">Wording edits are safe, but changing the answer type, required setting, choices, conditions or repeater structure will switch this page to the dynamic renderer. Full dynamic parity for this visa is not yet certified.</p>
+                        </div>
+                      ) : null}
 
                       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,.85fr)]">
                         <div className="space-y-5 rounded-xl border border-[#dce6e1] bg-white p-5 shadow-[0_1px_2px_rgba(23,55,46,0.04)] sm:p-6">
@@ -3676,6 +3838,21 @@ export default function AdminQuestionnaireBuilder({
                               <div><h3 className="text-sm font-semibold text-[#24453b]">Record fields</h3><p className="mt-1 text-xs text-[#71857d]">Edit the wording shown inside each record. Saved keys stay unchanged.</p></div>
                               {activeQuestion.metadata.fields.map((field) => <EmbeddedNestedQuestionEditor key={field.id} question={field} kind="record" legacy={legacyPage} sourceQuestions={flattenQuestions(activeQuestion.metadata.fields)} onUpdate={updateNestedQuestion} onDeleteOption={deleteNestedOption} />)}
                             </div>
+                          ) : null}
+
+                          {activeQuestion.type === "repeater" && activeQuestion.metadata?.presentation ? (
+                            <Collapsible className="space-y-4 border-t border-[#e6ece9] pt-5" defaultOpen>
+                              <CollapsibleTrigger className="flex w-full items-center justify-between text-left">
+                                <div><h3 className="text-sm font-semibold text-[#24453b]">Table and popup wording</h3><p className="mt-1 text-xs text-[#71857d]">Edit add/empty/dialog text, column labels and row formatting.</p></div>
+                                <ChevronDown className="h-4 w-4 text-[#60786f] transition-transform data-[state=open]:rotate-180" />
+                              </CollapsibleTrigger>
+                              <CollapsibleContent>
+                                <InlinePresentationEditor
+                                  presentation={activeQuestion.metadata.presentation}
+                                  onChange={(patch) => updateQuestionField("metadata", { ...activeQuestion.metadata, presentation: { ...activeQuestion.metadata.presentation, ...patch } })}
+                                />
+                              </CollapsibleContent>
+                            </Collapsible>
                           ) : null}
 
                           {activeQuestion.followUps?.length ? (

@@ -5,22 +5,41 @@ import { applyQuestionnaireBuiltInIdentity } from './questionnaireBuiltInIdentit
 import { applyQuestionnaireBuiltInCharacter } from './questionnaireBuiltInCharacter.js';
 import { applyQuestionnaireBuiltInChoices } from './questionnaireBuiltInChoices.js';
 import { applyQuestionnaireBuiltInConditionalRules } from './questionnaireBuiltInConditionalRules.js';
+import { applyQuestionnaireBuiltInProtectionEnrichment, applyProtectionRepeaterPresentationFallback } from './questionnaireBuiltInProtectionEnrichment.js';
+import { mergeDatePartGroups, convertCountrySelects, applyRepeaterPresentationFallback } from './questionnaireBuiltInRecordEnrichment.js';
+import { applyQuestionnaireBuiltInTemporaryWork482Enrichment, finalizeTemporaryWork482Enrichment } from './questionnaireBuiltInTemporaryWork482Enrichment.js';
 
 export const QUESTIONNAIRE_LEGACY_CATALOG_VERSION = 3;
 
 function builtInDefinition(visaType, visaContext, title) {
-  const pages = applyQuestionnaireBuiltInConditionalRules(
+  let sourcePages = structuredClone(questionnaireBuiltInPages.filter(page =>
+    page.route.startsWith(`/intake/${visaType}/`) &&
+    !(visaContext === '482' && /\/spouse-partner\/(education|language)$/.test(page.route))
+  ));
+  if (visaType === 'protection') {
+    sourcePages = applyQuestionnaireBuiltInProtectionEnrichment(sourcePages);
+  }
+  if (visaType === 'temporary-work' && visaContext === '482') {
+    sourcePages = applyQuestionnaireBuiltInTemporaryWork482Enrichment(sourcePages);
+  }
+  let pages = applyQuestionnaireBuiltInConditionalRules(
     applyQuestionnaireBuiltInChoices(
       applyQuestionnaireBuiltInCharacter(
         applyQuestionnaireBuiltInIdentity(
-          applyQuestionnaireBuiltInDetails(structuredClone(questionnaireBuiltInPages.filter(page =>
-            page.route.startsWith(`/intake/${visaType}/`) &&
-            !(visaContext === '482' && /\/spouse-partner\/(education|language)$/.test(page.route))
-          )))
+          applyQuestionnaireBuiltInDetails(sourcePages)
         )
       )
     )
   );
+  if (visaType === 'protection') {
+    pages = pages.map((page) => ({ ...page, questions: mergeDatePartGroups(page.questions) }));
+    pages = pages.map((page) => ({ ...page, questions: convertCountrySelects(page.questions) }));
+    pages = applyProtectionRepeaterPresentationFallback(pages);
+  }
+  if (visaType === 'temporary-work' && visaContext === '482') {
+    pages = finalizeTemporaryWork482Enrichment(pages);
+    pages = applyRepeaterPresentationFallback(pages, '/intake/temporary-work/');
+  }
   if (visaType === 'temporary-work') {
     const character = structuredClone(temporaryWork482Definition.pages[0]);
     character.id = 'temporary-work-all-applicants-character';
