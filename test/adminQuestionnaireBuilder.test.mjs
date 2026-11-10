@@ -1064,7 +1064,7 @@ test("CRM synchronization panel writes metadata.crm without dropping other metad
   definition.status = "draft";
   const { harness, calls } = await mountBuilder(t, { definition, embeddedInMatter: false });
 
-  await harness.button("Edit questions").props.onClick();
+  await harness.button("Edit").props.onClick();
   harness.render();
   harness.control("Edit Original question text?").props.onClick();
   harness.render();
@@ -1102,7 +1102,7 @@ test("the proposed questionnaire layout can be presented without removing the cu
     routes: questionnaireRoutes,
   });
 
-  await harness.button("Show new layout").props.onClick();
+  await harness.button("New layout").props.onClick();
   harness.render();
 
   assert.equal(harness.button("Proposed layout").props["aria-pressed"], true);
@@ -1133,7 +1133,7 @@ test("the proposed layout supports pencil editing and inserts a question between
     embeddedInMatter: false,
   });
 
-  await harness.button("Show new layout").props.onClick();
+  await harness.button("New layout").props.onClick();
   harness.render();
 
   assert.ok(harness.find((node) => node.props?.["data-testid"] === "portal-style-builder"));
@@ -1179,7 +1179,7 @@ test("the proposed layout exposes visible question and sidebar section creation 
     ],
   });
 
-  await harness.button("Show new layout").props.onClick();
+  await harness.button("New layout").props.onClick();
   harness.render();
 
   const proposedShell = harness.find((node) =>
@@ -1241,7 +1241,7 @@ test("the proposed inline editor can delete a newly added question", async (t) =
     embeddedInMatter: false,
   });
 
-  await harness.button("Show new layout").props.onClick();
+  await harness.button("New layout").props.onClick();
   harness.render();
   harness.button("Add question").props.onClick();
   harness.render();

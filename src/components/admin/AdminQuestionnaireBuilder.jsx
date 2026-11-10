@@ -3256,7 +3256,7 @@ export default function AdminQuestionnaireBuilder({
                     disabled={isBusy}
                     onClick={() => openAdminDefinition(entry)}
                   >
-                    {entry.source === "builtIn" ? "Use template" : "Edit questions"}
+                    {entry.source === "builtIn" ? "Use template" : "Edit"}
                   </Button>
                   <Button
                     type="button"
@@ -3265,7 +3265,7 @@ export default function AdminQuestionnaireBuilder({
                     onClick={() => openAdminDefinition(entry, BUILDER_LAYOUTS.PROPOSED)}
                   >
                     <Eye className="h-4 w-4" />
-                    Show new layout
+                    New layout
                   </Button>
                   {entry.source === "saved" ? (
                     <Button

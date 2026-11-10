@@ -555,7 +555,7 @@ test("embedded library replaces starter rows with the newest saved questionnaire
   );
   assert.ok(saved482Row, "the newest saved 482 questionnaire should be listed");
   const editButton = [...walk(saved482Row)].find((node) =>
-    node.type === "button" && text(node).includes("Edit questions")
+    node.type === "button" && text(node).includes("Edit")
   );
   assert.ok(editButton, "the saved questionnaire should remain editable");
   const clickResult = editButton.props.onClick();
