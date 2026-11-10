@@ -234,7 +234,7 @@ function auditPage(page, allIds, issues) {
       }
       if (storageKey) scopeKeys.add(storageKey);
 
-      if (isDateFragment(question)) {
+      if (isDateFragment(question) && !question.metadata?.storageOnly) {
         issues.push({ category: "date_fragment_not_grouped", message: `Date fragment "${question.answerKey}" is not grouped dateParts`, ...base });
       }
       if (isCountryLike(question) && question.type === "text") {

@@ -1,18 +1,7 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { useParams } from "next/navigation";
-import { MatterResourcesManager } from "../resources/page";
+export default async function SharedFilesPage({ params }) {
+  const { matterId } = await params;
 
-export default function SharedFilesPage() {
-  const params = useParams();
-  const matterId = params.matterId;
-
-  return (
-    <MatterResourcesManager
-      key={matterId}
-      matterId={matterId}
-      resourceSource="sharedFiles"
-      pageTitle="Shared Files"
-    />
-  );
+  redirect(`/matter/${encodeURIComponent(matterId)}/resources`);
 }

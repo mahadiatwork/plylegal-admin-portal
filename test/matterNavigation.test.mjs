@@ -228,7 +228,6 @@ test("matter header keeps role-aware local tabs without dashboard links", async 
   assert.deepEqual(links, [
     { label: "Client answers", href: "/matter/app-123/questionnaire", current: undefined },
     { label: "Resources", href: "/matter/app-123/resources", current: undefined },
-    { label: "Shared files", href: "/matter/app-123/shared-files", current: undefined },
     { label: "Questionnaire builder", href: "/matter/app-123/questionnaire-builder", current: "page" },
   ]);
   assert.equal(links.some(({ label }) => label === "Dashboard" || label === "Questionnaires"), false);
@@ -247,6 +246,24 @@ test("matter header keeps role-aware local tabs without dashboard links", async 
     linksAfterTabChange.find((node) => text(node) === "Resources")?.props["aria-current"],
     "page",
   );
+});
+
+test("the retired shared files route redirects to resources", async () => {
+  const redirects = [];
+  const { default: SharedFilesPage } = await loadComponent(
+    "src/app/matter/[matterId]/shared-files/page.js",
+    {
+      "next/navigation": {
+        redirect(href) {
+          redirects.push(href);
+        },
+      },
+    },
+  );
+
+  await SharedFilesPage({ params: Promise.resolve({ matterId: "app 123" }) });
+
+  assert.deepEqual(redirects, ["/matter/app%20123/resources"]);
 });
 
 test("non-questionnaire matter tabs load a summary and upgrade only when questionnaire data is needed", async (t) => {

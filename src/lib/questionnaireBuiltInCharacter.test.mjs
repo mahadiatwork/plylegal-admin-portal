@@ -46,11 +46,11 @@ test('partner Sponsor Character preserves every declaration, detail collection, 
 
   const offenceFields = rowByAnswerKey(questions.get('convicted_child_offence_details'));
   assert.deepEqual([...offenceFields.keys()], [
-    'country', 'date_day', 'date_month', 'date_year', 'offence_type', 'details',
+    'country', 'date', 'offence_type', 'details',
   ]);
   const generalFields = rowByAnswerKey(questions.get('removed_deported_details'));
   assert.deepEqual([...generalFields.keys()], [
-    'country', 'date_day', 'date_month', 'date_year', 'details',
+    'country', 'date', 'details',
   ]);
   assert.deepEqual([...rowByAnswerKey(questions.get('national_security_risk_details')).keys()], [
     'country', 'details',
@@ -59,8 +59,7 @@ test('partner Sponsor Character preserves every declaration, detail collection, 
   const trainingFields = rowByAnswerKey(questions.get('military_training_details'));
   assert.deepEqual([...trainingFields.keys()], [
     'country_of_training',
-    'date_from_day', 'date_from_month', 'date_from_year',
-    'date_to_day', 'date_to_month', 'date_to_year',
+    'date_from', 'date_to',
     'training_type', 'details',
   ]);
   assert.equal(trainingFields.get('training_type').type, 'select');
@@ -77,8 +76,7 @@ test('partner Sponsor Character preserves every declaration, detail collection, 
   const serviceFields = rowByAnswerKey(questions.get('military_service_details'));
   assert.deepEqual([...serviceFields.keys()], [
     'country_of_service', 'country_of_deployment',
-    'date_from_day', 'date_from_month', 'date_from_year',
-    'date_to_day', 'date_to_month', 'date_to_year',
+    'date_from', 'date_to',
     'service_type', 'organisation_name', 'position_rank', 'duties_description', 'details',
   ]);
   assert.equal(serviceFields.get('service_type').type, 'select');

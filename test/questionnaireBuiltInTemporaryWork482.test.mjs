@@ -183,7 +183,7 @@ describe("Skills in Demand Visa (Subclass 482) built-in parity", () => {
     const history = findQuestion(page.questions, "employment_history");
     assert.strictEqual(history.label, "Employment History (last 5 years)");
     assert.strictEqual(history.description, "Enter details of your employment history for the previous 5 years");
-    for (const key of ["still_working", "current_end_date"]) {
+    for (const key of ["still_working", "current_end_date_day", "current_end_date_month", "current_end_date_year"]) {
       const question = findQuestion(page.questions, key);
       assert.strictEqual(question?.metadata?.storageOnly, true, `${key} should be storage-only`);
     }

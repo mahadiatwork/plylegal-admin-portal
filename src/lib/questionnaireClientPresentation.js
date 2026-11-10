@@ -65,11 +65,20 @@ function getQuestionConditions(page, question, definition) {
   return configured.length ? configured : inferredEmploymentCondition(page, question, definition);
 }
 
+function collectStorageOnlyKeys(questions, keys) {
+  for (const question of questions || []) {
+    if (question?.metadata?.storageOnly && question.answerKey) keys.add(question.answerKey);
+    collectStorageOnlyKeys(question?.followUps, keys);
+    collectStorageOnlyKeys(question?.metadata?.fields, keys);
+  }
+  return keys;
+}
+
 function getStorageOnlyKeys(page) {
-  return new Set([
+  return collectStorageOnlyKeys(page?.questions, new Set([
     ...(Array.isArray(page?.metadata?.hiddenAnswerKeys) ? page.metadata.hiddenAnswerKeys : []),
     ...(EMPLOYMENT_STORAGE_ONLY_BY_ROUTE[page?.route] || []),
-  ]);
+  ]));
 }
 
 function getEntryLabel(question, duplicateLabels) {

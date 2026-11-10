@@ -23,6 +23,7 @@ const COUNTRY_KEYS = new Set([
   "arrival_country",
   "commercial_country",
   "postal_country",
+  "residential_country",
   "usual_country_of_residence",
 ]);
 
@@ -49,18 +50,23 @@ export function looksLikeCountryKey(answerKey) {
   if (!answerKey) return false;
   const normalized = String(answerKey).toLowerCase().replace(/_/g, "");
   return COUNTRY_KEYS.has(answerKey) ||
-    /countryofbirth|countryofissue|countryofexam|issuingcountry|passportcountry|nationality|citizenship|residencecountry|usualcountryofresidence|visacountry|departurecountry|arrivalcountry|commercialcountry|postalcountry|phonecountrycode/.test(normalized);
+    /countryofbirth|countryofissue|countryofexam|countryoftraining|countryofservice|countryofdeployment|countryoforigin|issuingcountry|passportcountry|nationality|citizenship|residencecountry|residentialcountry|currentcountryofresidence|usualcountryofresidence|visacountry|departurecountry|arrivalcountry|commercialcountry|postalcountry|phonecountrycode/.test(normalized);
 }
 
 function mergeDatePartGroupsInArray(questions) {
+  const items = questions || [];
   const bySignature = new Map();
-  collectQuestions(questions, (question) => {
+
+  // Group only direct siblings. Recurse into each nested collection separately
+  // so repeated local keys (for example 14 sponsor detail lists each using
+  // `date_day`) cannot collapse into one page-wide group.
+  items.forEach((question) => {
     const match = String(question.answerKey || "").match(DATE_PART_PATTERN);
     if (!match) return;
     const [, base, part] = match;
     const sig = conditionSignature(question.visibleIf);
     const groupKey = `${base}:${sig}:${question.metadata?.group || ""}`;
-    if (!bySignature.has(groupKey)) bySignature.set(groupKey, { base, sig, group: question.metadata?.group, parts: {} });
+    if (!bySignature.has(groupKey)) bySignature.set(groupKey, { base, parts: {} });
     bySignature.get(groupKey).parts[part] = question;
   });
 
@@ -71,6 +77,9 @@ function mergeDatePartGroupsInArray(questions) {
     const dayQuestion = group.parts.day;
     const monthQuestion = group.parts.month;
     const yearQuestion = group.parts.year;
+    if (dayQuestion.metadata?.storageOnly || monthQuestion.metadata?.storageOnly || yearQuestion.metadata?.storageOnly) {
+      return;
+    }
     idsToRemove.add(dayQuestion.id);
     idsToRemove.add(monthQuestion.id);
     idsToRemove.add(yearQuestion.id);
@@ -92,7 +101,7 @@ function mergeDatePartGroupsInArray(questions) {
         originalLabel: (dayQuestion.metadata?.originalLabel || dayQuestion.label).replace(/\s*[-–—:]?\s*day$/i, "").trim(),
         ...(dayQuestion.metadata?.originalDescription ? { originalDescription: dayQuestion.metadata.originalDescription } : {}),
         ...(dayQuestion.metadata?.originalPlaceholder ? { originalPlaceholder: dayQuestion.metadata.originalPlaceholder } : {}),
-        ...(group.group ? { group: group.group } : {}),
+        ...(dayQuestion.metadata?.group ? { group: dayQuestion.metadata.group } : {}),
         ...(dayQuestion.metadata?.storageOnly ? { storageOnly: true } : {}),
         fieldGroup: {
           id: group.base,
@@ -114,24 +123,27 @@ function mergeDatePartGroupsInArray(questions) {
     replacements.set(dayQuestion.id, dateQuestion);
   });
 
-  function rewrite(items) {
-    const result = [];
-    for (const item of items) {
-      const replacement = replacements.get(item.id);
-      if (replacement) {
-        result.push(replacement);
-        continue;
+  const result = [];
+  for (const item of items) {
+    const replacement = replacements.get(item.id);
+    if (replacement) {
+      const next = { ...replacement };
+      if (next.followUps?.length) next.followUps = mergeDatePartGroupsInArray(next.followUps);
+      if (next.metadata?.fields?.length) {
+        next.metadata = { ...next.metadata, fields: mergeDatePartGroupsInArray(next.metadata.fields) };
       }
-      if (idsToRemove.has(item.id)) continue;
-      const next = { ...item };
-      if (next.followUps?.length) next.followUps = rewrite(next.followUps);
-      if (next.metadata?.fields?.length) next.metadata = { ...next.metadata, fields: rewrite(next.metadata.fields) };
       result.push(next);
+      continue;
     }
-    return result;
+    if (idsToRemove.has(item.id)) continue;
+    const next = { ...item };
+    if (next.followUps?.length) next.followUps = mergeDatePartGroupsInArray(next.followUps);
+    if (next.metadata?.fields?.length) {
+      next.metadata = { ...next.metadata, fields: mergeDatePartGroupsInArray(next.metadata.fields) };
+    }
+    result.push(next);
   }
-
-  return rewrite(questions);
+  return result;
 }
 
 export function mergeDatePartGroups(questions) {

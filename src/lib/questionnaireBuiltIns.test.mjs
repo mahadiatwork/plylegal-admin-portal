@@ -210,26 +210,14 @@ test('choice casing and conditional rows match the client answer contract', () =
 test('dynamic date lists avoid false static choices and reviewed future ranges remain usable', () => {
   const partner = getBuiltInQuestionnaireDefinition({ visaType: 'partner' });
   const textDateIds = [
-    'partner-main-applicant-education-education_history-date_from_day',
-    'partner-main-applicant-education-education_history-date_from_month',
-    'partner-main-applicant-education-education_history-date_from_year',
-    'partner-family-sponsor-identity-passports-date_issued_day',
-    'partner-family-sponsor-identity-passports-date_issued_month',
-    'partner-family-sponsor-identity-passports-date_issued_year',
-    'partner-family-sponsor-family-family_members-birth_day',
-    'partner-family-sponsor-family-family_members-birth_month',
-    'partner-family-sponsor-family-family_members-birth_year',
-    'partner-family-sponsor-circumstances-employment_history-date_from_day',
-    'partner-family-sponsor-circumstances-employment_history-date_from_month',
-    'partner-family-sponsor-circumstances-employment_history-date_from_year',
-    'partner-all-applicants-future-addresses-future_addresses-date_to_day',
-    'partner-all-applicants-future-addresses-future_addresses-date_to_month',
-    'partner-all-applicants-future-addresses-future_addresses-date_to_year',
-    'partner-family-sponsor-travel-travel_history-departure_date_day',
-    'partner-family-sponsor-travel-travel_history-departure_date_month',
-    'partner-family-sponsor-travel-travel_history-departure_date_year',
+    'partner-main-applicant-education-education_history-date_from',
+    'partner-family-sponsor-identity-passports-date_issued',
+    'partner-family-sponsor-family-family_members-birth',
+    'partner-family-sponsor-circumstances-employment_history-date_from',
+    'partner-all-applicants-future-addresses-future_addresses-date_to',
+    'partner-family-sponsor-travel-travel_history-departure_date',
   ];
-  for (const id of textDateIds) assert.equal(findTemplateQuestion(partner, id).type, 'text', id);
+  for (const id of textDateIds) assert.equal(findTemplateQuestion(partner, id).type, 'dateParts', id);
   assert.equal(findTemplateQuestion(partner, 'partner-children-child-profile-custody-primary_custody_details').type, 'text');
 
   const currentYear = new Date().getFullYear();

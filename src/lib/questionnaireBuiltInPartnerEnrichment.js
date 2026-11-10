@@ -1,0 +1,570 @@
+/* Partner Visa (Subclass 820) built-in enrichment.
+ * Reconciles the extracted Partner catalog with the mounted client pages.
+ * Keep this layer Partner-only; visa-neutral mechanics live in
+ * questionnaireBuiltInRecordEnrichment.js.
+ */
+import {
+  applyRepeaterPresentationFallback,
+  convertCountrySelects,
+  mergeDatePartGroups,
+} from "./questionnaireBuiltInRecordEnrichment.js";
+
+const RELATIONSHIP_STORAGE = {
+  "/intake/partner/relationships/current-relationship": {
+    storagePath: "relationships.currentRelationship",
+    legacyStorageAliases: ["partner_current_relationship"],
+  },
+  "/intake/partner/relationships/relationship-details": {
+    storagePath: "relationships.relationshipDetails",
+    legacyStorageAliases: ["partner_relationship_details"],
+  },
+  "/intake/partner/relationships/previous-relationships": {
+    storagePath: "relationships.previousRelationships",
+    legacyStorageAliases: ["partner_previous_relationships"],
+  },
+  "/intake/partner/relationships/supporting-witnesses": {
+    storagePath: "relationships.supportingWitnesses",
+    legacyStorageAliases: ["partner_supporting_witnesses"],
+  },
+};
+
+const DEFAULT_ACTIONS = {
+  edit: "Edit",
+  delete: "Delete",
+  cancel: "Cancel",
+  confirm: "Ok",
+  actionsHeading: "Actions",
+};
+
+const CHARACTER_DETAIL_CONTROLLERS = {
+  police_check_details: "police_check_last_12_months",
+  immigration_detention_details: "immigration_detention",
+  convicted_offence_details: "convicted_offence",
+  awaiting_legal_action_details: "awaiting_legal_action",
+  domestic_violence_details: "domestic_violence_order",
+  arrest_warrant_details: "arrest_warrant",
+  child_sex_offence_details: "child_sex_offence",
+  sex_offender_register_details: "sex_offender_register",
+  psychiatric_institution_details: "psychiatric_institution",
+  insanity_acquittal_details: "insanity_acquittal",
+  unfit_to_plead_details: "unfit_to_plead",
+  false_misleading_info_details: "false_misleading_info",
+  visa_refused_details: "visa_refused",
+  overstayed_visa_details: "overstayed_visa",
+  deported_removed_details: "deported_removed",
+  avoid_removal_details: "avoid_removal",
+  excluded_from_country_details: "excluded_from_country",
+  citizenship_refusal_details: "citizenship_refusal",
+  war_crimes_details: "war_crimes",
+  national_security_details: "national_security_risk",
+  outstanding_debts_details: "outstanding_debts",
+  people_smuggling_details: "people_smuggling",
+  criminal_conduct_details: "associated_criminal_conduct",
+  violent_org_details: "associated_violent_org",
+  military_training_details: "military_training",
+  military_service_details: "military_service",
+  sponsorship_payment_details: "sponsorship_payment",
+};
+
+const CHARACTER_LABELS = {
+  police_check_last_12_months: "Has any applicant applied for a police clearance certificate in the last 12 months?",
+  immigration_detention: "Has any applicant previously been in immigration detention, a refugee camp or centre for refugees?",
+  convicted_offence: "Has any applicant ever been convicted of an offence in any country (including any conviction which is now removed from official records)?",
+  awaiting_legal_action: "Has any applicant ever been charged with any offence that is currently awaiting legal action?",
+  domestic_violence_order: "Has any applicant ever been the subject of a domestic violence or family violence order, or any other order, of a tribunal or court or other similar authority, for the personal protection of another person?",
+  arrest_warrant: "Has any applicant ever been the subject of an arrest warrant or Interpol notice?",
+  child_sex_offence: "Has any applicant ever been found guilty of a sexually based offence involving a child (including where no conviction was recorded)?",
+  sex_offender_register: "Has any applicant ever been named on a sex offender register?",
+  psychiatric_institution: "Has any applicant ever been confined in a prison or psychiatric institution by order of a court in relation to criminal proceedings?",
+  insanity_acquittal: "Has any applicant ever been acquitted of any offence on the grounds of unsoundness of mind or insanity?",
+  unfit_to_plead: "Has any applicant ever been found by a court not fit to plead?",
+  false_misleading_info: "Has any applicant ever provided any information or a document to the Australian Immigration or Customs Authorities which was wrong, incorrect, false or misleading?",
+  visa_refused: "Has any applicant ever had a visa or entry permit for any country (including Australia) refused?",
+  overstayed_visa: "Has any applicant ever overstayed a visa or entry permit in any country (including Australia)?",
+  deported_removed: "Has any applicant ever been removed or deported from any country (including Australia)?",
+  avoid_removal: "Has any applicant ever left any country to avoid being removed or deported from that country (including Australia)?",
+  excluded_from_country: "Has any applicant ever been excluded from or asked to leave any country (including Australia)?",
+  citizenship_refusal: "Has any applicant ever been refused, renounced or rescinded citizenship of any country?",
+  war_crimes: "Has any applicant ever been charged with, or indicted for: genocide, war crimes, crimes against humanity, torture, slavery, or any other crime that is otherwise of a serious international concern?",
+  national_security_risk: "Has any applicant ever been directly or indirectly involved in, or associated with, activities which would represent a risk to national security in Australia or any other country?",
+  outstanding_debts: "Has any applicant ever had any outstanding debts to the Australian Government or any public authority in Australia?",
+  people_smuggling: "Has any applicant ever been involved in people smuggling or people trafficking offences?",
+  associated_criminal_conduct: "Has any applicant ever been associated with a person, group or organisation that has been or is involved in criminal conduct?",
+  associated_violent_org: "Has any applicant ever been associated with an organisation engaged in violence or engaged in acts of violence (including war, insurgency, freedom fighting, terrorism, protest) either overseas or in Australia?",
+  military_training: "Has any applicant ever undergone any military/paramilitary training, been trained in weapons/explosives or in the manufacture of chemical/biological products?",
+  military_service: "Has any applicant ever served in a military force, police force, state sponsored / private militia or intelligence agency (including secret police)?",
+  sponsorship_payment: "Has any person included in this application made or offered to make a payment or provide another benefit of any kind to another person or entity in return for the sponsorship, nomination or support for an Australian visa?",
+};
+
+const CHARACTER_INSTRUCTIONS = [
+  {
+    type: "paragraph",
+    text: "If the applicant answers 'Yes' to any of the character declarations they must give all relevant details. For combined applications, state which applicant the declaration applies to.",
+  },
+  {
+    type: "list",
+    lead: "If the matter relates to a criminal conviction, provide:",
+    items: [
+      "the date and nature of the offence",
+      "full details of the sentence",
+      "dates of any period of imprisonment or other detention.",
+    ],
+  },
+];
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function updateQuestionTree(questions, questionId, updater) {
+  return (questions || []).map((question) => {
+    let next = question.id === questionId ? updater(question) : question;
+    if (next.followUps?.length) {
+      next = { ...next, followUps: updateQuestionTree(next.followUps, questionId, updater) };
+    }
+    if (next.metadata?.fields?.length) {
+      next = {
+        ...next,
+        metadata: { ...next.metadata, fields: updateQuestionTree(next.metadata.fields, questionId, updater) },
+      };
+    }
+    return next;
+  });
+}
+
+function findQuestion(questions, predicate) {
+  for (const question of questions || []) {
+    if (predicate(question)) return question;
+    const nested = findQuestion(question.metadata?.fields, predicate) || findQuestion(question.followUps, predicate);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+function withFieldMessages(fields, messages) {
+  return (fields || []).map((field) => (
+    messages[field.answerKey]
+      ? { ...field, validation: { ...field.validation, requiredMessage: messages[field.answerKey] } }
+      : field
+  ));
+}
+
+function pageTitle(page, title) {
+  page.title = title;
+  page.metadata = {
+    ...page.metadata,
+    originalTitle: title,
+    titleIncludesPerson: false,
+    titleTemplate: title,
+  };
+  return page;
+}
+
+function setPresentation(question, columns, extra = {}) {
+  const presentation = {
+    addLabel: "Add",
+    emptyMessage: "No entries added",
+    addDialogTitle: "Add Entry",
+    editDialogTitle: "Edit Entry",
+    columns,
+    actions: DEFAULT_ACTIONS,
+    ...extra,
+  };
+  return {
+    ...question,
+    metadata: {
+      ...question.metadata,
+      originalPresentation: presentation,
+      presentation,
+    },
+  };
+}
+
+function enrichEmploymentPage(page) {
+  pageTitle(page, "Main Applicant's Employment");
+  page.metadata = { ...page.metadata, originalTitle: "Main Applicant's Employment" };
+  page.metadata.originalIntroBlocks = clone(page.introBlocks);
+
+  const messageMap = {
+    date_from_day: "Day is required",
+    date_from_month: "Month is required",
+    date_from_year: "Year is required",
+    status: "Status is required",
+    country: "Country is required",
+    position: "Position is required for this status",
+  };
+
+  page.questions = updateQuestionTree(page.questions, "partner-main-applicant-employment-employment_history", (question) => {
+    const columns = [
+      { key: "date_from", label: "Date From", format: "groupedDate" },
+      { key: "date_to", label: "Date To", format: "groupedDateOrOngoing" },
+      { key: "status", label: "Status" },
+      { key: "position", label: "Position" },
+      { key: "country", label: "Country" },
+    ];
+    const presentation = {
+      addLabel: "Add",
+      emptyMessage: "No entries added",
+      addDialogTitle: "Add Entry",
+      editDialogTitle: "Edit Entry",
+      columns,
+      actions: DEFAULT_ACTIONS,
+      rowFormatter: "groupedDateOrOngoing",
+    };
+    return {
+      ...question,
+      label: "Employment History",
+      description: "Enter details of all of your employment and unemployment since birth. There can be no gaps in dates.",
+      metadata: {
+        ...question.metadata,
+        originalLabel: "Employment History",
+        originalDescription: "Enter details of all of your employment and unemployment since birth. There can be no gaps in dates.",
+        collection: "array",
+        fields: withFieldMessages(question.metadata.fields, messageMap),
+        originalPresentation: presentation,
+        presentation,
+        validation: {
+          rules: [
+            {
+              id: "requiredWhenStatusIn",
+              field: "position",
+              config: { statuses: ["Employed", "Self-Employed", "Work Experience/Internships", "Unpaid Employment/Volunteer"] },
+            },
+          ],
+        },
+      },
+    };
+  });
+
+  page.questions = page.questions.map((question) => {
+    if (question.answerKey === "is_currently_employed") {
+      return { ...question, required: true };
+    }
+    if (["current_employer", "current_position", "current_country", "current_start_date_day", "current_start_date_month", "current_start_date_year", "current_employment_type", "current_address"].includes(question.answerKey)) {
+      return {
+        ...question,
+        visibleIf: [{ field: "is_currently_employed", op: "equals", value: "yes" }],
+      };
+    }
+    return question;
+  });
+
+  page.questions = updateQuestionTree(page.questions, "partner-main-applicant-employment-employment_history", (question) => ({
+    ...question,
+    metadata: {
+      ...question.metadata,
+      fields: (question.metadata.fields || []).map((field) => (
+        field.answerKey === "business_address_street_line2"
+          ? { ...field, metadata: { ...field.metadata, storageOnly: true } }
+          : field
+      )),
+    },
+  }));
+
+  return page;
+}
+
+function enrichRelationshipsPage(page) {
+  const storage = RELATIONSHIP_STORAGE[page.route];
+  if (storage) {
+    page.metadata = {
+      ...page.metadata,
+      ...storage,
+      legacyStorageAliases: storage.legacyStorageAliases,
+    };
+  }
+
+  if (page.route === "/intake/partner/relationships/current-relationship") {
+    page.questions = page.questions.map((question) => {
+      if (question.answerKey === "related_details") {
+        return {
+          ...question,
+          visibleIf: [{ field: "related_by_blood_marriage_adoption", op: "equals", value: "Yes" }],
+          metadata: {
+            ...question.metadata,
+            validation: { rules: [{ id: "requiredWhenEquals", field: "related_details", config: { field: "related_by_blood_marriage_adoption", value: "Yes" } }] },
+          },
+        };
+      }
+      if (["first_met_day", "first_met_month", "first_met_year", "first_met_location"].includes(question.answerKey)) {
+        return {
+          ...question,
+          visibleIf: [{ field: "met_in_person", op: "equals", value: "Yes" }],
+          required: true,
+          metadata: {
+            ...question.metadata,
+            validation: { rules: [{ id: "requiredWhenEquals", field: question.answerKey, config: { field: "met_in_person", value: "Yes" } }] },
+          },
+        };
+      }
+      return question;
+    });
+  }
+
+  if (page.route === "/intake/partner/relationships/previous-relationships") {
+    page.questions = page.questions.map((question) => {
+      if (question.answerKey === "applicant_previous_relationships_list") {
+        return {
+          ...question,
+          visibleIf: [{ field: "applicant_previous_relationships", op: "equals", value: "Yes" }],
+          metadata: {
+            ...question.metadata,
+            validation: {
+              rules: [
+                { id: "minRowsWhenEquals", field: "applicant_previous_relationships_list", config: { field: "applicant_previous_relationships", value: "Yes", min: 1 } },
+                { id: "datePartsAllOrNone", field: "date_from_day" },
+                { id: "datePartsAllOrNone", field: "date_to_day" },
+                { id: "dateToNotBeforeDateFrom", field: "date_to_day" },
+              ],
+            },
+          },
+        };
+      }
+      if (question.answerKey === "spouse_previous_relationships_list") {
+        return {
+          ...question,
+          visibleIf: [{ field: "spouse_previous_relationships", op: "equals", value: "Yes" }],
+          metadata: {
+            ...question.metadata,
+            validation: {
+              rules: [
+                { id: "minRowsWhenEquals", field: "spouse_previous_relationships_list", config: { field: "spouse_previous_relationships", value: "Yes", min: 1 } },
+                { id: "datePartsAllOrNone", field: "date_from_day" },
+                { id: "datePartsAllOrNone", field: "date_to_day" },
+                { id: "dateToNotBeforeDateFrom", field: "date_to_day" },
+              ],
+            },
+          },
+        };
+      }
+      return question;
+    });
+  }
+
+  if (page.route === "/intake/partner/relationships/supporting-witnesses") {
+    pageTitle(page, "Supporting Witnesses for Current Relationship");
+    page.questions = updateQuestionTree(page.questions, "partner-relationships-supporting-witnesses-supporting_witnesses", (question) => {
+      const fields = (question.metadata.fields || []).map((field) => {
+        if (["birth_day", "birth_month", "birth_year"].includes(field.answerKey)) {
+          return {
+            ...field,
+            label: "Date of Birth",
+            metadata: { ...field.metadata, originalLabel: "Date of Birth", group: "personal_details" },
+          };
+        }
+        return field;
+      });
+      return setPresentation(
+        { ...question, metadata: { ...question.metadata, fields, collection: "array" } },
+        [
+          { key: "family_name", label: "Name" },
+          { key: "birth_day", label: "Date of Birth", format: "groupedDate" },
+          { key: "relationship_to_main_applicant", label: "Relationship" },
+        ],
+        {
+          sections: [
+            { heading: "Personal Details" },
+            { heading: "Telephone and Email Contact" },
+            { heading: "Residential Address" },
+          ],
+        },
+      );
+    });
+    page.questions = updateQuestionTree(page.questions, "partner-relationships-supporting-witnesses-supporting_witnesses", (question) => ({
+      ...question,
+      metadata: {
+        ...question.metadata,
+        validation: {
+          rules: [
+            { id: "minimumRows", field: "supporting_witnesses", config: { min: 2, message: "At least two supporting witnesses are required" } },
+          ],
+        },
+      },
+    }));
+  }
+
+  return page;
+}
+
+function enrichCharacterPage(page) {
+  if (page.route !== "/intake/partner/all-applicants/character") return page;
+  page.title = "Character";
+  page.introBlocks = clone(CHARACTER_INSTRUCTIONS);
+  page.metadata = {
+    ...page.metadata,
+    originalTitle: "Character",
+    originalIntroBlocks: clone(CHARACTER_INSTRUCTIONS),
+  };
+
+  const existingKeys = new Set(page.questions.map((question) => question.answerKey));
+  const controllers = Object.values(CHARACTER_DETAIL_CONTROLLERS)
+    .filter((key) => !existingKeys.has(key))
+    .map((key) => ({
+      id: `partner-all-applicants-character-${key}`,
+      answerKey: key,
+      label: CHARACTER_LABELS[key],
+      type: "yesNo",
+      required: false,
+      defaultValue: "no",
+      options: [
+        { value: "yes", label: "Yes" },
+        { value: "no", label: "No" },
+      ],
+      metadata: { originalLabel: CHARACTER_LABELS[key] },
+    }));
+
+  page.questions = [...controllers, ...page.questions].map((question) => {
+    const controller = CHARACTER_DETAIL_CONTROLLERS[question.answerKey];
+    if (!controller) return question;
+    return {
+      ...question,
+      visibleIf: [{ field: controller, op: "equals", value: "yes" }],
+      required: false,
+      metadata: {
+        ...question.metadata,
+        presentation: {
+          addLabel: "Add Details",
+          emptyMessage: "No entries added",
+          addDialogTitle: "Add Entry",
+          editDialogTitle: "Edit Entry",
+          columns: (question.metadata?.presentation?.columns || question.metadata?.fields?.slice(0, 4).map((field) => ({ key: field.answerKey, label: field.label })) || []),
+          actions: DEFAULT_ACTIONS,
+        },
+      },
+    };
+  });
+
+  return page;
+}
+
+function enrichHealthPage(page) {
+  if (page.route !== "/intake/partner/all-applicants/health") return page;
+  const hasTbExposure = page.questions.some((question) => question.answerKey === "close_contact_tb");
+  if (!hasTbExposure) {
+    const gate = {
+      id: "partner-all-applicants-health-close_contact_tb",
+      answerKey: "close_contact_tb",
+      label: "Has any applicant ever been in close contact at home or at work with a person who has had tuberculosis?",
+      type: "yesNo",
+      required: false,
+      options: [
+        { value: "yes", label: "Yes" },
+        { value: "no", label: "No" },
+      ],
+      metadata: { originalLabel: "Has any applicant ever been in close contact at home or at work with a person who has had tuberculosis?" },
+    };
+    const repeater = {
+      id: "partner-all-applicants-health-tuberculosis_exposure_details",
+      answerKey: "tuberculosis_exposure_details",
+      label: "Tuberculosis exposure details",
+      type: "repeater",
+      required: false,
+      visibleIf: [{ field: "close_contact_tb", op: "equals", value: "yes" }],
+      metadata: {
+        originalLabel: "Tuberculosis exposure details",
+        collection: "array",
+        fields: [
+          {
+            id: "partner-all-applicants-health-tuberculosis_exposure_details-applicant_name",
+            answerKey: "applicant_name",
+            label: "Name",
+            type: "select",
+            optionsSource: "applicants",
+            required: true,
+            metadata: { originalLabel: "Name" },
+          },
+          {
+            id: "partner-all-applicants-health-tuberculosis_exposure_details-details",
+            answerKey: "details",
+            label: "Give details",
+            type: "textarea",
+            required: false,
+            metadata: { originalLabel: "Give details" },
+          },
+        ],
+        presentation: {
+          addLabel: "Add",
+          emptyMessage: "No entries added",
+          addDialogTitle: "Tuberculosis exposure details",
+          editDialogTitle: "Tuberculosis exposure details",
+          columns: [
+            { key: "applicant_name", label: "Name" },
+            { key: "details", label: "Details" },
+          ],
+          actions: DEFAULT_ACTIONS,
+        },
+      },
+    };
+    const index = page.questions.findIndex((question) => question.answerKey === "health_conditions_details");
+    page.questions.splice(index === -1 ? page.questions.length : index, 0, gate, repeater);
+  }
+  return page;
+}
+
+function classifyApplicantSelector(page) {
+  page.questions = updateQuestionTree(page.questions, "partner-all-applicants-addresses-address_history", (question) => ({
+    ...question,
+    metadata: {
+      ...question.metadata,
+      fields: (question.metadata.fields || []).map((field) => {
+        if (field.answerKey !== "applicant_ids") return field;
+        const { fields, ...metadata } = field.metadata || {};
+        return {
+          ...field,
+          type: "select",
+          optionsSource: "applicants",
+          required: true,
+          metadata: { ...metadata, collection: "multi-select-array" },
+        };
+      }),
+    },
+  }));
+  return page;
+}
+
+function dedupeNestedAnswerKeys(questions) {
+  return (questions || []).map((question) => {
+    let next = question;
+    if (next.followUps?.length) next = { ...next, followUps: dedupeNestedAnswerKeys(next.followUps) };
+    if (next.metadata?.fields?.length) {
+      const seen = new Set();
+      const fields = [];
+      for (const field of next.metadata.fields) {
+        const key = field.answerKey;
+        if (key && seen.has(key)) continue;
+        if (key) seen.add(key);
+        fields.push(field);
+      }
+      next = { ...next, metadata: { ...next.metadata, fields: dedupeNestedAnswerKeys(fields) } };
+    }
+    return next;
+  });
+}
+
+export function applyQuestionnaireBuiltInPartnerEnrichment(pages) {
+  return pages.map((page) => {
+    if (!page.route?.startsWith("/intake/partner/")) return page;
+    let enriched = clone(page);
+    if (page.route === "/intake/partner/main-applicant/employment") enriched = enrichEmploymentPage(enriched);
+    else if (page.route.startsWith("/intake/partner/relationships/")) enriched = enrichRelationshipsPage(enriched);
+    else if (page.route === "/intake/partner/all-applicants/character") enriched = enrichCharacterPage(enriched);
+    else if (page.route === "/intake/partner/all-applicants/health") enriched = enrichHealthPage(enriched);
+    else if (page.route === "/intake/partner/all-applicants/addresses") enriched = classifyApplicantSelector(enriched);
+    enriched = { ...enriched, questions: dedupeNestedAnswerKeys(enriched.questions) };
+    return enriched;
+  });
+}
+
+export function finalizePartnerEnrichment(pages) {
+  return pages.map((page) => {
+    if (!page.route?.startsWith("/intake/partner/")) return page;
+    return {
+      ...page,
+      questions: dedupeNestedAnswerKeys(convertCountrySelects(mergeDatePartGroups(page.questions))),
+    };
+  });
+}
+
+export function applyPartnerRepeaterPresentationFallback(pages) {
+  return applyRepeaterPresentationFallback(pages, "/intake/partner/");
+}

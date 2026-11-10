@@ -202,7 +202,6 @@ export default function MatterLayout({ children }) {
   const tabs = [
     { href: `/matter/${canonicalMatterId}/questionnaire`, label: "Client answers" },
     { href: `/matter/${canonicalMatterId}/resources`, label: "Resources" },
-    { href: `/matter/${canonicalMatterId}/shared-files`, label: "Shared files" },
     ...(canAccessQuestionnaireBuilder(user?.role)
       ? [{ href: `/matter/${canonicalMatterId}/questionnaire-builder`, label: "Questionnaire builder" }]
       : []),

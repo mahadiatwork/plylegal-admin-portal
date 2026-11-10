@@ -53,6 +53,7 @@ export const QUESTIONNAIRE_VALIDATOR_IDS = [
   "datePartsRequiredUnlessValue",
   "dateToNotBeforeDateFrom",
   "maxLength",
+  "minimumRows",
   "minRowsWhenEquals",
   "requiredWhenStatusIn",
   "requiredWhenEquals",
