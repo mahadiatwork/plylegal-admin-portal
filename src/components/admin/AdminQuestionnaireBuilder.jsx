@@ -84,9 +84,11 @@ const CONDITION_OPERATORS = [
 
 const CRM_QUESTIONNAIRE_MATTER_TYPES = [
   { value: "820", label: "Partner Visa (Subclass 820)", visaType: "partner", visaContexts: [] },
+  { value: "801", label: "Partner Visa (Subclass 801)", visaType: "partner", visaContexts: [] },
   { value: "482", label: "Skills in Demand (Subclass 482)", visaType: "temporary-work", visaContexts: ["482"] },
   { value: "866", label: "Protection Visa (Subclass 866)", visaType: "protection", visaContexts: [] },
   { value: "309", label: "Partner Visa (Subclass 309)", visaType: "partner", visaContexts: [] },
+  { value: "100", label: "Partner Visa (Subclass 100)", visaType: "partner", visaContexts: [] },
   { value: "186", label: "Employer Nomination Visa (Subclass 186)", visaType: "temporary-work", visaContexts: ["186"] },
 ];
 
@@ -322,6 +324,11 @@ function promotePageForStructure(page) {
       renderer: "dynamic",
     },
   };
+}
+
+function builtInLegacyStructureIsLocked(page) {
+  return page?.metadata?.renderer === "legacy"
+    && Boolean(page.metadata?.builtInPageId);
 }
 
 function parseBooleanConditionValue(value) {
@@ -1373,7 +1380,12 @@ function QuestionCrmSyncPanel({ question, disabled, onChange }) {
 
 function RecordFieldWording({ fields, onChange, legacy, depth = 0 }) {
   return <div className="space-y-4">
-    {fields.map((field) => <div key={field.id} className="space-y-3 border-l-2 border-[#b9d6ca] pl-4" style={{ marginLeft: `${Math.min(depth, 3) * 10}px` }}>
+    {fields.map((field) => field.metadata?.storageOnly || field.metadata?.editorLocked ? (
+      <div key={field.id} className="rounded-lg border border-dashed border-[#cbdad3] bg-[#f6f8f7] px-3 py-2" style={{ marginLeft: `${Math.min(depth, 3) * 10}px` }}>
+        <p className="font-mono text-[11px] text-[#71857d]">{field.answerKey} · {field.type}</p>
+        <p className="mt-1 text-xs text-[#60786f]">Locked compatibility value{field.metadata?.lockReason ? `: ${field.metadata.lockReason}` : ""}</p>
+      </div>
+    ) : <div key={field.id} className="space-y-3 border-l-2 border-[#b9d6ca] pl-4" style={{ marginLeft: `${Math.min(depth, 3) * 10}px` }}>
       <p className="font-mono text-[11px] text-[#71857d]">{field.answerKey} · {field.type}</p>
       <FieldLabel htmlFor={`record-${field.id}-label`}>Field text</FieldLabel>
       <Textarea id={`record-${field.id}-label`} rows={2} className="border-[#d7e4de] bg-white" value={field.label} onChange={(event) => onChange(field.id, "label", event.target.value)} />
@@ -2533,6 +2545,10 @@ export default function AdminQuestionnaireBuilder({
 
   function updateActiveQuestionStructure(updater) {
     if (!activeQuestion) return;
+    if (builtInLegacyStructureIsLocked(activePage)) {
+      setError("This built-in page is locked to its original answer structure until dynamic-renderer parity is certified. You can still edit wording and option labels.");
+      return;
+    }
     updateActivePage((currentPage) => {
       const page = promotePageForStructure(currentPage);
       return {
@@ -2714,6 +2730,10 @@ export default function AdminQuestionnaireBuilder({
 
   function addQuestionAt(insertIndex = activePage?.questions?.length || 0, openEditor = false) {
     if (!activePage) return;
+    if (builtInLegacyStructureIsLocked(activePage)) {
+      setError("This built-in page is locked to its original answer structure until dynamic-renderer parity is certified. You can still edit wording and option labels.");
+      return;
+    }
     const existingIds = new Set();
     const existingAnswerKeys = new Set();
     definition.pages.forEach((page) =>
@@ -2744,7 +2764,12 @@ export default function AdminQuestionnaireBuilder({
   }
 
   function deleteQuestion() {
-    if (!activeQuestion || !window.confirm(`Delete the question “${activeQuestion.label}”?`)) return;
+    if (!activeQuestion) return;
+    if (builtInLegacyStructureIsLocked(activePage)) {
+      setError("This built-in page is locked to its original answer structure until dynamic-renderer parity is certified. You can still edit wording and option labels.");
+      return;
+    }
+    if (!window.confirm(`Delete the question “${activeQuestion.label}”?`)) return;
     const dependents = findQuestionDependents(
       activePage.questions,
       activeQuestion.answerKey,
@@ -2764,6 +2789,10 @@ export default function AdminQuestionnaireBuilder({
   }
 
   function moveQuestion(direction) {
+    if (builtInLegacyStructureIsLocked(activePage)) {
+      setError("This built-in page is locked to its original answer structure until dynamic-renderer parity is certified. You can still edit wording and option labels.");
+      return;
+    }
     const nextIndex = activeQuestionIndex + direction;
     if (activeQuestionIndex < 0 || nextIndex < 0 || nextIndex >= activePage.questions.length) return;
     updateActivePage((page) => {
@@ -3727,10 +3756,10 @@ export default function AdminQuestionnaireBuilder({
                         <Button type="button" variant="outline" className="border-[#cfddd6] bg-white text-[#38564b]" onClick={() => setQuestionEditorOpen(false)}><ArrowLeft />Back to questions</Button>
                       </div>
 
-                      {legacyPage && ["protection", "temporary-work"].includes(definition.visaType) ? (
+                      {legacyPage && ["protection", "temporary-work", "partner"].includes(definition.visaType) ? (
                         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                          <p className="font-semibold">{definition.visaType === "protection" ? "Protection Visa" : `${definition.visaContext || "Temporary Work"} Visa`} pages use the original client form</p>
-                          <p className="mt-1">Wording edits are safe, but changing the answer type, required setting, choices, conditions or repeater structure will switch this page to the dynamic renderer. Full dynamic parity for this visa is not yet certified.</p>
+                          <p className="font-semibold">{definition.visaType === "protection" ? "Protection Visa" : definition.visaType === "partner" ? "Partner Visa" : `${definition.visaContext || "Temporary Work"} Visa`} pages use the original client form</p>
+                          <p className="mt-1">{builtInLegacyStructureIsLocked(activePage) ? "Wording and option-label edits are safe. Answer types, required settings, stored choices, conditions, and repeater structure are locked until dynamic-renderer parity is certified." : "Wording edits are safe, but changing the answer type, required setting, choices, conditions or repeater structure will switch this page to the dynamic renderer."}</p>
                         </div>
                       ) : null}
 
@@ -3951,7 +3980,7 @@ export default function AdminQuestionnaireBuilder({
                               {activePagePresentation.storageQuestions.map((question) => (
                                 <div key={question.id} className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 ring-1 ring-[#e1e9e5]">
                                   <div className="min-w-0"><p className="truncate text-xs font-medium text-[#526b62]">{question.label}</p><p className="mt-0.5 truncate font-mono text-[10px] text-[#8a9b95]">{question.answerKey}</p></div>
-                                  <Button type="button" variant="ghost" size="sm" className="text-[#60786f]" onClick={() => { setActiveQuestionId(question.id); setQuestionEditorOpen(true); }}><Pencil className="h-3.5 w-3.5" />Edit</Button>
+                                  <span className="text-xs font-medium text-[#71857d]">Locked</span>
                                 </div>
                               ))}
                             </div>
@@ -4288,7 +4317,7 @@ export default function AdminQuestionnaireBuilder({
                     }}
                   >
                     <option value="temporary-work">Temporary work (482 / 186)</option>
-                    <option value="partner">Partner Visa (Subclass 820)</option>
+                    <option value="partner">Partner Visa (820/801/309/100)</option>
                     <option value="protection">Protection Visa (Subclass 866)</option>
                   </select>
                 </div>

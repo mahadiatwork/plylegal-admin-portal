@@ -152,7 +152,7 @@ test('Protection Character restores all question sources and conditional detail 
 
 test('legacy catalog hydration expands saved Character pages without changing their storage paths', () => {
   const saved = structuredClone(getBuiltInQuestionnaireDefinition({ visaType: 'partner' }));
-  for (const page of saved.pages) page.metadata.legacyCatalogVersion = 2;
+  for (const page of saved.pages) page.metadata.legacyCatalogVersion = 3;
   const character = saved.pages.find(page => page.route === '/intake/partner/family-sponsor/character');
   character.questions = character.questions.filter(question =>
     ['duties_description', 'details'].includes(question.answerKey)
@@ -160,8 +160,8 @@ test('legacy catalog hydration expands saved Character pages without changing th
 
   const hydrated = hydrateLegacyQuestionnaireDefinition(saved);
   const repaired = hydrated.pages.find(page => page.route === character.route);
-  assert.equal(QUESTIONNAIRE_LEGACY_CATALOG_VERSION, 3);
-  assert.equal(repaired.metadata.legacyCatalogVersion, 3);
+  assert.equal(QUESTIONNAIRE_LEGACY_CATALOG_VERSION, 4);
+  assert.equal(repaired.metadata.legacyCatalogVersion, 4);
   assert.equal(repaired.metadata.storagePath, 'familySponsor.details');
   assert.equal(repaired.questions.length, SPONSOR_CHARACTER_DECLARATIONS.length * 2);
 });

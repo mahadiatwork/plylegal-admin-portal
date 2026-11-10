@@ -404,7 +404,7 @@ function enrichCharacterPage(page) {
       answerKey: key,
       label: CHARACTER_LABELS[key],
       type: "yesNo",
-      required: false,
+      required: true,
       defaultValue: "no",
       options: [
         { value: "yes", label: "Yes" },
@@ -413,7 +413,9 @@ function enrichCharacterPage(page) {
       metadata: { originalLabel: CHARACTER_LABELS[key] },
     }));
 
+  const controllerKeys = new Set(Object.values(CHARACTER_DETAIL_CONTROLLERS));
   page.questions = [...controllers, ...page.questions].map((question) => {
+    if (controllerKeys.has(question.answerKey)) return { ...question, required: true, defaultValue: question.defaultValue || "no" };
     const controller = CHARACTER_DETAIL_CONTROLLERS[question.answerKey];
     if (!controller) return question;
     return {
@@ -422,6 +424,13 @@ function enrichCharacterPage(page) {
       required: false,
       metadata: {
         ...question.metadata,
+        validation: {
+          ...(question.metadata?.validation || {}),
+          rules: [
+            ...(question.metadata?.validation?.rules || []).filter((rule) => rule.id !== "minRowsWhenEquals"),
+            { id: "minRowsWhenEquals", field: question.answerKey, config: { field: controller, value: "yes", min: 1 } },
+          ],
+        },
         presentation: {
           addLabel: "Add Details",
           emptyMessage: "No entries added",
@@ -498,6 +507,50 @@ function enrichHealthPage(page) {
     const index = page.questions.findIndex((question) => question.answerKey === "health_conditions_details");
     page.questions.splice(index === -1 ? page.questions.length : index, 0, gate, repeater);
   }
+  const contracts = {
+    health_examinations: ["Health Examinations", [{ key: "applicant_name", label: "Name" }, { key: "date_completed", label: "Date Completed", format: "groupedDate" }, { key: "country_of_exam", label: "Country" }]],
+    hospital_details: ["Hospital / health care facility details", [{ key: "applicant_name", label: "Name" }, { key: "reason", label: "Role" }]],
+    healthcare_work_details: ["Health care work details", [{ key: "applicant_name", label: "Name" }, { key: "role", label: "Role" }]],
+    aged_care_work_details: ["Aged care / disability care details", [{ key: "applicant_name", label: "Name" }, { key: "role", label: "Role" }]],
+    childcare_work_details: ["Child care centre details", [{ key: "applicant_name", label: "Name" }, { key: "role", label: "Role" }, { key: "institution", label: "Institution" }]],
+    classroom_work_details: ["Classroom details", [{ key: "applicant_name", label: "Name" }, { key: "course_type", label: "Course Type" }, { key: "institution", label: "Institution" }]],
+    tuberculosis_details: ["Tuberculosis details", [{ key: "applicant_name", label: "Name" }, { key: "details", label: "Details" }]],
+    tuberculosis_exposure_details: ["Tuberculosis exposure details", [{ key: "applicant_name", label: "Name" }, { key: "details", label: "Details" }]],
+    health_conditions_details: ["Health condition details", [{ key: "applicant_name", label: "Name" }, { key: "condition", label: "Condition" }, { key: "details", label: "Details" }]],
+    medical_assistance_details: ["Ongoing medical care details", [{ key: "applicant_name", label: "Name" }, { key: "details", label: "Details" }]],
+  };
+  page.questions = page.questions.map((question) => {
+    const contract = contracts[question.answerKey];
+    if (!contract) return question;
+    const [heading, columns] = contract;
+    const fields = (question.metadata?.fields || []).map((field) => {
+      if (field.answerKey !== "applicant_name") return field;
+      const applicantField = { ...field, metadata: { ...(field.metadata || {}) } };
+      delete applicantField.options;
+      delete applicantField.metadata.originalOptions;
+      return { ...applicantField, type: "select", optionsSource: "applicants", required: true };
+    });
+    const presentation = {
+      addLabel: "Add",
+      emptyMessage: "No entries added",
+      addDialogTitle: heading,
+      editDialogTitle: heading,
+      columns,
+      actions: DEFAULT_ACTIONS,
+    };
+    return {
+      ...question,
+      label: heading,
+      metadata: {
+        ...question.metadata,
+        originalLabel: heading,
+        collection: "array",
+        fields,
+        originalPresentation: clone(presentation),
+        presentation,
+      },
+    };
+  });
   return page;
 }
 
@@ -520,6 +573,40 @@ function classifyApplicantSelector(page) {
     },
   }));
   return page;
+}
+
+const PARTNER_COMPATIBILITY_FIELDS = {
+  "/intake/partner/all-applicants/future-travel": new Set(["from_to", "start_date"]),
+  "/intake/partner/all-applicants/future-addresses": new Set(["address_display", "date_from", "date_to", "address"]),
+};
+
+function classifyCompatibilityFields(page) {
+  const compatibilityFields = PARTNER_COMPATIBILITY_FIELDS[page.route];
+  if (!compatibilityFields) return page;
+  return {
+    ...page,
+    questions: (page.questions || []).map((question) => ({
+      ...question,
+      metadata: question.metadata?.fields
+        ? {
+            ...question.metadata,
+            fields: question.metadata.fields.map((field) => compatibilityFields.has(field.answerKey)
+              ? {
+                  ...field,
+                  metadata: {
+                    ...field.metadata,
+                    storageOnly: true,
+                    compatibility: true,
+                    derived: true,
+                    editorLocked: true,
+                    lockReason: "Client-derived compatibility value",
+                  },
+                }
+              : field),
+          }
+        : question.metadata,
+    })),
+  };
 }
 
 function dedupeNestedAnswerKeys(questions) {
@@ -550,6 +637,7 @@ export function applyQuestionnaireBuiltInPartnerEnrichment(pages) {
     else if (page.route === "/intake/partner/all-applicants/character") enriched = enrichCharacterPage(enriched);
     else if (page.route === "/intake/partner/all-applicants/health") enriched = enrichHealthPage(enriched);
     else if (page.route === "/intake/partner/all-applicants/addresses") enriched = classifyApplicantSelector(enriched);
+    enriched = classifyCompatibilityFields(enriched);
     enriched = { ...enriched, questions: dedupeNestedAnswerKeys(enriched.questions) };
     return enriched;
   });
@@ -558,10 +646,10 @@ export function applyQuestionnaireBuiltInPartnerEnrichment(pages) {
 export function finalizePartnerEnrichment(pages) {
   return pages.map((page) => {
     if (!page.route?.startsWith("/intake/partner/")) return page;
-    return {
+    return classifyCompatibilityFields({
       ...page,
       questions: dedupeNestedAnswerKeys(convertCountrySelects(mergeDatePartGroups(page.questions))),
-    };
+    });
   });
 }
 

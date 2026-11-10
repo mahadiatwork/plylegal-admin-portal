@@ -249,6 +249,7 @@ test('legacy wording edits include nested row labels while live answer structure
     const changed = structuredClone(edited);
     alter(changed.pages.find(candidate => candidate.id === page.id));
     assert.ok(getLegacyQuestionnairePublishIssues(changed).length);
+    assert.throws(() => assertQuestionnaireDefinitionStructureEditable(source, changed));
   }
 });
 

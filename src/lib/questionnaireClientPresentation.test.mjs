@@ -79,6 +79,18 @@ test("partner Employment nests the fields its client page renders", () => {
   assert.deepEqual(presentation.storageQuestions, []);
 });
 
+test("nested client-derived Partner fields stay out of editable presentation", () => {
+  const page = pageFor("built-in-partner", "/intake/partner/all-applicants/future-addresses");
+  const presentation = getClientQuestionnairePresentation(page);
+  const addresses = presentation.primaryEntries.find((entry) => entry.kind === "repeater");
+  const displayedKeys = addresses.nestedEntries.flatMap((entry) => entry.questions.map((question) => question.answerKey));
+
+  assert.ok(displayedKeys.includes("address_line1"));
+  ["address_display", "date_from", "date_to", "address"].forEach((key) => {
+    assert.ok(!displayedKeys.includes(key), `${key} must not be client-editable`);
+  });
+});
+
 test("client presentation respects hidden keys and treats a date as one question", () => {
   const page = pageFor(
     "built-in-temporary-work-186",

@@ -106,80 +106,77 @@ The generic enrichment fallback gives every repeater columns and action copy, an
 audit passes, but the following pages still need their rendered copy captured and
 reviewed one by one:
 
-- Health — ten conditional detail records still reuse fallback columns/labels rather
-  than the actual per-popup headings and applicant option sources (both contexts).
+- Health now has ten explicit per-popup contracts in both Temporary Work contexts and
+  ten in Partner, including headings, columns, applicant sources, and client copy scopes.
 - Education, Language, Identity, Other Names, and Details across main/spouse/child
   scopes — only the 186 Spouse Education/Language fixtures and shared page titles are
   fully enriched; other copy, option sources, and validation remain partial.
-- Non-migrating templates — titles and page-specific copy are not yet interpolated.
+- Non-migrating templates now carry profile-aware title templates; their remaining
+  page-specific body copy still needs a visual review.
 - Child Custody — page intro is still not captured.
-- Countries of Residence — the `residenceHistoryCoverage` validator is allowlisted but
-  not yet attached to the catalog for either context.
+- Countries of Residence now carries the shared `residenceHistoryCoverage` catalog
+  contract and the legacy client continues to enforce the same ten-year rule.
 - Character — the admin starter template and the client definition are still two
   separately maintained declarations (18/36) without a shared fixture.
-- Spouse/child/non-migrating page titles remain generated fallbacks rather than
-  profile-interpolated client titles (186 spouse Education/Language titles are fixed).
+- Profile-aware titles outside the non-migrating templates are not yet exhaustively
+  modeled across every spouse and child page.
 - Education/Language option lists still duplicate long language sets instead of using
   an allowlisted source for both contexts.
 
 ### Runtime and promotion gaps
 
-- No structural parity gate is enforced in code. The builder shows a promotion warning
-  for legacy Protection and Temporary Work pages, but a structural edit still promotes
-  the page.
-- `QUESTIONNAIRE_LEGACY_CATALOG_VERSION` remains `3`. The combined 866/482/186 catalog
-  migration and version bump are still owned by the shared infrastructure work; the
-  enrichments therefore affect built-in templates but are not yet merged into saved
-  definitions.
-- `metadata.storageOnly` is recorded for `still_working` and `current_end_date_*`, but
-  the builder does not yet hide or lock those compatibility fields.
-- Legacy dialog copy is fully consumed for Skills, 186 Employment, 186 Spouse
-  Education, and both 186 Spouse Language dialogs. Other legacy pages still hard-code
-  most nested labels/help/placeholders even though `RepeaterTable` chrome copy is
-  consumed. Current-employment labels outside the history dialog are only partially
-  translated.
-- `visa_held` is encoded as a 186-only, Australia-only conditional-required field in
-  the catalog; `submitCompletion.js` was not changed.
+- Shipped legacy pages are now structurally locked in both builder layouts and at the
+  persistence boundary. Forged `dynamicParityCertified` metadata cannot bypass the
+  server gate; wording and existing option-label edits remain available.
+- `QUESTIONNAIRE_LEGACY_CATALOG_VERSION` is now `4`. Hydration performs an idempotent
+  three-way copy merge using stored `original*` values, preserves edited presentation
+  copy and unknown metadata, and leaves already-dynamic page structures intact.
+- `metadata.storageOnly` is recursively excluded from admin/client presentation,
+  validation, and review; derived Partner aliases are editor-locked while stored values
+  remain preserved.
+- Repeater dialogs now receive stable copy scopes. Shared labels, inputs, selects,
+  buttons, popup chrome, current-employment labels, and Health headings consume admin
+  copy. Raw headings/body paragraphs in other legacy dialogs still need explicit
+  `QuestionnaireCopyText` adoption.
+- `visa_held`, employment status requirements, partial/end-before-start dates, and
+  300-character duties limits are enforced by static completion and the dynamic
+  metadata-rule evaluator.
 - Visas resolution used **Path B** for both contexts: the unmounted
   `VisaDialog`/nested `history` field was removed from the catalog. The client still
   preserves the stored `history` array for compatibility; no UI was activated.
-- Employment completion rules in `submitCompletion.js` were not changed or extended by
-  this change beyond catalog validation metadata.
 - The canonical 186 display name has not been decided; existing strings were preserved.
 
 ### Partner 820 remaining exclusions
 
-- The 820/801/309/100 audience boundary is still unresolved. The definition keeps the
-  stable `built-in-partner` id and title; no subclass discriminator, strict matching, or
-  migration was added.
-- `PARTNER_VISA_ROUTES` still contains the stale `/intake/partner/children/start` route
-  and `getDynamicPartnerRoutes()` still contains the stale `Family` section lookup.
+- The Partner catalog is now explicitly shared by subclasses 820/801/309/100 while
+  retaining the stable `built-in-partner` id and public `820` route slug.
+- The stale `/intake/partner/children/start` and top-level `Family` lookups were removed
+  from both route manifests, with navigation regression coverage.
 - Seven Partner pages still have no captured intro block (Main Family, Sponsor
   Details/Other/Family, Future Travel, Future Addresses, Child Custody). They were not
   given invented copy.
-- Health popup headings and per-record copy for nine other detail lists are still
-  generic fallback rather than the mounted per-popup copy.
+- Health popup headings, columns, applicant sources, and field copy are explicit for all
+  ten mounted detail lists.
 - Sponsor Character detail fields, Relationships popups, All Applicants Character
   dialog families, and the remaining Partner dialogs still hard-code nested labels in
   the legacy client. Only Partner Employment consumes the new copy bridge.
-- Character detail requiredness remains unchanged: Yes with zero rows is still allowed
-  because the mounted page permits it.
-- Future Travel/Future Addresses derived and compatibility fields were deduplicated for
-  schema validity but are not yet fully locked/editor-hidden.
-- All 43 Partner pages remain legacy; no page was promoted to the dynamic renderer.
-- Partner catalog migration/version bump was not performed; catalog version remains 3.
+- Character declarations are required and every Yes answer now requires at least one
+  detail row in both catalog metadata and the mounted client schema.
+- Future Travel/Future Addresses derived compatibility fields are recursively hidden
+  from editable presentation and carry an explicit editor lock reason.
+- All 43 Partner pages intentionally remain legacy and are protected by the structural
+  parity gate; no page has yet completed the promotion certification checklist.
+- Partner saved definitions participate in the catalog-v4 migration.
 
 ### Audit limitations
 
 - The audit is catalog/source based. It does not parse the client JSX AST or prove that
   declared client components are mounted.
 - Date and country detection still relies on reviewed key heuristics.
-- Route-order differences between the built-in page arrays and
-  `getDynamicTemporaryWorkRoutes("482"/"186")` are not asserted; only route sets are.
-- Profile-scenario route tests (zero/one/multiple spouse, child, non-migrating profiles)
-  are still outstanding.
-- The 186 Employment fixture checks the Australia-only `visa_held` condition and
-  required rule in the catalog; it does not execute `submitCompletion.js` end to end.
+- Static built-in route order is asserted by both audits, and client route tests cover
+  empty and multi-profile 482/186 scenarios. A browser navigation matrix remains useful.
+- The 186 Employment unit path executes `submitCompletion.js` for Australia-only
+  `visa_held`, date, status, and length rules; a dedicated browser E2E fixture remains.
 
 ## Verification run
 
@@ -188,15 +185,16 @@ reviewed one by one:
 - `node scripts/audit-temporary-work-482-parity.mjs` — 0 unresolved issues.
 - `node scripts/audit-protection-866-parity.mjs` — exits 0 (reports its documented
   existing issue list).
-- `node --test "test/questionnaire*.test.mjs" "src/lib/questionnaire*.test.mjs"` —
-  150 passing.
-- `node --test "test/*.test.mjs"` — 223 passing, 10 failing. All 10 failures are in
+- `node --test "src/lib/*.test.mjs"` — 144 passing.
+- `node --test "test/*.test.mjs"` — 231 passing, 10 failing. All 10 failures are in
   `test/adminQuestionnaireBuilder.test.mjs` and reproduce against the unmodified
   `HEAD` builder, so they are pre-existing harness/layout drift rather than 482/186/820
   regressions. They are tracked here as remaining work.
 - `npm run lint` — 0 errors (1 pre-existing warning in `src/lib/zohoClient.js`).
 - `npm run build` — passing.
-- Client: `npm test` — 232 passing.
+- Client: `npm test` — 239 passing.
+- Client: `npm run check` and `npm run build` — passing (build emits the existing
+  missing-local-Firebase-configuration fallback warnings).
 - Client: `npm run check` (tsc) — passing.
 - Client: `npm run build` — passing.
 - Admin typecheck: no `typecheck` script or `tsconfig.json` is configured; the

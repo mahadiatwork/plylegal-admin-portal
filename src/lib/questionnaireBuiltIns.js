@@ -12,7 +12,49 @@ import { applyQuestionnaireBuiltInTemporaryWork186Enrichment, finalizeTemporaryW
 import { applyTemporaryWorkRepeaterPresentationFallback } from './questionnaireBuiltInTemporaryWorkEnrichment.js';
 import { applyQuestionnaireBuiltInPartnerEnrichment, finalizePartnerEnrichment, applyPartnerRepeaterPresentationFallback } from './questionnaireBuiltInPartnerEnrichment.js';
 
-export const QUESTIONNAIRE_LEGACY_CATALOG_VERSION = 3;
+export const QUESTIONNAIRE_LEGACY_CATALOG_VERSION = 4;
+
+const TEMPORARY_WORK_SHARED_ROUTE_ORDER = [
+  '/intake/temporary-work/main-applicant/details',
+  '/intake/temporary-work/main-applicant/other',
+  '/intake/temporary-work/main-applicant/identity',
+  '/intake/temporary-work/main-applicant/contact-details',
+  '/intake/temporary-work/main-applicant/employment',
+  '/intake/temporary-work/main-applicant/education',
+  '/intake/temporary-work/main-applicant/skills',
+  '/intake/temporary-work/main-applicant/language',
+  '/intake/temporary-work/spouse-partner/details',
+  '/intake/temporary-work/spouse-partner/other-details',
+  '/intake/temporary-work/spouse-partner/identity',
+  '/intake/temporary-work/children/child-profile/details',
+  '/intake/temporary-work/children/child-profile/other',
+  '/intake/temporary-work/children/child-profile/identity',
+  '/intake/temporary-work/children/child-profile/custody',
+  '/intake/temporary-work/non-migrating/member-profile/details',
+  '/intake/temporary-work/non-migrating/member-profile/passport',
+  '/intake/temporary-work/non-migrating/member-profile/identity',
+  '/intake/temporary-work/non-migrating/member-profile/other-names',
+  '/intake/temporary-work/non-migrating/member-profile/citizenship',
+  '/intake/temporary-work/non-migrating/member-profile/health',
+  '/intake/temporary-work/all-applicants/visas',
+  '/intake/temporary-work/all-applicants/travel-history',
+  '/intake/temporary-work/all-applicants/countries-of-residence',
+  '/intake/temporary-work/all-applicants/health',
+  '/intake/temporary-work/all-applicants/character',
+];
+
+function orderTemporaryWorkPages(pages, visaContext) {
+  const order = visaContext === '186'
+    ? [
+        ...TEMPORARY_WORK_SHARED_ROUTE_ORDER.slice(0, 10),
+        '/intake/temporary-work/spouse-partner/education',
+        '/intake/temporary-work/spouse-partner/language',
+        ...TEMPORARY_WORK_SHARED_ROUTE_ORDER.slice(10),
+      ]
+    : TEMPORARY_WORK_SHARED_ROUTE_ORDER;
+  const routeOrder = new Map(order.map((route, index) => [route, index]));
+  return [...pages].sort((left, right) => (routeOrder.get(left.route) ?? Number.MAX_SAFE_INTEGER) - (routeOrder.get(right.route) ?? Number.MAX_SAFE_INTEGER));
+}
 
 function builtInDefinition(visaType, visaContext, title) {
   let sourcePages = structuredClone(questionnaireBuiltInPages.filter(page =>
@@ -61,6 +103,7 @@ function builtInDefinition(visaType, visaContext, title) {
     const character = structuredClone(temporaryWork482Definition.pages[0]);
     character.id = 'temporary-work-all-applicants-character';
     pages.push(character);
+    pages = orderTemporaryWorkPages(pages, visaContext);
   }
   const preserveDisplayBaseline = question => {
     if (question.metadata?.originalLabel && question.metadata.originalLabel !== question.label) {
@@ -71,6 +114,10 @@ function builtInDefinition(visaType, visaContext, title) {
   };
   pages.filter(page => page.metadata?.renderer === 'legacy').forEach(page => {
     page.metadata.originalDisplayTitle = page.title;
+    if (page.route.includes('/non-migrating/member-profile/')) {
+      page.metadata.titleIncludesPerson = true;
+      page.metadata.titleTemplate = `${page.title} — {profileName}`;
+    }
     if (/\/(?:main-applicant|spouse-partner|children\/[^/]+)\/details$/.test(page.route)) page.metadata.titleIncludesPerson = true;
     page.questions.forEach(preserveDisplayBaseline);
   });
@@ -96,7 +143,7 @@ function builtInDefinition(visaType, visaContext, title) {
 export const questionnaireBuiltInTemplates = [
   builtInDefinition('temporary-work', '482', 'Skills in Demand Visa (482)'),
   builtInDefinition('temporary-work', '186', 'Employer Nomination Visa (186)'),
-  builtInDefinition('partner', null, 'Partner Visa (Subclass 820)'),
+  builtInDefinition('partner', null, 'Partner Visa Questionnaire (Subclasses 820/801/309/100)'),
   builtInDefinition('protection', null, 'Protection Visa (Subclass 866)'),
 ];
 

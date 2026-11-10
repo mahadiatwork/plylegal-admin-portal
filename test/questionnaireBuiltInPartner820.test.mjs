@@ -96,7 +96,13 @@ describe("Partner Visa (Subclass 820) built-in parity", () => {
     const details = page.questions.filter((question) => question.type === "repeater");
     assert.strictEqual(controllers.length, 27);
     assert.strictEqual(details.length, 27);
+    assert.ok(controllers.every((question) => question.required === true));
     assert.strictEqual(details.filter((question) => question.visibleIf?.length).length, 27);
+    details.forEach((question) => {
+      const minimum = question.metadata.validation.rules.find((rule) => rule.id === "minRowsWhenEquals");
+      assert.strictEqual(minimum.field, question.answerKey);
+      assert.strictEqual(minimum.config.field, question.visibleIf[0].field);
+    });
     const nationalSecurity = page.questions.find((question) => question.answerKey === "national_security_details");
     assert.deepStrictEqual(nationalSecurity.visibleIf, [{ field: "national_security_risk", op: "equals", value: "yes" }]);
   });
@@ -109,6 +115,24 @@ describe("Partner Visa (Subclass 820) built-in parity", () => {
     assert.deepStrictEqual(exposure.visibleIf, [{ field: "close_contact_tb", op: "equals", value: "yes" }]);
     assert.strictEqual(findQuestion(exposure.metadata.fields, "applicant_name")?.optionsSource, "applicants");
     assert.strictEqual(findQuestion(page.questions, "health_insurance"), null);
+    const expectedHeadings = [
+      "Health Examinations",
+      "Hospital / health care facility details",
+      "Health care work details",
+      "Aged care / disability care details",
+      "Child care centre details",
+      "Classroom details",
+      "Tuberculosis details",
+      "Tuberculosis exposure details",
+      "Health condition details",
+      "Ongoing medical care details",
+    ];
+    const records = page.questions.filter((question) => expectedHeadings.includes(question.label));
+    assert.strictEqual(records.length, expectedHeadings.length);
+    records.forEach((record) => {
+      assert.strictEqual(record.metadata.presentation.addDialogTitle, record.label);
+      assert.strictEqual(findQuestion(record.metadata.fields, "applicant_name")?.optionsSource, "applicants");
+    });
   });
 
   it("models the address applicant selector as a multi-applicant source", () => {
@@ -118,6 +142,22 @@ describe("Partner Visa (Subclass 820) built-in parity", () => {
     assert.strictEqual(selector.type, "select");
     assert.strictEqual(selector.optionsSource, "applicants");
     assert.strictEqual(selector.metadata.collection, "multi-select-array");
+  });
+
+  it("classifies client-derived compatibility values as locked storage-only fields", () => {
+    const expected = {
+      "/intake/partner/all-applicants/future-travel": ["from_to", "start_date"],
+      "/intake/partner/all-applicants/future-addresses": ["address_display", "date_from", "date_to", "address"],
+    };
+    for (const [route, keys] of Object.entries(expected)) {
+      const page = definition.pages.find((candidate) => candidate.route === route);
+      keys.forEach((key) => {
+        const field = findQuestion(page.questions, key);
+        assert.strictEqual(field?.metadata?.storageOnly, true, `${route} ${key}`);
+        assert.strictEqual(field?.metadata?.derived, true, `${route} ${key}`);
+        assert.strictEqual(field?.metadata?.editorLocked, true, `${route} ${key}`);
+      });
+    }
   });
 
   it("gives every repeater nested fields, presentation chrome and a valid collection kind", () => {

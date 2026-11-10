@@ -62,38 +62,131 @@ function upgradeQuestionRequirements(questions, baselineById) {
   return { changed, questions: changed ? upgraded : questions };
 }
 
-function copyVisibleOptionLabels(baselineOptions, savedOptions) {
+function valuesMatch(left, right) {
+  return JSON.stringify(stable(left)) === JSON.stringify(stable(right));
+}
+
+function migratedCopyValue(savedValue, originalValue, baselineValue) {
+  if (savedValue === undefined) return baselineValue;
+  return originalValue !== undefined && valuesMatch(savedValue, originalValue)
+    ? baselineValue
+    : savedValue;
+}
+
+function copyVisibleOptionLabels(baselineOptions, savedOptions, originalOptions) {
   if (!Array.isArray(baselineOptions)) return baselineOptions;
   const savedByValue = new Map(
     (savedOptions || [])
       .filter(option => option && Object.hasOwn(option, 'value'))
       .map(option => [option.value, option])
   );
-  return baselineOptions.map(option => {
+  const originalByValue = new Map(
+    (originalOptions || [])
+      .filter(option => option && Object.hasOwn(option, 'value'))
+      .map(option => [option.value, option])
+  );
+  const migrated = baselineOptions.map(option => {
     const saved = savedByValue.get(option.value);
-    return typeof saved?.label === 'string' ? { ...option, label: saved.label } : option;
+    const original = originalByValue.get(option.value);
+    return typeof saved?.label === 'string'
+      ? { ...option, label: migratedCopyValue(saved.label, original?.label, option.label) }
+      : option;
   });
+  const baselineValues = new Set(baselineOptions.map(option => option.value));
+  for (const saved of savedOptions || []) {
+    if (saved && Object.hasOwn(saved, 'value') && !baselineValues.has(saved.value)) {
+      migrated.push(structuredClone(saved));
+    }
+  }
+  return migrated;
+}
+
+function overlayPresentationCopy(baseline, saved, original) {
+  if (!baseline) return baseline;
+  const presentation = structuredClone(baseline);
+  for (const field of ['addLabel', 'emptyMessage', 'addDialogTitle', 'editDialogTitle', 'dialogSubtitle']) {
+    if (Object.hasOwn(saved || {}, field)) {
+      presentation[field] = migratedCopyValue(saved[field], original?.[field], baseline[field]);
+    }
+  }
+  if (baseline.actions) {
+    presentation.actions = { ...baseline.actions };
+    for (const field of Object.keys(baseline.actions)) {
+      if (Object.hasOwn(saved?.actions || {}, field)) {
+        presentation.actions[field] = migratedCopyValue(saved.actions[field], original?.actions?.[field], baseline.actions[field]);
+      }
+    }
+  }
+  if (Array.isArray(baseline.columns)) {
+    const savedColumns = new Map((saved?.columns || []).map(column => [column.key, column]));
+    const originalColumns = new Map((original?.columns || []).map(column => [column.key, column]));
+    presentation.columns = baseline.columns.map(column => {
+      const savedColumn = savedColumns.get(column.key);
+      return savedColumn?.label === undefined ? column : {
+        ...column,
+        label: migratedCopyValue(savedColumn.label, originalColumns.get(column.key)?.label, column.label),
+      };
+    });
+  }
+  if (Array.isArray(baseline.sections)) {
+    presentation.sections = baseline.sections.map((section, index) => {
+      const savedSection = saved?.sections?.[index];
+      const originalSection = original?.sections?.[index];
+      return {
+        ...section,
+        ...(savedSection?.heading !== undefined ? { heading: migratedCopyValue(savedSection.heading, originalSection?.heading, section.heading) } : {}),
+        ...(savedSection?.description !== undefined ? { description: migratedCopyValue(savedSection.description, originalSection?.description, section.description) } : {}),
+      };
+    });
+  }
+  return presentation;
+}
+
+function mergeValidation(baseline, saved) {
+  if (!baseline) return saved ? structuredClone(saved) : baseline;
+  const baselineRules = baseline.rules || [];
+  const baselineRuleKeys = new Set(baselineRules.map(rule => `${rule.id}:${rule.field || ''}`));
+  return {
+    ...(saved || {}),
+    ...baseline,
+    ...(baseline.rules || saved?.rules ? {
+      rules: [
+        ...structuredClone(baselineRules),
+        ...(saved?.rules || []).filter(rule => !baselineRuleKeys.has(`${rule.id}:${rule.field || ''}`)).map(rule => structuredClone(rule)),
+      ],
+    } : {}),
+  };
 }
 
 function overlayQuestionCopy(baseline, savedById) {
   const saved = savedById.get(baseline.id);
-  let question = structuredClone(baseline);
+  let question = saved
+    ? { ...structuredClone(saved), ...structuredClone(baseline) }
+    : structuredClone(baseline);
   if (saved) {
-    for (const field of ['label', 'description', 'placeholder']) {
-      if (Object.hasOwn(saved, field)) question[field] = saved[field];
+    for (const [field, originalField] of [['label', 'originalLabel'], ['description', 'originalDescription'], ['placeholder', 'originalPlaceholder']]) {
+      if (Object.hasOwn(saved, field)) {
+        question[field] = migratedCopyValue(saved[field], saved.metadata?.[originalField], baseline[field]);
+      }
     }
     if (baseline.options) {
-      question.options = copyVisibleOptionLabels(baseline.options, saved.options);
+      question.options = copyVisibleOptionLabels(baseline.options, saved.options, saved.metadata?.originalOptions);
     }
     if (baseline.monthOptions) {
-      question.monthOptions = copyVisibleOptionLabels(baseline.monthOptions, saved.monthOptions);
+      question.monthOptions = copyVisibleOptionLabels(baseline.monthOptions, saved.monthOptions, saved.metadata?.originalMonthOptions);
     }
-    if (saved.metadata?.crm) {
-      question.metadata = {
-        ...question.metadata,
-        crm: structuredClone(saved.metadata.crm),
-      };
+    question.metadata = { ...(saved.metadata || {}), ...(question.metadata || {}) };
+    question.metadata.validation = mergeValidation(baseline.metadata?.validation, saved.metadata?.validation);
+    if (!question.metadata.validation) delete question.metadata.validation;
+    if (baseline.metadata?.presentation) {
+      question.metadata.presentation = overlayPresentationCopy(
+        baseline.metadata.presentation,
+        saved.metadata?.presentation,
+        saved.metadata?.originalPresentation,
+      );
     }
+    if (saved.metadata?.crm) question.metadata.crm = structuredClone(saved.metadata.crm);
+    if (Object.keys(question.metadata).length === 0) delete question.metadata;
   }
 
   if (baseline.followUps) {
@@ -113,37 +206,37 @@ function overlayQuestionCopy(baseline, savedById) {
   return question;
 }
 
-function overlayIntroCopy(baselineBlocks, savedBlocks) {
-  if (!Array.isArray(baselineBlocks)) return baselineBlocks;
-  return baselineBlocks.map((block, index) => {
-    const saved = savedBlocks?.[index];
-    if (!saved || saved.type !== block.type) return structuredClone(block);
-    if (block.type === 'paragraph') {
-      return typeof saved.text === 'string' ? { ...block, text: saved.text } : block;
-    }
-    return {
-      ...block,
-      ...(typeof saved.lead === 'string' ? { lead: saved.lead } : {}),
-      items: block.items.map((item, itemIndex) =>
-        typeof saved.items?.[itemIndex] === 'string' ? saved.items[itemIndex] : item
-      ),
-    };
-  });
-}
-
 function hydrateLegacyPage(page, baseline) {
   const savedById = questionsById(page.questions);
+  const originalIntroBlocks = page.metadata?.originalIntroBlocks;
+  const introBlocks = Array.isArray(baseline.introBlocks)
+    ? baseline.introBlocks.map((block, index) => {
+        const saved = page.introBlocks?.[index];
+        const original = originalIntroBlocks?.[index];
+        if (!saved || saved.type !== block.type) return structuredClone(block);
+        if (block.type === 'paragraph') {
+          return { ...block, text: migratedCopyValue(saved.text, original?.text, block.text) };
+        }
+        return {
+          ...block,
+          ...(saved.lead !== undefined ? { lead: migratedCopyValue(saved.lead, original?.lead, block.lead) } : {}),
+          items: (block.items || []).map((item, itemIndex) => migratedCopyValue(saved.items?.[itemIndex], original?.items?.[itemIndex], item)),
+        };
+      })
+    : undefined;
   return {
+    ...structuredClone(page),
     ...structuredClone(baseline),
-    title: typeof page.title === 'string' ? page.title : baseline.title,
+    title: typeof page.title === 'string'
+      ? migratedCopyValue(page.title, page.metadata?.originalDisplayTitle || page.metadata?.originalTitle, baseline.title)
+      : baseline.title,
     order: Number.isFinite(page.order) ? page.order : baseline.order,
     questions: baseline.questions.map(question =>
       overlayQuestionCopy(question, savedById)
     ),
-    ...(baseline.introBlocks
-      ? { introBlocks: overlayIntroCopy(baseline.introBlocks, page.introBlocks) }
-      : {}),
+    ...(introBlocks ? { introBlocks } : {}),
     metadata: {
+      ...(page.metadata || {}),
       ...baseline.metadata,
       legacyCatalogVersion: QUESTIONNAIRE_LEGACY_CATALOG_VERSION,
     },
@@ -207,11 +300,27 @@ function stable(value) {
   return Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])]));
 }
 function stripCrmFromContractMetadata(metadata) {
-  const { crm, ...rest } = metadata;
-  return {
-    ...rest,
-    ...(metadata.fields ? { fields: metadata.fields.map(questionContract) } : {}),
-  };
+  const contract = {};
+  for (const [key, value] of Object.entries(metadata || {})) {
+    if (key === 'crm' || key.startsWith('original')) continue;
+    if (key === 'fields') contract.fields = value.map(questionContract);
+    else if (key === 'presentation') {
+      contract.presentation = {
+        ...(value.rowFormatter ? { rowFormatter: value.rowFormatter } : {}),
+        ...(Array.isArray(value.columns) ? { columns: value.columns.map(({ key: columnKey, format }) => ({ key: columnKey, ...(format ? { format } : {}) })) } : {}),
+        ...(Array.isArray(value.sections) ? { sectionCount: value.sections.length } : {}),
+      };
+    } else contract[key] = value;
+  }
+  return contract;
+}
+
+function pageContractMetadata(metadata) {
+  const contract = stripCrmFromContractMetadata(metadata || {});
+  delete contract.legacyCatalogVersion;
+  delete contract.titleIncludesPerson;
+  delete contract.titleTemplate;
+  return contract;
 }
 
 function questionContract(question) {
@@ -228,7 +337,7 @@ function questionContract(question) {
 function pageContract(page) {
   return {
     id: page.id, route: page.route, sectionKey: page.sectionKey,
-    completionKey: page.completionKey, scope: page.scope, metadata: page.metadata,
+    completionKey: page.completionKey, scope: page.scope, metadata: pageContractMetadata(page.metadata),
     questions: page.questions.map(questionContract),
     introBlocks: (page.introBlocks || []).map(block => ({
       type: block.type, ...(block.type === 'list' ? { itemCount: block.items.length, hasLead: typeof block.lead === 'string' } : {}),

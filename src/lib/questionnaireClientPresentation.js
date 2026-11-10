@@ -101,10 +101,11 @@ function dateLabel(question, base) {
   return withoutPart || humanizeAnswerKey(base);
 }
 
-function createLogicalEntries(page, questions = [], definition = null) {
+function createLogicalEntries(page, questions = [], definition = null, storageOnlyKeys = getStorageOnlyKeys(page)) {
   const visaContexts = definitionVisaContexts(definition);
   const visibleQuestions = questions.filter((question) => {
     if (!question) return false;
+    if (storageOnlyKeys.has(question.answerKey)) return false;
     if (
       page?.route === "/intake/temporary-work/main-applicant/employment"
       && question.answerKey === "visa_held"
@@ -161,7 +162,7 @@ function createLogicalEntries(page, questions = [], definition = null) {
       questions: [question],
       conditions: getQuestionConditions(page, question, definition),
       required: Boolean(question.required),
-      nestedEntries: createLogicalEntries(page, nestedQuestions, definition),
+      nestedEntries: createLogicalEntries(page, nestedQuestions, definition, storageOnlyKeys),
     }];
   });
 }
@@ -181,8 +182,7 @@ export function getClientQuestionnairePresentation(page, definition = null) {
   const questions = Array.isArray(page?.questions) ? page.questions : [];
   const storageOnlyKeys = getStorageOnlyKeys(page);
   const storageQuestions = questions.filter((question) => storageOnlyKeys.has(question.answerKey));
-  const clientQuestions = questions.filter((question) => !storageOnlyKeys.has(question.answerKey));
-  const entries = createLogicalEntries(page, clientQuestions, definition);
+  const entries = createLogicalEntries(page, questions, definition, storageOnlyKeys);
   let primaryEntries = entries
     .filter((entry) => entry.conditions.length === 0)
     .map((entry) => ({ ...entry, conditionalGroups: [] }));

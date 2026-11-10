@@ -61,7 +61,7 @@ describe("Skills in Demand Visa (Subclass 482) built-in parity", () => {
   it("has a valid 482 definition with 26 content pages and correct renderer split", () => {
     assert.ok(definition, "482 definition should exist");
     assert.strictEqual(definition.pages.length, 26);
-    assert.deepStrictEqual([...definition.pages.map((page) => page.route)].sort(), [...EXPECTED_482_ROUTES].sort());
+    assert.deepStrictEqual(definition.pages.map((page) => page.route), EXPECTED_482_ROUTES);
     assert.strictEqual(definition.pages.filter((page) => page.metadata?.renderer === "legacy").length, 25);
     assert.strictEqual(definition.pages.filter((page) => page.metadata?.renderer !== "legacy").length, 1);
     assert.deepStrictEqual(getQuestionnaireDefinitionIssues(definition), []);
@@ -211,5 +211,52 @@ describe("Skills in Demand Visa (Subclass 482) built-in parity", () => {
     assert.match(travel.introBlocks[0].text, /travelled outside their usual country of residence/);
     assert.match(travel.introBlocks[1].text, /under 16 years of age/);
     assert.strictEqual(findQuestion(travel.questions, "has_travel_history").label, travel.introBlocks[0].text);
+  });
+
+  it("attaches the ten-year residence coverage contract to the shared residence records", () => {
+    const page = definition.pages.find((candidate) => candidate.route === "/intake/temporary-work/all-applicants/countries-of-residence");
+    const records = findQuestion(page.questions, "residence_records");
+    const rule = records.metadata.validation.rules.find((candidate) => candidate.id === "residenceHistoryCoverage");
+    assert.deepStrictEqual(rule.config, {
+      years: 10,
+      minimumAge: 16,
+      applicantField: "applicant_name",
+      fromFields: ["date_from_day", "date_from_month", "date_from_year"],
+      toFields: ["date_to_day", "date_to_month", "date_to_year"],
+    });
+  });
+
+  it("models all ten Health dialogs as distinct applicant-scoped records", () => {
+    const page = definition.pages.find((candidate) => candidate.route === "/intake/temporary-work/all-applicants/health");
+    const expected = {
+      health_examinations: "Health Examinations",
+      visited_outside_details: "Visited outside passport country",
+      hospital_details: "Hospital / health care facility details",
+      healthcare_work_details: "Health care work details",
+      aged_care_work_details: "Aged care / disability care details",
+      childcare_work_details: "Child care centre details",
+      classroom_work_details: "Classroom details",
+      tuberculosis_details: "Tuberculosis details",
+      health_conditions_details: "Health condition details",
+      medical_assistance_details: "Ongoing medical care details",
+    };
+    for (const [answerKey, heading] of Object.entries(expected)) {
+      const record = findQuestion(page.questions, answerKey);
+      assert.strictEqual(record.label, heading);
+      assert.strictEqual(record.metadata.presentation.addDialogTitle, heading);
+      assert.ok(record.metadata.presentation.columns.length >= 2);
+      const applicant = findQuestion(record.metadata.fields, "applicant_name");
+      assert.strictEqual(applicant.type, "select");
+      assert.strictEqual(applicant.optionsSource, "applicants");
+    }
+  });
+
+  it("models each non-migrating page title as profile-aware", () => {
+    const pages = definition.pages.filter((page) => page.route.includes("/non-migrating/member-profile/"));
+    assert.strictEqual(pages.length, 6);
+    pages.forEach((page) => {
+      assert.strictEqual(page.metadata.titleIncludesPerson, true);
+      assert.strictEqual(page.metadata.titleTemplate, `${page.title} — {profileName}`);
+    });
   });
 });

@@ -1299,13 +1299,88 @@ export function mergeQuestionnaireDefinition(current, patch, options = {}) {
   return normalizeQuestionnaireDefinition(merged, { id: merged.id });
 }
 
-/**
- * Questionnaire definitions are edited in place. Keep this validation step as
- * a named boundary for route handlers and backwards-compatible callers.
- */
+function structuralPresentation(presentation) {
+  if (!isPlainObject(presentation)) return presentation;
+  return {
+    ...(presentation.rowFormatter ? { rowFormatter: presentation.rowFormatter } : {}),
+    ...(Array.isArray(presentation.columns) ? {
+      columns: presentation.columns.map(({ key, format }) => ({ key, ...(format ? { format } : {}) })),
+    } : {}),
+    ...(Array.isArray(presentation.sections) ? { sectionCount: presentation.sections.length } : {}),
+  };
+}
+
+function structuralMetadata(metadata, nested = false) {
+  if (!isPlainObject(metadata)) return metadata;
+  const result = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if (key === "crm" || key.startsWith("original")) continue;
+    if (!nested && ["legacyCatalogVersion", "titleIncludesPerson", "titleTemplate"].includes(key)) continue;
+    if (key === "presentation") result.presentation = structuralPresentation(value);
+    else if (key === "fields") result.fields = (value || []).map(structuralQuestion);
+    else result[key] = value;
+  }
+  return result;
+}
+
+function structuralQuestion(question) {
+  const { label, description, placeholder, options, monthOptions, followUps, metadata, ...structure } = question || {};
+  return {
+    ...structure,
+    ...(Array.isArray(options) ? { options: options.map(({ value }) => ({ value })) } : {}),
+    ...(Array.isArray(monthOptions) ? { monthOptions: monthOptions.map(({ value }) => ({ value })) } : {}),
+    ...(Array.isArray(followUps) ? { followUps: followUps.map(structuralQuestion) } : {}),
+    ...(metadata ? { metadata: structuralMetadata(metadata, true) } : {}),
+  };
+}
+
+function structuralPage(page) {
+  return {
+    id: page.id,
+    route: page.route,
+    sectionKey: page.sectionKey,
+    completionKey: page.completionKey,
+    scope: page.scope,
+    metadata: structuralMetadata(page.metadata),
+    questions: (page.questions || []).map(structuralQuestion),
+    introBlocks: (page.introBlocks || []).map((block) => ({
+      type: block.type,
+      ...(block.type === "list" ? { itemCount: block.items?.length || 0 } : {}),
+    })),
+  };
+}
+
+function canonicalStructure(value) {
+  if (Array.isArray(value)) return value.map(canonicalStructure);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalStructure(value[key])]));
+}
+
+/** Keep uncertified shipped legacy pages on their mounted client renderer. */
 export function assertQuestionnaireDefinitionStructureEditable(current, next, options = {}) {
-  normalizeQuestionnaireDefinition(current, options);
-  return normalizeQuestionnaireDefinition(next, options);
+  const normalizedCurrent = normalizeQuestionnaireDefinition(current, options);
+  const normalizedNext = normalizeQuestionnaireDefinition(next, options);
+  const nextPages = new Map(normalizedNext.pages.map((page) => [page.id, page]));
+  const issues = [];
+  normalizedCurrent.pages.forEach((page) => {
+    if (page.metadata?.renderer !== "legacy" || !page.metadata?.builtInPageId) return;
+    const candidate = nextPages.get(page.id);
+    if (!candidate) {
+      issues.push(`${page.title}: shipped legacy pages cannot be deleted before dynamic-renderer parity is certified`);
+      return;
+    }
+    if (candidate.metadata?.renderer !== "legacy") {
+      issues.push(`${page.title}: dynamic-renderer parity is not certified; keep this shipped page on its legacy renderer`);
+      return;
+    }
+    const before = JSON.stringify(canonicalStructure(structuralPage(page)));
+    const after = JSON.stringify(canonicalStructure(structuralPage(candidate)));
+    if (before !== after) {
+      issues.push(`${page.title}: answer structure is locked until dynamic-renderer parity is certified`);
+    }
+  });
+  if (issues.length) throw new QuestionnaireDefinitionValidationError(issues);
+  return normalizedNext;
 }
 
 export function serializeFirestoreTimestamp(value) {

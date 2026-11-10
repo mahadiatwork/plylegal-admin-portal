@@ -52,7 +52,8 @@ async function requireAdmin() {
   const session = await getAdminSession();
   if (!session) throw new ApiError("Admin session is required", 401);
   if (!canAccessQuestionnaireBuilder(session.role)) throw new ApiError("Super admin access is required", 403);
-  return session.email || session.name || session.sub;
+  const displayName = typeof session.name === "string" ? session.name.trim().replace(/\s+/g, " ") : "";
+  return session.familyName || session.lastName || displayName.split(" ").filter(Boolean).at(-1) || session.email || session.sub;
 }
 
 function requireSafeMutationRequest(request, { expectsJson = false } = {}) {
@@ -299,7 +300,11 @@ async function updateDefinition(request, params, { replace }) {
         { id: definitionId }
       );
       requireRegisteredActiveRoutes(normalized);
-      assertQuestionnaireDefinitionStructureEditable(current, normalized, { id: definitionId });
+      assertQuestionnaireDefinitionStructureEditable(
+        hydrateLegacyQuestionnaireDefinition(current),
+        normalized,
+        { id: definitionId },
+      );
 
       let conflicts = null;
       if (normalized.status === "active") {

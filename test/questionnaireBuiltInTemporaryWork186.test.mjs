@@ -200,5 +200,31 @@ describe("Employer Nomination Visa (Subclass 186) built-in parity", () => {
     const travel = definition.pages.find((page) => page.route === "/intake/temporary-work/all-applicants/travel-history");
     assert.strictEqual(travel.introBlocks.length, 2);
     assert.match(travel.introBlocks[1].text, /under 16 years of age/);
+
+    const residence = definition.pages.find((page) => page.route === "/intake/temporary-work/all-applicants/countries-of-residence");
+    const coverageRule = findQuestion(residence.questions, "residence_records").metadata.validation.rules.find((rule) => rule.id === "residenceHistoryCoverage");
+    assert.strictEqual(coverageRule.config.years, 10);
+    assert.strictEqual(coverageRule.config.minimumAge, 16);
+  });
+
+  it("shares all ten applicant-scoped Health dialog contracts with 482", () => {
+    const health = definition.pages.find((page) => page.route === "/intake/temporary-work/all-applicants/health");
+    const records = [
+      "health_examinations", "visited_outside_details", "hospital_details", "healthcare_work_details",
+      "aged_care_work_details", "childcare_work_details", "classroom_work_details", "tuberculosis_details",
+      "health_conditions_details", "medical_assistance_details",
+    ].map((answerKey) => findQuestion(health.questions, answerKey));
+    assert.strictEqual(records.length, 10);
+    assert.strictEqual(new Set(records.map((record) => record.label)).size, 10);
+    records.forEach((record) => {
+      assert.strictEqual(findQuestion(record.metadata.fields, "applicant_name")?.optionsSource, "applicants");
+      assert.strictEqual(record.metadata.presentation.addDialogTitle, record.label);
+    });
+  });
+
+  it("keeps non-migrating title interpolation aligned with 482", () => {
+    const pages = definition.pages.filter((page) => page.route.includes("/non-migrating/member-profile/"));
+    assert.strictEqual(pages.length, 6);
+    assert.ok(pages.every((page) => page.metadata.titleIncludesPerson && page.metadata.titleTemplate.endsWith("{profileName}")));
   });
 });

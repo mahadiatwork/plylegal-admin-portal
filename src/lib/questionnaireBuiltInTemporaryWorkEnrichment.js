@@ -57,6 +57,64 @@ const SKILLS_ASSESSMENT_MESSAGES = {
   outcome: "Outcome is required",
 };
 
+export const TEMPORARY_WORK_HEALTH_RECORD_CONTRACTS = {
+  health_examinations: {
+    heading: "Health Examinations",
+    description: "Enter details of any applicant included in this application who has undertaken a health examination for an Australian visa in the past 12 months.",
+    columns: [
+      { key: "applicant_name", label: "Name" },
+      { key: "date_completed", label: "Date Completed", format: "groupedDate" },
+      { key: "country_of_exam", label: "Country" },
+    ],
+  },
+  visited_outside_details: {
+    heading: "Visited outside passport country",
+    description: "Enter details of applicants who visited or lived outside their country of passport for more than 3 consecutive months in the last 5 years.",
+    columns: [
+      { key: "applicant_name", label: "Name" },
+      { key: "country", label: "Country" },
+      { key: "date_from", label: "Date From", format: "groupedDate" },
+      { key: "date_to", label: "Date To", format: "groupedDateOrOngoing" },
+    ],
+  },
+  hospital_details: {
+    heading: "Hospital / health care facility details",
+    columns: [{ key: "applicant_name", label: "Name" }, { key: "role", label: "Role" }],
+  },
+  healthcare_work_details: {
+    heading: "Health care work details",
+    columns: [{ key: "applicant_name", label: "Name" }, { key: "role", label: "Role" }],
+  },
+  aged_care_work_details: {
+    heading: "Aged care / disability care details",
+    columns: [{ key: "applicant_name", label: "Name" }, { key: "role", label: "Role" }],
+  },
+  childcare_work_details: {
+    heading: "Child care centre details",
+    columns: [{ key: "applicant_name", label: "Name" }, { key: "details", label: "Details" }],
+  },
+  classroom_work_details: {
+    heading: "Classroom details",
+    columns: [{ key: "applicant_name", label: "Name" }, { key: "details", label: "Details" }],
+  },
+  tuberculosis_details: {
+    heading: "Tuberculosis details",
+    columns: [{ key: "applicant_name", label: "Name" }, { key: "details", label: "Details" }],
+  },
+  health_conditions_details: {
+    heading: "Health condition details",
+    columns: [
+      { key: "applicant_name", label: "Name" },
+      { key: "condition", label: "Condition" },
+      { key: "details", label: "Details" },
+    ],
+  },
+  medical_assistance_details: {
+    heading: "Ongoing medical care details",
+    columns: [{ key: "applicant_name", label: "Name" }, { key: "details", label: "Details" }],
+  },
+};
+
 export function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -513,6 +571,88 @@ export function enrichTravelPage(page) {
   return page;
 }
 
+export function enrichResidenceCoveragePage(page) {
+  if (page.route !== "/intake/temporary-work/all-applicants/countries-of-residence") return page;
+  page.questions = updateQuestionTree(
+    page.questions,
+    "temporary-work-all-applicants-countries-of-residence-residence_records",
+    (question) => ({
+      ...question,
+      metadata: {
+        ...question.metadata,
+        validation: {
+          ...(question.metadata?.validation || {}),
+          rules: [
+            ...(question.metadata?.validation?.rules || []).filter((rule) => rule.id !== "residenceHistoryCoverage"),
+            {
+              id: "residenceHistoryCoverage",
+              field: "residence_records",
+              config: {
+                years: 10,
+                minimumAge: 16,
+                applicantField: "applicant_name",
+                fromFields: ["date_from_day", "date_from_month", "date_from_year"],
+                toFields: ["date_to_day", "date_to_month", "date_to_year"],
+              },
+            },
+          ],
+        },
+      },
+    }),
+  );
+  return page;
+}
+
+export function enrichHealthPage(page) {
+  if (page.route !== "/intake/temporary-work/all-applicants/health") return page;
+  applyPageTitle(page);
+  for (const [answerKey, contract] of Object.entries(TEMPORARY_WORK_HEALTH_RECORD_CONTRACTS)) {
+    const questionId = `temporary-work-all-applicants-health-${answerKey}`;
+    page.questions = updateQuestionTree(page.questions, questionId, (question) => ({
+      ...question,
+      label: contract.heading,
+      ...(contract.description ? { description: contract.description } : {}),
+      metadata: {
+        ...question.metadata,
+        originalLabel: contract.heading,
+        ...(contract.description ? { originalDescription: contract.description } : {}),
+        collection: "array",
+        fields: (question.metadata?.fields || []).map((field) => {
+          if (field.answerKey !== "applicant_name") return field;
+          const applicantField = { ...field, metadata: { ...(field.metadata || {}) } };
+          delete applicantField.options;
+          delete applicantField.metadata.originalOptions;
+          return {
+            ...applicantField,
+            type: "select",
+            optionsSource: "applicants",
+            required: true,
+          };
+        }),
+        originalPresentation: {
+          addLabel: "Add",
+          emptyMessage: "No entries added",
+          addDialogTitle: contract.heading,
+          editDialogTitle: contract.heading,
+          ...(contract.description ? { dialogSubtitle: contract.description } : {}),
+          columns: clone(contract.columns),
+          actions: TEMPORARY_WORK_DEFAULT_ACTIONS,
+        },
+        presentation: {
+          addLabel: "Add",
+          emptyMessage: "No entries added",
+          addDialogTitle: contract.heading,
+          editDialogTitle: contract.heading,
+          ...(contract.description ? { dialogSubtitle: contract.description } : {}),
+          columns: clone(contract.columns),
+          actions: TEMPORARY_WORK_DEFAULT_ACTIONS,
+        },
+      },
+    }));
+  }
+  return page;
+}
+
 export function applySharedTemporaryWorkPageEnrichment(pages) {
   return pages.map((page) => {
     if (!page.route?.startsWith("/intake/temporary-work/")) return page;
@@ -521,6 +661,8 @@ export function applySharedTemporaryWorkPageEnrichment(pages) {
     else if (page.route === "/intake/temporary-work/all-applicants/visas") enriched = enrichVisasPage(enriched);
     else if (page.route === "/intake/temporary-work/main-applicant/contact-details") enriched = enrichContactPage(enriched);
     else if (page.route === "/intake/temporary-work/all-applicants/travel-history") enriched = enrichTravelPage(enriched);
+    else if (page.route === "/intake/temporary-work/all-applicants/countries-of-residence") enriched = enrichResidenceCoveragePage(applyPageTitle(enriched));
+    else if (page.route === "/intake/temporary-work/all-applicants/health") enriched = enrichHealthPage(enriched);
     else enriched = applyPageTitle(enriched);
     return enriched;
   });

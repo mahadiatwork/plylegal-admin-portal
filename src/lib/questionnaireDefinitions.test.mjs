@@ -367,6 +367,30 @@ test("questionnaire definitions allow copy and structure edits in one save", () 
   });
 });
 
+test("shipped legacy pages reject uncertified structural edits at the persistence boundary", () => {
+  const current = normalizeQuestionnaireDefinition(validDefinition());
+  current.pages[0].metadata = { renderer: "legacy", builtInPageId: current.pages[0].id };
+
+  const copyEdit = structuredClone(current);
+  copyEdit.pages[0].questions[0].label = "Updated declaration wording";
+  assert.doesNotThrow(() => assertQuestionnaireDefinitionStructureEditable(current, copyEdit));
+
+  const promoted = structuredClone(copyEdit);
+  promoted.pages[0].metadata.renderer = "dynamic";
+  promoted.pages[0].metadata.dynamicParityCertified = true;
+  assert.throws(
+    () => assertQuestionnaireDefinitionStructureEditable(current, promoted),
+    QuestionnaireDefinitionValidationError,
+  );
+
+  const changed = structuredClone(copyEdit);
+  changed.pages[0].questions[0].options.push({ value: "unknown", label: "Unknown" });
+  assert.throws(
+    () => assertQuestionnaireDefinitionStructureEditable(current, changed),
+    QuestionnaireDefinitionValidationError,
+  );
+});
+
 test("conditional questions require a source answer key on the same page", () => {
   const input = validDefinition({ status: "draft" });
   input.pages.push({

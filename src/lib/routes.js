@@ -26,7 +26,6 @@ export const PARTNER_VISA_ROUTES = [
       { href: "/intake/partner/spouse-partner/identity", title: "Identity" },
     ],
   },
-  { href: "/intake/partner/children/start", title: "Children" },
   {
     href: "/intake/partner/family-sponsor/details",
     title: "Family Sponsor",
@@ -53,7 +52,6 @@ export const PARTNER_VISA_ROUTES = [
       { href: "/intake/partner/relationships/supporting-witnesses", title: "Supporting Witnesses" },
     ],
   },
-  { href: "/intake/partner/family", title: "Family" },
   {
     href: "/intake/partner/all-applicants/addresses",
     title: "All Applicants",

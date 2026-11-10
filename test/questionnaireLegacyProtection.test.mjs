@@ -253,3 +253,39 @@ test("old saved legacy pages gain current choices while retaining visible copy e
   assert.deepEqual(getLegacyQuestionnairePublishIssues(hydrated), []);
   assert.deepEqual(getQuestionnaireDefinitionIssues(hydrated), []);
 });
+
+test("version-3 migration advances untouched copy without losing presentation edits or promoted pages", () => {
+  const definition = structuredClone(questionnaireBuiltInTemplates.find((candidate) => candidate.id === "built-in-temporary-work-482"));
+  definition.pages.forEach((page) => { page.metadata.legacyCatalogVersion = 3; });
+  const health = definition.pages.find((page) => page.route.endsWith("/all-applicants/health"));
+  const hospital = questionById(health, "temporary-work-all-applicants-health-hospital_details");
+  hospital.label = "Has any applicant undertaken a health examination for an Australian visa in the past 12 months?";
+  hospital.metadata.originalLabel = hospital.label;
+  hospital.metadata.presentation.addLabel = "Add hospital visit";
+  hospital.metadata.originalPresentation.addLabel = "Add";
+  hospital.metadata.customAuditTag = "preserve-me";
+
+  const promoted = definition.pages.find((page) => page.route.endsWith("/main-applicant/education"));
+  promoted.metadata.renderer = "dynamic";
+  promoted.questions.push({
+    id: "custom-promoted-question",
+    answerKey: "custom_promoted_answer",
+    label: "Custom promoted question",
+    type: "text",
+    required: false,
+  });
+
+  const hydrated = hydrateLegacyQuestionnaireDefinition(definition);
+  const hydratedHospital = questionById(
+    hydrated.pages.find((page) => page.id === health.id),
+    hospital.id,
+  );
+  const hydratedPromoted = hydrated.pages.find((page) => page.id === promoted.id);
+
+  assert.equal(hydratedHospital.label, "Hospital / health care facility details");
+  assert.equal(hydratedHospital.metadata.presentation.addLabel, "Add hospital visit");
+  assert.equal(hydratedHospital.metadata.presentation.addDialogTitle, "Hospital / health care facility details");
+  assert.equal(hydratedHospital.metadata.customAuditTag, "preserve-me");
+  assert.ok(questionById(hydratedPromoted, "custom-promoted-question"));
+  assert.deepEqual(hydrateLegacyQuestionnaireDefinition(hydrated), hydrated);
+});

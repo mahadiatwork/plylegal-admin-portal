@@ -357,6 +357,14 @@ function main() {
   const issues = [];
   const adminRoutes = definition.pages.map((page) => page.route);
 
+  if (JSON.stringify(adminRoutes) !== JSON.stringify(EXPECTED_ROUTES)) {
+    const movedIndex = EXPECTED_ROUTES.findIndex((route, index) => adminRoutes[index] !== route);
+    issues.push({
+      category: "route_order",
+      message: `Route order differs at index ${movedIndex}: expected ${EXPECTED_ROUTES[movedIndex]}, found ${adminRoutes[movedIndex] || "<missing>"}`,
+    });
+  }
+
   if (definition.pages.length !== 28) {
     issues.push({ category: "route_inventory", message: `186 has ${definition.pages.length} pages (expected 28)` });
   }

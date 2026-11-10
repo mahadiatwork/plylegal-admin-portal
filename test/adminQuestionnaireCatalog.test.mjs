@@ -434,9 +434,11 @@ test("new questionnaire copies only active saved questionnaires", async (t) => {
     [...walk(matterTypeSelect)].filter((node) => node.type === "option").map((option) => text(option)),
     [
       "Partner Visa (Subclass 820)",
+      "Partner Visa (Subclass 801)",
       "Skills in Demand (Subclass 482)",
       "Protection Visa (Subclass 866)",
       "Partner Visa (Subclass 309)",
+      "Partner Visa (Subclass 100)",
       "Employer Nomination Visa (Subclass 186)",
     ],
   );
