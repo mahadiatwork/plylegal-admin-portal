@@ -92,7 +92,7 @@ const SAFE_SLUG = /^[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?$/;
 const SAFE_ROUTE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const UNSAFE_OBJECT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 const TEMPORARY_WORK_VISA_CONTEXTS = new Set(["482", "186"]);
-const RESERVED_WORKFLOW_ROUTE = /\/(?:start|profile|submit)$/;
+const RESERVED_WORKFLOW_ROUTE = /\/submit$/;
 const PROFILE_QUESTIONNAIRE_ROUTE = /^\/intake\/(?:temporary-work|partner|protection)\/(?:main-applicant|spouse-partner|children\/[^/]+|non-migrating\/[^/]+)\//;
 
 const DEFINITION_FIELDS = new Set([
@@ -849,7 +849,7 @@ function validateRoute(route, path, issues) {
   const value = route.trim();
   if (!value.startsWith("/intake/")) issues.push(`${path} must start with /intake/`);
   if (RESERVED_WORKFLOW_ROUTE.test(value)) {
-    issues.push(`${path} targets a reserved start, profile, or submit workflow screen`);
+    issues.push(`${path} targets the reserved submit workflow screen`);
   }
   if (/[?#\\%]/.test(value)) issues.push(`${path} cannot contain a query, hash, backslash, or encoded segment`);
   if (value.includes("//")) issues.push(`${path} cannot contain a double slash`);

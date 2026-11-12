@@ -8,10 +8,13 @@ import { groupQuestionnairePages } from "../src/lib/questionnairePageGroups.js";
 const SKILLS_ROUTE = "/intake/temporary-work/main-applicant/skills";
 
 const EXPECTED_482_ROUTES = [
+  "/intake/temporary-work/start",
+  "/intake/temporary-work/profile",
   "/intake/temporary-work/main-applicant/details",
   "/intake/temporary-work/main-applicant/other",
   "/intake/temporary-work/main-applicant/identity",
   "/intake/temporary-work/main-applicant/contact-details",
+  "/intake/temporary-work/non-migrating",
   "/intake/temporary-work/main-applicant/employment",
   "/intake/temporary-work/main-applicant/education",
   "/intake/temporary-work/main-applicant/skills",
@@ -60,11 +63,11 @@ describe("Skills in Demand Visa (Subclass 482) built-in parity", () => {
   const definition = getBuiltInQuestionnaireDefinition({ visaType: "temporary-work", visaContext: "482" });
   const definition186 = getBuiltInQuestionnaireDefinition({ visaType: "temporary-work", visaContext: "186" });
 
-  it("has a valid 482 definition with 26 content pages and correct renderer split", () => {
+  it("has a valid 482 definition with 29 managed pages and correct renderer split", () => {
     assert.ok(definition, "482 definition should exist");
-    assert.strictEqual(definition.pages.length, 26);
+    assert.strictEqual(definition.pages.length, 29);
     assert.deepStrictEqual(definition.pages.map((page) => page.route), EXPECTED_482_ROUTES);
-    assert.strictEqual(definition.pages.filter((page) => page.metadata?.renderer === "legacy").length, 25);
+    assert.strictEqual(definition.pages.filter((page) => page.metadata?.renderer === "legacy").length, 28);
     assert.strictEqual(definition.pages.filter((page) => page.metadata?.renderer !== "legacy").length, 1);
     assert.deepStrictEqual(getQuestionnaireDefinitionIssues(definition), []);
   });
@@ -259,7 +262,34 @@ describe("Skills in Demand Visa (Subclass 482) built-in parity", () => {
     pages.forEach((page) => {
       assert.strictEqual(page.metadata.titleIncludesPerson, true);
       assert.strictEqual(page.metadata.titleTemplate, `${page.title} — {profileName}`);
+      assert.strictEqual(page.metadata.adminHiddenInProposed, true);
     });
+  });
+
+  it("models the client Other Family dialog as one nested admin page", () => {
+    const page = definition.pages.find((candidate) => candidate.route === "/intake/temporary-work/non-migrating");
+    assert.ok(page);
+    assert.strictEqual(page.metadata.adminNestedUnder, "main-applicant");
+    assert.strictEqual(page.metadata.adminCompositePage, true);
+    assert.strictEqual(page.metadata.profileRole, "non_migrating");
+
+    const included = findQuestion(page.questions, "has_other_family");
+    const members = findQuestion(page.questions, "members");
+    assert.strictEqual(included.label, "Do you have any non-migrating family members not included in the application, such as a spouse or partner, child, parent or sibling?");
+    assert.deepStrictEqual(members.visibleIf, [{ field: "has_other_family", op: "equals", value: "yes" }]);
+    assert.deepStrictEqual(
+      members.metadata.presentation.sections.map((section) => section.heading),
+      ["Relationship", "Passport Details", "Identity Documents", "Place of Birth", "Address and Phone", "Other Names / Spellings", "Citizenship", "Health"],
+    );
+    assert.strictEqual(findQuestion(members.metadata.fields, "relationship").label, "Relationship to Main Applicant");
+    assert.strictEqual(findQuestion(members.metadata.fields, "has_current_passport").label, "Does this person have a current passport?");
+    assert.deepStrictEqual(findQuestion(members.metadata.fields, "passport_family_name").visibleIf, [{ field: "has_current_passport", op: "equals", value: "yes" }]);
+    for (const key of ["place_of_birth_town", "place_of_birth_state", "place_of_birth_country"]) {
+      assert.strictEqual(findQuestion(members.metadata.fields, key).metadata.group, "Place of Birth");
+    }
+    for (const key of ["contact_phone", "address_line_1", "address_line_2", "address_suburb", "address_state", "address_postcode", "address_country"]) {
+      assert.strictEqual(findQuestion(members.metadata.fields, key).metadata.group, "Address and Phone");
+    }
   });
 
   it("matches the Test 2 identity, contact, family and custody contracts", () => {
@@ -305,6 +335,6 @@ describe("Skills in Demand Visa (Subclass 482) built-in parity", () => {
 
     const otherFamily = groupQuestionnairePages(definition.pages).find((group) => group.key === "non-migrating");
     assert.strictEqual(otherFamily.label, "Other family");
-    assert.strictEqual(otherFamily.pages.length, 6);
+    assert.strictEqual(otherFamily.pages.length, 7);
   });
 });

@@ -28,9 +28,9 @@ function collectQuestions(questions, callback) {
 describe("Protection Visa (Subclass 866) built-in parity", () => {
   const definition = getBuiltInQuestionnaireDefinition({ visaType: "protection" });
 
-  it("has a valid protection definition with 29 content pages", () => {
+  it("has a valid protection definition with 32 managed pages", () => {
     assert.ok(definition, "Protection definition should exist");
-    assert.strictEqual(definition.pages.length, 29, "Expected 29 content page templates");
+    assert.strictEqual(definition.pages.length, 32, "Expected 32 managed page templates");
     const issues = getQuestionnaireDefinitionIssues(definition);
     assert.deepStrictEqual(issues, [], `Validation issues: ${issues.join("; ")}`);
   });

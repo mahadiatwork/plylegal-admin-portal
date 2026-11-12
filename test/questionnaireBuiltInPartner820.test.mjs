@@ -22,10 +22,10 @@ function findQuestion(questions, answerKey) {
 describe("Partner Visa (Subclass 820) built-in parity", () => {
   const definition = getBuiltInQuestionnaireDefinition({ visaType: "partner" });
 
-  it("has a valid 43-page legacy Partner definition", () => {
+  it("has a valid 46-page legacy Partner definition", () => {
     assert.ok(definition);
-    assert.strictEqual(definition.pages.length, 43);
-    assert.strictEqual(definition.pages.filter((page) => page.metadata?.renderer === "legacy").length, 43);
+    assert.strictEqual(definition.pages.length, 46);
+    assert.strictEqual(definition.pages.filter((page) => page.metadata?.renderer === "legacy").length, 46);
     assert.deepStrictEqual(getQuestionnaireDefinitionIssues(definition), []);
   });
 

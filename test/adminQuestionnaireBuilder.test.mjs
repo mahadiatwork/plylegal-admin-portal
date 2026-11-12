@@ -8,6 +8,7 @@ import * as crmFieldCatalog from "../src/lib/crmFieldCatalog.js";
 import * as questionnaireClientPresentation from "../src/lib/questionnaireClientPresentation.js";
 import * as questionnaireCrmContract from "../src/lib/questionnaireCrmContract.js";
 import * as questionnairePageGroups from "../src/lib/questionnairePageGroups.js";
+import { getQuestionnaireWorkflowPages } from "../src/lib/questionnaireWorkflowPages.js";
 
 const require = createRequire(import.meta.url);
 const { loadBindings, transform } = require("next/dist/build/swc");
@@ -1125,6 +1126,126 @@ test("the proposed questionnaire layout can be presented without removing the cu
     "the existing questionnaire group dropdown should remain available in the current view"
   );
   assert.equal(text(harness.tree).includes("Design preview."), false);
+});
+
+test("the proposed layout edits Getting Started and Included Applicants workflow copy", async (t) => {
+  const workflowDefinition = {
+    schemaVersion: 1,
+    id: "workflow-questionnaire",
+    title: "Workflow questionnaire",
+    version: "1.0.0",
+    visaType: "temporary-work",
+    visaContexts: ["482"],
+    status: "active",
+    revision: 1,
+    pages: getQuestionnaireWorkflowPages("temporary-work").map((page, index) => ({
+      ...page,
+      order: (index + 1) * 10,
+    })),
+  };
+  const { harness, calls } = await mountBuilder(t, {
+    definition: workflowDefinition,
+    embeddedInMatter: false,
+    routes: [
+      { href: "/intake/temporary-work/start", title: "Getting Started" },
+      { href: "/intake/temporary-work/profile", title: "Included Applicants" },
+    ],
+  });
+
+  await harness.button("New layout").props.onClick();
+  harness.render();
+  harness.control("Edit section title and description").props.onClick();
+  harness.render();
+  harness.control("workflow-intro-0").props.onChange({ target: { value: "Updated welcome copy." } });
+  harness.render();
+  assert.equal(harness.control("workflow-intro-0").props.value, "Updated welcome copy.");
+
+  harness.buttonMatching(/Included Applicants/).props.onClick();
+  harness.render();
+  harness.control("Edit section title and description").props.onClick();
+  harness.render();
+  harness.control("workflow-list-5-item-0").props.onChange({ target: { value: "Primary visa applicant" } });
+  harness.render();
+  assert.equal(harness.control("workflow-list-5-item-0").props.value, "Primary visa applicant");
+
+  await harness.button("Save changes").props.onClick();
+  const saveCall = calls.find(({ url, options }) =>
+    url === "/api/questionnaire-definitions/workflow-questionnaire" && options.method === "PUT"
+  );
+  assert.ok(saveCall);
+  const saved = JSON.parse(saveCall.options.body);
+  assert.equal(saved.pages[0].introBlocks[0].text, "Updated welcome copy.");
+  assert.equal(saved.pages[1].introBlocks[5].items[0], "Primary visa applicant");
+});
+
+test("the proposed layout nests the composite Other Family page under Main Applicant", async (t) => {
+  const [start, profile, otherFamily] = getQuestionnaireWorkflowPages("temporary-work");
+  const mainPages = ["Details", "Other Names", "Identity", "Contact Details", "Employment"].map((title, index) => ({
+    id: `main-${index}`,
+    route: `/intake/temporary-work/main-applicant/${title.toLowerCase().replaceAll(" ", "-")}`,
+    title,
+    sectionKey: `main_${index}`,
+    completionKey: `temporary-work/main-applicant/${index}`,
+    scope: "profile",
+    order: (index + 3) * 10,
+    introBlocks: [],
+    questions: [],
+    metadata: { renderer: "legacy", profileRole: "main_applicant" },
+  }));
+  const technicalPages = ["Details", "Passport", "Identity Documents", "Other Names", "Citizenship", "Health"].map((title, index) => ({
+    id: `other-family-technical-${index}`,
+    route: `/intake/temporary-work/non-migrating/member-profile/${index}`,
+    title,
+    sectionKey: `other_family_${index}`,
+    completionKey: `temporary-work/non-migrating/member-profile/${index}`,
+    scope: "profile",
+    order: (index + 9) * 10,
+    introBlocks: [],
+    questions: [],
+    metadata: { renderer: "legacy", profileRole: "non_migrating", adminHiddenInProposed: true },
+  }));
+  const definition = {
+    schemaVersion: 1,
+    id: "nested-other-family-questionnaire",
+    title: "Nested Other Family questionnaire",
+    version: "1.0.0",
+    visaType: "temporary-work",
+    visaContexts: ["482"],
+    status: "active",
+    revision: 1,
+    pages: [start, profile, ...mainPages, otherFamily, ...technicalPages].map((page, index) => ({ ...page, order: (index + 1) * 10 })),
+  };
+  const { harness } = await mountBuilder(t, { definition, embeddedInMatter: false });
+
+  await harness.button("New layout").props.onClick();
+  harness.render();
+
+  const navigation = harness.find((node) => node.type === "nav" && node.props["aria-label"] === "Questionnaire sections");
+  const navigationText = text(navigation);
+  const navigationLabels = [...walk(navigation)]
+    .filter((node) => node.type === "button")
+    .map((node) => text(node));
+  assert.ok(navigationText.includes("Main applicant"));
+  assert.ok(navigationText.includes("Other family"));
+  const contactIndex = navigationLabels.findIndex((label) => label.includes("Contact Details"));
+  const otherFamilyIndex = navigationLabels.indexOf("Other family");
+  const employmentIndex = navigationLabels.findIndex((label) => label.includes("Employment"));
+  assert.ok(contactIndex >= 0 && contactIndex < otherFamilyIndex);
+  assert.ok(otherFamilyIndex < employmentIndex);
+  assert.equal(navigationLabels.some((label) => label.startsWith("Identity Documents")), false, "technical member pages should be hidden from the new layout");
+
+  harness.buttonMatching(/Other Family/).props.onClick();
+  harness.render();
+  assert.equal(text(harness.find((node) => node.props?.["data-testid"] === "portal-section-title")), "Other Family");
+  assert.ok(harness.nodes().some((node) => text(node) === "Address and Phone"));
+  assert.ok(harness.nodes().some((node) => text(node) === "Place of Birth"));
+
+  harness.control("Edit Other family members").props.onClick();
+  harness.render();
+  assert.ok(
+    harness.nodes().some((node) => text(node) === "Shown when “Does this person have a current passport?” is Yes"),
+    "passport details should be visibly nested under their Yes trigger",
+  );
 });
 
 test("the proposed layout supports pencil editing and inserts a question between client fields", async (t) => {

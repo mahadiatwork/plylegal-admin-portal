@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowDown,
@@ -102,7 +102,7 @@ const STATUS_STYLES = {
 const inputClassName = "h-10 border-[#d7e4de] bg-white text-[#17372e]";
 const selectClassName =
   "h-10 w-full rounded-md border border-[#d7e4de] bg-white px-3 text-sm text-[#17372e] outline-none transition focus:border-[#4F726B] focus:ring-2 focus:ring-[#4F726B]/15 disabled:cursor-not-allowed disabled:bg-[#f3f6f4] disabled:text-[#80928b]";
-const RESERVED_WORKFLOW_ROUTE = /\/(?:start|profile|submit)$/;
+const RESERVED_WORKFLOW_ROUTE = /\/submit$/;
 const BUILDER_LAYOUTS = {
   CURRENT: "current",
   PROPOSED: "proposed",
@@ -329,6 +329,10 @@ function promotePageForStructure(page) {
 function builtInLegacyStructureIsLocked(page) {
   return page?.metadata?.renderer === "legacy"
     && Boolean(page.metadata?.builtInPageId);
+}
+
+function isProposedAdminPageVisible(page) {
+  return !page?.metadata?.adminHiddenInProposed;
 }
 
 function parseBooleanConditionValue(value) {
@@ -684,6 +688,216 @@ function FieldLabel({ children, htmlFor, hint }) {
   );
 }
 
+const WORKFLOW_PARAGRAPH_LABELS = {
+  start: [
+    "Introduction",
+    "What happens after submission",
+    "Accuracy callout heading",
+    "Accuracy callout message",
+    "Save-progress reminder",
+  ],
+  profile: [
+    "Introduction",
+    "Main applicant heading",
+    "Main applicant guidance",
+    "Family members heading",
+    "Family members guidance",
+  ],
+};
+
+function WorkflowPagePreview({ page }) {
+  const blocks = page?.introBlocks || [];
+  const workflowPage = page?.metadata?.workflowPage;
+  const paragraph = (index) => blocks[index]?.type === "paragraph" ? blocks[index].text : "";
+  const list = blocks.find((block) => block?.type === "list");
+
+  if (workflowPage === "start") {
+    return (
+      <div className="mt-3 space-y-3 text-sm font-normal leading-6 text-[#506a61]">
+        {paragraph(0) ? <p>{paragraph(0)}</p> : null}
+        {paragraph(1) ? <p>{paragraph(1)}</p> : null}
+        {paragraph(2) || paragraph(3) ? (
+          <div className="rounded-xl border border-[#ded8f4] bg-[#f8f7fc] px-4 py-3 text-[#53615d]">
+            {paragraph(2) ? <strong className="font-semibold text-[#24453b]">{paragraph(2)} </strong> : null}
+            {paragraph(3)}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (workflowPage === "profile") {
+    return (
+      <div className="mt-3 space-y-4 text-sm font-normal leading-6 text-[#506a61]">
+        {paragraph(0) ? <p>{paragraph(0)}</p> : null}
+        <div>
+          {paragraph(1) ? <h3 className="font-semibold text-[#17372e]">{paragraph(1)}</h3> : null}
+          {paragraph(2) ? <p>{paragraph(2)}</p> : null}
+        </div>
+        <div>
+          {paragraph(3) ? <h3 className="font-semibold text-[#17372e]">{paragraph(3)}</h3> : null}
+          {paragraph(4) ? <p>{paragraph(4)}</p> : null}
+        </div>
+        {list ? (
+          <div className="rounded-xl border border-[#cbddee] bg-[#eef6ff] px-4 py-3 text-[#45685d]">
+            {list.lead ? <p className="font-semibold">{list.lead}</p> : null}
+            <ul className="mt-1 list-inside list-disc font-semibold">
+              {(list.items || []).map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function WorkflowPageContentEditor({ page, onChange }) {
+  const workflowPage = page?.metadata?.workflowPage;
+  const paragraphLabels = WORKFLOW_PARAGRAPH_LABELS[workflowPage] || [];
+  if (!workflowPage) return null;
+
+  return (
+    <div className="space-y-4">
+      {(page.introBlocks || []).map((block, blockIndex) => {
+        if (block.type === "paragraph") {
+          const label = paragraphLabels[blockIndex] || `Content block ${blockIndex + 1}`;
+          const compact = /heading$/i.test(label);
+          return (
+            <div key={`${block.type}-${blockIndex}`} className="space-y-2">
+              <FieldLabel htmlFor={`workflow-intro-${blockIndex}`}>{label}</FieldLabel>
+              {compact ? (
+                <Input
+                  id={`workflow-intro-${blockIndex}`}
+                  className={inputClassName}
+                  value={block.text || ""}
+                  onChange={(event) => onChange(blockIndex, { ...block, text: event.target.value })}
+                />
+              ) : (
+                <Textarea
+                  id={`workflow-intro-${blockIndex}`}
+                  rows={3}
+                  className="border-[#cddbd5] bg-white"
+                  value={block.text || ""}
+                  onChange={(event) => onChange(blockIndex, { ...block, text: event.target.value })}
+                />
+              )}
+            </div>
+          );
+        }
+
+        if (block.type === "list") {
+          return (
+            <div key={`${block.type}-${blockIndex}`} className="space-y-3 rounded-xl border border-[#d7e4de] bg-white p-4">
+              <div className="space-y-2">
+                <FieldLabel htmlFor={`workflow-list-${blockIndex}-lead`}>Information box heading</FieldLabel>
+                <Input
+                  id={`workflow-list-${blockIndex}-lead`}
+                  className={inputClassName}
+                  value={block.lead || ""}
+                  onChange={(event) => onChange(blockIndex, { ...block, lead: event.target.value })}
+                />
+              </div>
+              {(block.items || []).map((item, itemIndex) => (
+                <div key={itemIndex} className="space-y-2">
+                  <FieldLabel htmlFor={`workflow-list-${blockIndex}-item-${itemIndex}`}>Information item {itemIndex + 1}</FieldLabel>
+                  <Input
+                    id={`workflow-list-${blockIndex}-item-${itemIndex}`}
+                    className={inputClassName}
+                    value={item}
+                    onChange={(event) => {
+                      const items = [...block.items];
+                      items[itemIndex] = event.target.value;
+                      onChange(blockIndex, { ...block, items });
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          );
+        }
+        return null;
+      })}
+    </div>
+  );
+}
+
+function ProposedNavigationPageButton({ active, count, onSelect, page, stepNumber }) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${active ? "bg-[#EEF7F2]/60 font-semibold text-slate-900" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
+    >
+      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs transition-colors ${active ? "bg-[#244D42] font-bold text-white shadow-sm" : "border border-slate-200 font-medium text-slate-400"}`}>{stepNumber}</span>
+      <span className="min-w-0 flex-1 whitespace-normal break-words leading-snug" title={page.title}>{page.title}</span>
+      <span className="text-xs text-slate-400" title="Client-facing questions">{count}</span>
+    </button>
+  );
+}
+
+function groupRepeaterFields(fields = [], sections = []) {
+  const groups = [];
+  fields.forEach((field) => {
+    const key = field.metadata?.group || "";
+    const current = groups.at(-1);
+    if (!current || current.key !== key) groups.push({ key, fields: [field] });
+    else current.fields.push(field);
+  });
+  return groups.map((group, index) => ({
+    ...group,
+    label: sections[index]?.heading || group.key,
+  }));
+}
+
+function groupRepeaterFieldConditions(fields = []) {
+  const sourceByAnswerKey = new Map(
+    fields.filter((field) => field.answerKey).map((field) => [field.answerKey, field])
+  );
+  const sourceIndexById = new Map(fields.map((field, index) => [field.id, index]));
+  const conditionalGroupsBySourceId = new Map();
+  const nestedFieldIds = new Set();
+
+  fields.forEach((field, fieldIndex) => {
+    const conditions = Array.isArray(field.visibleIf) ? field.visibleIf : [];
+    if (conditions.length !== 1) return;
+    const condition = conditions[0];
+    const source = sourceByAnswerKey.get(condition.field);
+    if (
+      !source
+      || source.id === field.id
+      || sourceIndexById.get(source.id) >= fieldIndex
+    ) return;
+
+    const signature = JSON.stringify({ op: condition.op || "equals", value: condition.value });
+    const sourceGroups = conditionalGroupsBySourceId.get(source.id) || [];
+    const existingGroup = sourceGroups.find((group) => group.signature === signature);
+    if (existingGroup) existingGroup.fields.push(field);
+    else sourceGroups.push({ signature, conditions, fields: [field] });
+    conditionalGroupsBySourceId.set(source.id, sourceGroups);
+    nestedFieldIds.add(field.id);
+  });
+
+  return fields
+    .filter((field) => !nestedFieldIds.has(field.id))
+    .map((field) => ({
+      field,
+      conditionalGroups: conditionalGroupsBySourceId.get(field.id) || [],
+    }));
+}
+
+function describeRepeaterFieldCondition(conditions, fields) {
+  return describeClientCondition(
+    conditions,
+    fields.map((field) => ({
+      id: field.id,
+      label: field.label,
+      questions: [{ ...field, options: getQuestionOptions(field) }],
+    }))
+  );
+}
+
 function questionTypeLabel(type) {
   return QUESTION_TYPES.find(([value]) => value === type)?.[1] || type || "Question";
 }
@@ -910,16 +1124,27 @@ function PortalAnswerPreview({ entry }) {
   }
 
   if (question.type === "repeater") {
+    const presentation = question.metadata?.presentation || {};
+    const columns = (presentation.columns || []).slice(0, 3);
     return (
       <div className="mt-4 space-y-3">
+        {presentation.sections?.length ? (
+          <div className="flex flex-wrap gap-2">
+            {presentation.sections.map((section, index) => (
+              <span key={`${section.heading}-${index}`} className="rounded-full border border-[#d6e4dd] bg-[#f3f8f5] px-2.5 py-1 text-[11px] font-medium text-[#45685d]">{section.heading}</span>
+            ))}
+          </div>
+        ) : null}
         <div className="flex justify-end">
-          <span className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#244D42] px-3 text-xs font-semibold text-white"><Plus className="h-3.5 w-3.5" />Add</span>
+          <span className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#244D42] px-3 text-xs font-semibold text-white"><Plus className="h-3.5 w-3.5" />{presentation.addLabel || "Add"}</span>
         </div>
         <div className="overflow-hidden rounded-xl border border-[#dce5e1]">
           <div className="grid grid-cols-3 gap-3 bg-[#f8faf9] px-4 py-3 text-xs font-semibold text-[#405c53]">
-            <span>Record</span><span>Details</span><span className="text-right">Actions</span>
+            {(columns.length ? columns : [{ label: "Record" }, { label: "Details" }, { label: "Actions" }]).map((column, index) => (
+              <span key={`${column.key || column.label}-${index}`} className={index === 2 ? "text-right" : undefined}>{column.label}</span>
+            ))}
           </div>
-          <div className="px-4 py-4 text-xs text-[#84958f]">Added records will appear here.</div>
+          <div className="px-4 py-4 text-xs text-[#84958f]">{presentation.emptyMessage || "Added records will appear here."}</div>
         </div>
       </div>
     );
@@ -956,7 +1181,7 @@ function QuestionInsertControl({ label, onInsert }) {
   );
 }
 
-function InlinePresentationEditor({ presentation = {}, onChange }) {
+function InlinePresentationEditor({ presentation = {}, onChange, structureLocked = false }) {
   const update = (key, value) => onChange({ [key]: value });
   const updateAction = (key, value) => update("actions", { ...presentation.actions, [key]: value });
   const updateColumn = (index, key, value) => {
@@ -995,7 +1220,7 @@ function InlinePresentationEditor({ presentation = {}, onChange }) {
           {(presentation.columns || []).map((column, index) => (
             <div key={column.key || index} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_110px]">
               <Input aria-label={`Column ${index + 1} label`} className={inputClassName} value={column.label || ""} onChange={(event) => updateColumn(index, "label", event.target.value)} />
-              <select aria-label={`Column ${index + 1} formatter`} className={selectClassName} value={column.format || ""} onChange={(event) => updateColumn(index, "format", event.target.value || undefined)}>
+              <select aria-label={`Column ${index + 1} formatter`} className={selectClassName} value={column.format || ""} disabled={structureLocked} onChange={(event) => updateColumn(index, "format", event.target.value || undefined)}>
                 <option value="">No formatter</option>
                 <option value="groupedDate">Date</option>
                 <option value="groupedDateOrOngoing">Date or Ongoing</option>
@@ -1042,6 +1267,7 @@ function InlinePresentationEditor({ presentation = {}, onChange }) {
             variant="outline"
             size="sm"
             className="border-[#cfddd6] bg-white text-[#38564b]"
+            disabled={structureLocked}
             onClick={() => update("sections", [...(presentation.sections || []), { heading: "Section heading", description: "" }])}
           >
             <Plus />
@@ -1145,17 +1371,46 @@ function ProposedInlineQuestionEditor({
         <div className="mt-5 border-t border-[#d9e5df] pt-4">
           <p className="text-sm font-semibold text-[#24453b]">Entry fields</p>
           <p className="mt-1 text-xs text-[#71857d]">Edit the wording shown inside each Add/Edit dialog.</p>
-          <div className="mt-3 space-y-3">
-            {question.metadata.fields.map((field) => (
-              <EmbeddedNestedQuestionEditor
-                key={field.id}
-                question={field}
-                kind="record"
-                legacy={legacy}
-                sourceQuestions={flattenQuestions(question.metadata.fields)}
-                onUpdate={onUpdateNestedQuestion}
-                onDeleteOption={onDeleteNestedOption}
-              />
+          <div className="mt-3 space-y-5">
+            {groupRepeaterFields(question.metadata.fields, question.metadata.presentation?.sections).map((group, groupIndex) => (
+              <section key={`${group.key || "fields"}-${groupIndex}`} className={group.label ? "rounded-xl border border-[#dce6e1] bg-white p-4" : "space-y-3"}>
+                {group.label ? <h4 className="mb-3 text-sm font-semibold text-[#31564a]">{group.label}</h4> : null}
+                <div className="space-y-3">
+                  {groupRepeaterFieldConditions(group.fields).map(({ field, conditionalGroups }) => (
+                    <Fragment key={field.id}>
+                      <EmbeddedNestedQuestionEditor
+                        question={field}
+                        kind="record"
+                        legacy={legacy}
+                        sourceQuestions={flattenQuestions(question.metadata.fields)}
+                        onUpdate={onUpdateNestedQuestion}
+                        onDeleteOption={onDeleteNestedOption}
+                      />
+                      {conditionalGroups.map((conditionalGroup) => (
+                        <div
+                          key={`${field.id}-${conditionalGroup.signature}`}
+                          className="ml-4 space-y-3 border-l-2 border-[#a8cdbb] pl-4"
+                        >
+                          <p className="text-xs font-semibold text-[#356352]">
+                            {describeRepeaterFieldCondition(conditionalGroup.conditions, group.fields)}
+                          </p>
+                          {conditionalGroup.fields.map((conditionalField) => (
+                            <EmbeddedNestedQuestionEditor
+                              key={conditionalField.id}
+                              question={conditionalField}
+                              kind="record"
+                              legacy={legacy}
+                              sourceQuestions={flattenQuestions(question.metadata.fields)}
+                              onUpdate={onUpdateNestedQuestion}
+                              onDeleteOption={onDeleteNestedOption}
+                            />
+                          ))}
+                        </div>
+                      ))}
+                    </Fragment>
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
         </div>
@@ -1171,7 +1426,7 @@ function ProposedInlineQuestionEditor({
             <ChevronDown className="h-4 w-4 text-[#60786f] transition-transform data-[state=open]:rotate-180" />
           </CollapsibleTrigger>
           <CollapsibleContent className="mt-3 space-y-3">
-            <InlinePresentationEditor presentation={question.metadata.presentation} onChange={(patch) => onChange("metadata", { ...question.metadata, presentation: { ...question.metadata.presentation, ...patch } })} />
+            <InlinePresentationEditor structureLocked={disabled} presentation={question.metadata.presentation} onChange={(patch) => onChange("metadata", { ...question.metadata, presentation: { ...question.metadata.presentation, ...patch } })} />
           </CollapsibleContent>
         </Collapsible>
       ) : null}
@@ -1973,9 +2228,17 @@ export default function AdminQuestionnaireBuilder({
     () => groupQuestionnairePages(definition?.pages || []),
     [definition]
   );
-  const pageNumberById = useMemo(
-    () => new Map((definition?.pages || []).map((page, index) => [page.id, index + 1])),
+  const proposedVisiblePages = useMemo(
+    () => (definition?.pages || []).filter(isProposedAdminPageVisible),
     [definition]
+  );
+  const proposedPageGroups = useMemo(
+    () => groupQuestionnairePages(proposedVisiblePages),
+    [proposedVisiblePages]
+  );
+  const proposedPageNumberById = useMemo(
+    () => new Map(proposedVisiblePages.map((page, index) => [page.id, index + 1])),
+    [proposedVisiblePages]
   );
   const pagePresentations = useMemo(
     () => new Map((definition?.pages || []).map((page) => [
@@ -3171,7 +3434,7 @@ export default function AdminQuestionnaireBuilder({
   const showOptions = ["select", "radio", "yesNo"].includes(activeQuestion?.type)
     && !activeQuestion?.optionsSource;
 
-  if (adminView === "library") {
+  if (!embeddedInMatter && adminView === "library") {
     return (
       <div className="space-y-6">
         <section className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -3395,7 +3658,7 @@ export default function AdminQuestionnaireBuilder({
     );
   }
 
-  if (adminView === "editor") {
+  if (!embeddedInMatter && adminView === "editor") {
     return (
       <div className="space-y-6">
         <header className="flex flex-col gap-5">
@@ -3466,7 +3729,7 @@ export default function AdminQuestionnaireBuilder({
                 <div className="mb-3 flex items-center justify-between rounded-xl border border-[#e4e1d9] bg-[#FAF8F5] px-4 py-3 lg:hidden">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Section navigation</p>
-                    <p className="mt-1 text-sm font-medium text-slate-700">Section {pageNumberById.get(activePageId) || 0} of {definition.pages.length}</p>
+                    <p className="mt-1 text-sm font-medium text-slate-700">Section {proposedPageNumberById.get(activePageId) || 0} of {proposedVisiblePages.length}</p>
                   </div>
                   <Button type="button" variant="outline" size="sm" className="border-slate-200 bg-white text-slate-700" onClick={() => setProposedNavigationOpen((current) => !current)}>
                     {proposedNavigationOpen ? "Hide steps" : "View steps"}
@@ -3480,17 +3743,62 @@ export default function AdminQuestionnaireBuilder({
                   <aside className={`${proposedNavigationOpen ? "block" : "hidden"} w-full shrink-0 border-b border-[#EBE7DF]/80 p-5 shadow-sm sm:p-6 lg:block lg:border-b-0 lg:border-r`}>
                     <div>
                       <span className="mb-1 block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Questionnaire</span>
-                      <p className="text-sm font-semibold text-slate-800">{definition.pages.length} section{definition.pages.length === 1 ? "" : "s"}</p>
+                      <p className="text-sm font-semibold text-slate-800">{proposedVisiblePages.length} section{proposedVisiblePages.length === 1 ? "" : "s"}</p>
                       <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-                        <div className="h-full rounded-full bg-[#244D42] transition-all duration-500" style={{ width: `${definition.pages.length ? ((pageNumberById.get(activePageId) || 1) / definition.pages.length) * 100 : 0}%` }} />
+                        <div className="h-full rounded-full bg-[#244D42] transition-all duration-500" style={{ width: `${proposedVisiblePages.length ? ((proposedPageNumberById.get(activePageId) || 1) / proposedVisiblePages.length) * 100 : 0}%` }} />
                       </div>
                     </div>
 
                     <ScrollArea className="mt-6 h-[min(62vh,680px)] pr-2">
                       <nav className="space-y-2" aria-label="Questionnaire sections">
-                        {pageGroups.map((group) => {
-                          const isExpanded = group.key === activePageGroupKey
+                        {proposedPageGroups.filter((group) => group.key !== "non-migrating").map((group) => {
+                          const nestedOtherFamily = group.key === "main-applicant"
+                            ? proposedPageGroups.find((candidate) => candidate.key === "non-migrating")
+                            : null;
+                          const groupIsActive = group.key === activePageGroupKey
+                            || (group.key === "main-applicant" && activePageGroupKey === "non-migrating");
+                          const isExpanded = groupIsActive
                             || expandedPageGroupKeys.includes(group.key);
+                          const nestedExpanded = activePageGroupKey === "non-migrating"
+                            || expandedPageGroupKeys.includes("non-migrating");
+                          const nestedAfterIndex = nestedOtherFamily
+                            ? group.pages.findIndex((page) => /\/main-applicant\/contact-details$/.test(page.route || ""))
+                            : -1;
+                          const selectProposedPage = (page) => {
+                            setActivePageId(page.id);
+                            setActiveQuestionId(page.questions?.[0]?.id || "");
+                            setQuestionEditorOpen(false);
+                            setSectionSettingsOpen(false);
+                            setProposedNavigationOpen(false);
+                          };
+                          const nestedNavigation = nestedOtherFamily ? (
+                            <Collapsible
+                              open={nestedExpanded}
+                              onOpenChange={(open) => setExpandedPageGroupKeys((current) => open
+                                ? Array.from(new Set([...current, "non-migrating"]))
+                                : current.filter((key) => key !== "non-migrating"))}
+                              className="ml-2 rounded-xl border border-[#e3ebe7] bg-[#fbfcfb] p-1"
+                            >
+                              <CollapsibleTrigger asChild>
+                                <button type="button" className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm font-semibold transition-colors ${activePageGroupKey === "non-migrating" ? "bg-[#e8f3ed] text-[#244D42]" : "text-slate-700 hover:bg-slate-50"}`}>
+                                  <span className="truncate">Other family</span>
+                                  <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${nestedExpanded ? "rotate-180" : ""}`} />
+                                </button>
+                              </CollapsibleTrigger>
+                              <CollapsibleContent className="ml-3 mt-1 space-y-0.5 border-l-2 border-[#dce9e2] pl-3">
+                                {nestedOtherFamily.pages.map((page) => (
+                                  <ProposedNavigationPageButton
+                                    key={page.id}
+                                    active={page.id === activePageId}
+                                    count={pagePresentations.get(page.id)?.primaryCount ?? 0}
+                                    onSelect={() => selectProposedPage(page)}
+                                    page={page}
+                                    stepNumber={proposedPageNumberById.get(page.id) || 0}
+                                  />
+                                ))}
+                              </CollapsibleContent>
+                            </Collapsible>
+                          ) : null;
                           return (
                             <Collapsible
                               key={group.key}
@@ -3500,34 +3808,25 @@ export default function AdminQuestionnaireBuilder({
                                 : current.filter((key) => key !== group.key))}
                             >
                               <CollapsibleTrigger asChild>
-                                <button type="button" className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition-colors ${group.key === activePageGroupKey ? "bg-slate-100 text-slate-900" : "text-slate-700 hover:bg-slate-50"}`}>
+                                <button type="button" className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition-colors ${groupIsActive ? "bg-slate-100 text-slate-900" : "text-slate-700 hover:bg-slate-50"}`}>
                                   <span className="truncate">{group.label}</span>
                                   <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
                                 </button>
                               </CollapsibleTrigger>
                               <CollapsibleContent className="ml-3 mt-1 space-y-0.5 border-l-2 border-slate-100 pl-3">
-                                {group.pages.map((page) => {
-                                  const isActive = page.id === activePageId;
-                                  const stepNumber = pageNumberById.get(page.id) || 0;
-                                  return (
-                                    <button
-                                      key={page.id}
-                                      type="button"
-                                      onClick={() => {
-                                        setActivePageId(page.id);
-                                        setActiveQuestionId(page.questions?.[0]?.id || "");
-                                        setQuestionEditorOpen(false);
-                                        setSectionSettingsOpen(false);
-                                        setProposedNavigationOpen(false);
-                                      }}
-                                      className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${isActive ? "bg-[#EEF7F2]/60 font-semibold text-slate-900" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
-                                    >
-                                      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs transition-colors ${isActive ? "bg-[#244D42] font-bold text-white shadow-sm" : "border border-slate-200 font-medium text-slate-400"}`}>{stepNumber}</span>
-                                      <span className="min-w-0 flex-1 whitespace-normal break-words leading-snug" title={page.title}>{page.title}</span>
-                                      <span className="text-xs text-slate-400" title="Client-facing questions">{pagePresentations.get(page.id)?.primaryCount ?? 0}</span>
-                                    </button>
-                                  );
-                                })}
+                                {group.pages.map((page, index) => (
+                                  <Fragment key={page.id}>
+                                    <ProposedNavigationPageButton
+                                      active={page.id === activePageId}
+                                      count={pagePresentations.get(page.id)?.primaryCount ?? 0}
+                                      onSelect={() => selectProposedPage(page)}
+                                      page={page}
+                                      stepNumber={proposedPageNumberById.get(page.id) || 0}
+                                    />
+                                    {nestedNavigation && index === nestedAfterIndex ? nestedNavigation : null}
+                                  </Fragment>
+                                ))}
+                                {nestedNavigation && nestedAfterIndex < 0 ? nestedNavigation : null}
                                 <button
                                   type="button"
                                   className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[#b9ccc3] bg-white px-2.5 py-2 text-xs font-semibold text-[#45685d] transition hover:border-[#7fa494] hover:bg-[#eef7f2] disabled:cursor-not-allowed disabled:opacity-50"
@@ -3630,7 +3929,13 @@ export default function AdminQuestionnaireBuilder({
                             </div>
                             <div className="pt-12 sm:pt-0 sm:pr-44">
                               <h2 data-testid="portal-section-title" className="text-2xl font-semibold leading-none tracking-tight text-[#17372e]">{activePage.title}</h2>
-                              {getIntroText(activePage) ? <p className="mt-3 max-w-4xl text-sm font-normal text-[#506a61]">{getIntroText(activePage)}</p> : <p className="mt-3 text-sm font-normal text-[#8a9b95]">Add a short description to guide the client through this section.</p>}
+                              {activePage.metadata?.workflowPage ? (
+                                <WorkflowPagePreview page={activePage} />
+                              ) : getIntroText(activePage) ? (
+                                <p className="mt-3 max-w-4xl whitespace-pre-line text-sm font-normal text-[#506a61]">{getIntroText(activePage)}</p>
+                              ) : (
+                                <p className="mt-3 text-sm font-normal text-[#8a9b95]">Add a short description to guide the client through this section.</p>
+                              )}
                             </div>
 
                             {sectionSettingsOpen ? (
@@ -3646,7 +3951,17 @@ export default function AdminQuestionnaireBuilder({
                                 </div>
                                 <div className="mt-4 grid gap-4">
                                   <div className="space-y-2"><FieldLabel htmlFor="proposed-page-title">Section title</FieldLabel><Input id="proposed-page-title" className={inputClassName} value={activePage.title} onChange={(event) => updatePageField("title", event.target.value)} /></div>
-                                  <div className="space-y-2"><FieldLabel htmlFor="proposed-page-intro">Section description</FieldLabel><Textarea id="proposed-page-intro" rows={3} className="border-[#cddbd5] bg-white" disabled={legacyPage && !activePage.metadata?.originalIntroBlocks?.length} value={getIntroText(activePage)} onChange={(event) => updateActivePage((page) => setIntroText(page, event.target.value))} /></div>
+                                  {activePage.metadata?.workflowPage ? (
+                                    <WorkflowPageContentEditor
+                                      page={activePage}
+                                      onChange={(blockIndex, block) => updateActivePage((page) => ({
+                                        ...page,
+                                        introBlocks: page.introBlocks.map((candidate, index) => index === blockIndex ? block : candidate),
+                                      }))}
+                                    />
+                                  ) : (
+                                    <div className="space-y-2"><FieldLabel htmlFor="proposed-page-intro">Section description</FieldLabel><Textarea id="proposed-page-intro" rows={3} className="border-[#cddbd5] bg-white" disabled={legacyPage && !activePage.metadata?.originalIntroBlocks?.length} value={getIntroText(activePage)} onChange={(event) => updateActivePage((page) => setIntroText(page, event.target.value))} /></div>
+                                  )}
                                   <details className="group/settings">
                                     <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold text-[#45685d]"><Settings2 className="h-4 w-4" />Route and storage settings<ChevronRight className="h-4 w-4 transition group-open/settings:rotate-90" /></summary>
                                     <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -3878,6 +4193,7 @@ export default function AdminQuestionnaireBuilder({
                               <CollapsibleContent>
                                 <InlinePresentationEditor
                                   presentation={activeQuestion.metadata.presentation}
+                                  structureLocked={builtInLegacyStructureIsLocked(activePage)}
                                   onChange={(patch) => updateQuestionField("metadata", { ...activeQuestion.metadata, presentation: { ...activeQuestion.metadata.presentation, ...patch } })}
                                 />
                               </CollapsibleContent>

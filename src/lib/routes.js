@@ -117,7 +117,7 @@ export const PROTECTION_VISA_ROUTES = [
 // Skills in Demand (subclass 482) — intake routes under /intake/temporary-work/
 export const TEMPORARY_WORK_VISA_ROUTES = [
   { href: "/intake/temporary-work/start", title: "Getting Started" },
-  { href: "/intake/temporary-work/profile", title: "Application Profile" },
+  { href: "/intake/temporary-work/profile", title: "Included Applicants" },
   {
     href: "/intake/temporary-work/main-applicant/details",
     title: "Main Applicant",
@@ -160,7 +160,7 @@ export const TEMPORARY_WORK_VISA_ROUTES = [
 // Employer Nomination Visa (subclass 186) — same pages, but spouse gets Education + Language
 export const EMPLOYER_NOMINATION_ROUTES = [
   { href: "/intake/temporary-work/start", title: "Getting Started" },
-  { href: "/intake/temporary-work/profile", title: "Application Profile" },
+  { href: "/intake/temporary-work/profile", title: "Included Applicants" },
   {
     href: "/intake/temporary-work/main-applicant/details",
     title: "Main Applicant",
@@ -264,18 +264,19 @@ export function getRegisteredQuestionnaireRoutes(visaType, visaContexts = []) {
       Array.isArray(route.subpages) && route.subpages.length ? route.subpages : [route]
     )
   );
+  flattened.push({ href: `/intake/${visaType}/non-migrating`, title: "Other Family" });
   // Dynamic people routes use stable placeholders in templates and actual ids in the portal.
   flattened.push(...questionnaireBuiltInPages.filter(page =>
     page.route.startsWith(`/intake/${visaType}/`) &&
     !(visaType === 'temporary-work' && !contexts.includes('186') && /\/spouse-partner\/(?:education|language)$/.test(page.route)) &&
-    !/\/(?:start|profile|submit)$/.test(page.route)
+    !/\/submit$/.test(page.route)
   ).map(page => ({ href: page.route, title: page.title })));
 
   return [...new Map(
     flattened
       .filter((route) =>
         route?.href?.startsWith("/intake/") &&
-        !/\/(?:start|profile|submit)$/.test(route.href) &&
+        !/\/submit$/.test(route.href) &&
         route.href !== "/intake/partner/children/start" &&
         route.href !== "/intake/partner/family"
       )

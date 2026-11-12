@@ -14,6 +14,13 @@ for (const template of questionnaireBuiltInTemplates) {
     assert.deepEqual(getQuestionnaireDefinitionIssues(definition), []);
     assert.deepEqual(getLegacyQuestionnairePublishIssues(definition), []);
     assert.ok(definition.pages.length > 20);
+    assert.deepEqual(
+      definition.pages.slice(0, 2).map(page => page.metadata?.workflowPage),
+      ['start', 'profile'],
+      'the editable workflow screens should lead the managed questionnaire',
+    );
+    assert.equal(definition.pages[0].questions[0].answerKey, 'started');
+    assert.equal(definition.pages[1].questions[0].answerKey, 'applicants');
     const routes = new Set(getRegisteredQuestionnaireRoutes(definition.visaType, definition.visaContexts).map(route => route.href));
     assert.ok(definition.pages.every(page => routes.has(page.route)), 'every page has a registered client form');
     const definitionRoutes = new Set(definition.pages.map(page => page.route));

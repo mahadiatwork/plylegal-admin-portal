@@ -160,8 +160,8 @@ test('legacy catalog hydration expands saved Character pages without changing th
 
   const hydrated = hydrateLegacyQuestionnaireDefinition(saved);
   const repaired = hydrated.pages.find(page => page.route === character.route);
-  assert.equal(QUESTIONNAIRE_LEGACY_CATALOG_VERSION, 4);
-  assert.equal(repaired.metadata.legacyCatalogVersion, 4);
+  assert.equal(QUESTIONNAIRE_LEGACY_CATALOG_VERSION, 6);
+  assert.equal(repaired.metadata.legacyCatalogVersion, QUESTIONNAIRE_LEGACY_CATALOG_VERSION);
   assert.equal(repaired.metadata.storagePath, 'familySponsor.details');
   assert.equal(repaired.questions.length, SPONSOR_CHARACTER_DECLARATIONS.length * 2);
 });

@@ -11,14 +11,18 @@ import { applyQuestionnaireBuiltInTemporaryWork482Enrichment, finalizeTemporaryW
 import { applyQuestionnaireBuiltInTemporaryWork186Enrichment, finalizeTemporaryWork186Enrichment } from './questionnaireBuiltInTemporaryWork186Enrichment.js';
 import { applyTemporaryWorkRepeaterPresentationFallback } from './questionnaireBuiltInTemporaryWorkEnrichment.js';
 import { applyQuestionnaireBuiltInPartnerEnrichment, finalizePartnerEnrichment, applyPartnerRepeaterPresentationFallback } from './questionnaireBuiltInPartnerEnrichment.js';
+import { getQuestionnaireWorkflowPages } from './questionnaireWorkflowPages.js';
 
-export const QUESTIONNAIRE_LEGACY_CATALOG_VERSION = 4;
+export const QUESTIONNAIRE_LEGACY_CATALOG_VERSION = 6;
 
 const TEMPORARY_WORK_SHARED_ROUTE_ORDER = [
+  '/intake/temporary-work/start',
+  '/intake/temporary-work/profile',
   '/intake/temporary-work/main-applicant/details',
   '/intake/temporary-work/main-applicant/other',
   '/intake/temporary-work/main-applicant/identity',
   '/intake/temporary-work/main-applicant/contact-details',
+  '/intake/temporary-work/non-migrating',
   '/intake/temporary-work/main-applicant/employment',
   '/intake/temporary-work/main-applicant/education',
   '/intake/temporary-work/main-applicant/skills',
@@ -44,12 +48,13 @@ const TEMPORARY_WORK_SHARED_ROUTE_ORDER = [
 ];
 
 function orderTemporaryWorkPages(pages, visaContext) {
+  const spouseInsertIndex = TEMPORARY_WORK_SHARED_ROUTE_ORDER.indexOf('/intake/temporary-work/main-applicant/language') + 1;
   const order = visaContext === '186'
     ? [
-        ...TEMPORARY_WORK_SHARED_ROUTE_ORDER.slice(0, 10),
+        ...TEMPORARY_WORK_SHARED_ROUTE_ORDER.slice(0, spouseInsertIndex),
         '/intake/temporary-work/spouse-partner/education',
         '/intake/temporary-work/spouse-partner/language',
-        ...TEMPORARY_WORK_SHARED_ROUTE_ORDER.slice(10),
+        ...TEMPORARY_WORK_SHARED_ROUTE_ORDER.slice(spouseInsertIndex),
       ]
     : TEMPORARY_WORK_SHARED_ROUTE_ORDER;
   const routeOrder = new Map(order.map((route, index) => [route, index]));
@@ -57,10 +62,13 @@ function orderTemporaryWorkPages(pages, visaContext) {
 }
 
 function builtInDefinition(visaType, visaContext, title) {
-  let sourcePages = structuredClone(questionnaireBuiltInPages.filter(page =>
-    page.route.startsWith(`/intake/${visaType}/`) &&
-    !(visaContext === '482' && /\/spouse-partner\/(education|language)$/.test(page.route))
-  ));
+  let sourcePages = [
+    ...getQuestionnaireWorkflowPages(visaType),
+    ...structuredClone(questionnaireBuiltInPages.filter(page =>
+      page.route.startsWith(`/intake/${visaType}/`) &&
+      !(visaContext === '482' && /\/spouse-partner\/(education|language)$/.test(page.route))
+    )),
+  ];
   if (visaType === 'protection') {
     sourcePages = applyQuestionnaireBuiltInProtectionEnrichment(sourcePages);
   }
@@ -117,6 +125,7 @@ function builtInDefinition(visaType, visaContext, title) {
     if (page.route.includes('/non-migrating/member-profile/')) {
       page.metadata.titleIncludesPerson = true;
       page.metadata.titleTemplate = `${page.title} — {profileName}`;
+      page.metadata.adminHiddenInProposed = true;
     }
     if (/\/(?:main-applicant|spouse-partner|children\/[^/]+)\/details$/.test(page.route)) page.metadata.titleIncludesPerson = true;
     page.questions.forEach(preserveDisplayBaseline);

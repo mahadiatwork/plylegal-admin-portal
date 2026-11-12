@@ -38,10 +38,10 @@ describe("Employer Nomination Visa (Subclass 186) built-in parity", () => {
   const definition = getBuiltInQuestionnaireDefinition({ visaType: "temporary-work", visaContext: "186" });
   const definition482 = getBuiltInQuestionnaireDefinition({ visaType: "temporary-work", visaContext: "482" });
 
-  it("has a valid 186 definition with 28 content pages and five spouse pages", () => {
+  it("has a valid 186 definition with 31 managed pages and five spouse pages", () => {
     assert.ok(definition);
-    assert.strictEqual(definition.pages.length, 28);
-    assert.strictEqual(definition.pages.filter((page) => page.metadata?.renderer === "legacy").length, 27);
+    assert.strictEqual(definition.pages.length, 31);
+    assert.strictEqual(definition.pages.filter((page) => page.metadata?.renderer === "legacy").length, 30);
     assert.strictEqual(definition.pages.filter((page) => page.metadata?.renderer !== "legacy").length, 1);
     const spouseRoutes = definition.pages
       .filter((page) => page.route.includes("/spouse-partner/"))

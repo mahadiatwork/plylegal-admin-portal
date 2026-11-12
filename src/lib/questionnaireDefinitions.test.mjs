@@ -73,9 +73,13 @@ test("publishable route registry exposes reachable questionnaire slots", () => {
     .map((route) => route.href);
 
   assert.ok(globalTemporaryWorkRoutes.includes("/intake/temporary-work/spouse-partner/education"));
+  assert.ok(globalTemporaryWorkRoutes.includes("/intake/temporary-work/start"));
+  assert.ok(globalTemporaryWorkRoutes.includes("/intake/temporary-work/profile"));
   assert.equal(subclass482Routes.includes("/intake/temporary-work/spouse-partner/education"), false);
   assert.ok(partnerRoutes.includes("/intake/partner/all-applicants/character"));
-  assert.equal(partnerRoutes.includes("/intake/partner/start"), false);
+  assert.equal(partnerRoutes.includes("/intake/partner/start"), true);
+  assert.equal(partnerRoutes.includes("/intake/partner/profile"), true);
+  assert.equal(partnerRoutes.includes("/intake/partner/submit"), false);
   assert.equal(partnerRoutes.includes("/intake/partner/children/start"), false);
   assert.equal(partnerRoutes.includes("/intake/partner/family"), false);
 });
@@ -274,11 +278,18 @@ test("serializes Firestore timestamps and legacy page documents", () => {
   assert.equal(serialized.revision, 0);
 });
 
-test("reserves workflow screens and canonicalizes completion keys from routes", () => {
+test("reserves submit while allowing managed start/profile screens and canonicalizes completion keys", () => {
   const reserved = validDefinition();
   reserved.pages[0].route = "/intake/temporary-work/submit";
   reserved.pages[0].completionKey = "temporary-work/submit";
   assert.ok(getQuestionnaireDefinitionIssues(reserved).some((issue) => issue.includes("reserved")));
+
+  for (const suffix of ["start", "profile"]) {
+    const managedWorkflow = validDefinition();
+    managedWorkflow.pages[0].route = `/intake/temporary-work/${suffix}`;
+    managedWorkflow.pages[0].completionKey = `temporary-work/${suffix}`;
+    assert.deepEqual(getQuestionnaireDefinitionIssues(managedWorkflow), []);
+  }
 
   const withoutCompletionKey = validDefinition();
   delete withoutCompletionKey.pages[0].completionKey;
