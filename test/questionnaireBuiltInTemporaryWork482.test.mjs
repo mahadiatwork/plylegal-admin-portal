@@ -1,7 +1,9 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import { getBuiltInQuestionnaireDefinition } from "../src/lib/questionnaireBuiltIns.js";
+import { getClientQuestionnairePresentation } from "../src/lib/questionnaireClientPresentation.js";
 import { getQuestionnaireDefinitionIssues } from "../src/lib/questionnaireDefinitions.js";
+import { groupQuestionnairePages } from "../src/lib/questionnairePageGroups.js";
 
 const SKILLS_ROUTE = "/intake/temporary-work/main-applicant/skills";
 
@@ -258,5 +260,51 @@ describe("Skills in Demand Visa (Subclass 482) built-in parity", () => {
       assert.strictEqual(page.metadata.titleIncludesPerson, true);
       assert.strictEqual(page.metadata.titleTemplate, `${page.title} — {profileName}`);
     });
+  });
+
+  it("matches the Test 2 identity, contact, family and custody contracts", () => {
+    const mainOther = definition.pages.find((page) => page.route.endsWith("/main-applicant/other"));
+    const spouseOther = definition.pages.find((page) => page.route.endsWith("/spouse-partner/other-details"));
+    const mainOtherNames = findQuestion(mainOther.questions, "other_names");
+    const spouseOtherNames = findQuestion(spouseOther.questions, "other_names");
+    assert.deepStrictEqual(mainOtherNames.visibleIf, [{ field: "has_other_names", op: "equals", value: "yes" }]);
+    assert.deepStrictEqual(spouseOtherNames.visibleIf, [{ field: "has_other_names", op: "equals", value: "yes" }]);
+    for (const records of [mainOtherNames, spouseOtherNames]) {
+      const country = findQuestion(records.metadata.fields, "issuing_country");
+      assert.strictEqual(country.type, "select");
+      assert.strictEqual(country.optionsSource, "countries");
+    }
+
+    const identity = definition.pages.find((page) => page.route.endsWith("/main-applicant/identity"));
+    assert.ok(findQuestion(identity.questions, "citizenships"));
+    assert.ok(findQuestion(identity.questions, "permanent_residency_rights"));
+
+    const contact = definition.pages.find((page) => page.route.endsWith("/main-applicant/contact-details"));
+    assert.strictEqual(findQuestion(contact.questions, "emergency_contact_name").metadata.group, "Emergency Contact");
+    assert.strictEqual(findQuestion(contact.questions, "emergency_contact_phone").metadata.group, "Emergency Contact");
+
+    const education = definition.pages.find((page) => page.route.endsWith("/main-applicant/education"));
+    assert.ok(findQuestion(findQuestion(education.questions, "education_history").metadata.fields, "certificate_number"));
+
+    const custody = definition.pages.find((page) => page.route.endsWith("/children/child-profile/custody"));
+    const presentation = getClientQuestionnairePresentation(custody, definition);
+    assert.strictEqual(presentation.primaryCount, 4);
+    assert.deepStrictEqual(
+      presentation.primaryEntries.map((entry) => entry.label),
+      [
+        "Is this family member a child under 18 years of age?",
+        "Is this child in the primary applicant's care and legal custody?",
+        "Does any other person have custodial, access or guardianship rights to this child?",
+        "Are there any legal impediments to this child's travel?",
+      ]
+    );
+    assert.deepStrictEqual(
+      presentation.primaryEntries.slice(1).map((entry) => entry.conditionalGroups[0]?.entries[0]?.label),
+      ["Give details", "Give details", "Give details"]
+    );
+
+    const otherFamily = groupQuestionnairePages(definition.pages).find((group) => group.key === "non-migrating");
+    assert.strictEqual(otherFamily.label, "Other family");
+    assert.strictEqual(otherFamily.pages.length, 6);
   });
 });

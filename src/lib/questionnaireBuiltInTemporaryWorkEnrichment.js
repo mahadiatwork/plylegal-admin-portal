@@ -515,6 +515,16 @@ export function enrichVisasPage(page) {
 
 export function enrichContactPage(page) {
   applyPageTitle(page);
+  page.questions = page.questions.map((question) => {
+    if (!["emergency_contact_name", "emergency_contact_phone"].includes(question.answerKey)) return question;
+    return {
+      ...question,
+      metadata: {
+        ...question.metadata,
+        group: "Emergency Contact",
+      },
+    };
+  });
   page.questions = updateQuestionTree(page.questions, "temporary-work-main-applicant-contact-details-residential_address", (question) => ({
     ...question,
     label: "Residential Address",
@@ -538,6 +548,56 @@ export function enrichContactPage(page) {
       },
     },
   }));
+  return page;
+}
+
+export function enrichChildCustodyPage(page) {
+  const contracts = {
+    under_18: {
+      label: "Is this family member a child under 18 years of age?",
+      type: "yesNo",
+    },
+    primary_custody_has: {
+      label: "Is this child in the primary applicant's care and legal custody?",
+      type: "yesNo",
+    },
+    primary_custody_details: {
+      label: "Give details",
+      type: "textarea",
+      visibleIf: [{ field: "primary_custody_has", op: "equals", value: "no" }],
+    },
+    other_person_rights_has: {
+      label: "Does any other person have custodial, access or guardianship rights to this child?",
+      type: "yesNo",
+    },
+    other_person_rights_details: {
+      label: "Give details",
+      type: "textarea",
+      visibleIf: [{ field: "other_person_rights_has", op: "equals", value: "yes" }],
+    },
+    travel_impediments_has: {
+      label: "Are there any legal impediments to this child's travel?",
+      type: "yesNo",
+    },
+    travel_impediments_details: {
+      label: "Give details",
+      type: "textarea",
+      visibleIf: [{ field: "travel_impediments_has", op: "equals", value: "yes" }],
+    },
+  };
+
+  page.questions = page.questions.map((question) => {
+    const contract = contracts[question.answerKey];
+    if (!contract) return question;
+    return {
+      ...question,
+      ...contract,
+      metadata: {
+        ...question.metadata,
+        originalLabel: contract.label,
+      },
+    };
+  });
   return page;
 }
 
@@ -660,6 +720,7 @@ export function applySharedTemporaryWorkPageEnrichment(pages) {
     if (page.route === "/intake/temporary-work/main-applicant/skills") enriched = enrichSkillsPage(enriched);
     else if (page.route === "/intake/temporary-work/all-applicants/visas") enriched = enrichVisasPage(enriched);
     else if (page.route === "/intake/temporary-work/main-applicant/contact-details") enriched = enrichContactPage(enriched);
+    else if (page.route === "/intake/temporary-work/children/child-profile/custody") enriched = enrichChildCustodyPage(enriched);
     else if (page.route === "/intake/temporary-work/all-applicants/travel-history") enriched = enrichTravelPage(enriched);
     else if (page.route === "/intake/temporary-work/all-applicants/countries-of-residence") enriched = enrichResidenceCoveragePage(applyPageTitle(enriched));
     else if (page.route === "/intake/temporary-work/all-applicants/health") enriched = enrichHealthPage(enriched);

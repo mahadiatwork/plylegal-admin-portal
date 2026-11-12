@@ -2,7 +2,7 @@ export const QUESTIONNAIRE_PAGE_GROUP_LABELS = Object.freeze({
   "main-applicant": "Main applicant",
   "spouse-partner": "Dependant — spouse / partner",
   children: "Dependants — children",
-  "non-migrating": "Non-migrating family",
+  "non-migrating": "Other family",
   "family-sponsor": "Family sponsor",
   relationships: "Relationships",
   "all-applicants": "All applicants",

@@ -3523,7 +3523,7 @@ export default function AdminQuestionnaireBuilder({
                                       className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${isActive ? "bg-[#EEF7F2]/60 font-semibold text-slate-900" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
                                     >
                                       <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs transition-colors ${isActive ? "bg-[#244D42] font-bold text-white shadow-sm" : "border border-slate-200 font-medium text-slate-400"}`}>{stepNumber}</span>
-                                      <span className="flex-1 truncate">{page.title}</span>
+                                      <span className="min-w-0 flex-1 whitespace-normal break-words leading-snug" title={page.title}>{page.title}</span>
                                       <span className="text-xs text-slate-400" title="Client-facing questions">{pagePresentations.get(page.id)?.primaryCount ?? 0}</span>
                                     </button>
                                   );
@@ -3591,7 +3591,7 @@ export default function AdminQuestionnaireBuilder({
                           setQuestionEditorOpen(false);
                           setSectionSettingsOpen(false);
                         }} className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left text-sm transition ${page.id === activePageId ? "bg-[#e5f1ea] font-semibold text-[#2b5f4d] ring-1 ring-[#add0bf]" : "text-[#587067] hover:bg-[#f2f7f4]"}`}>
-                          <span className="truncate">{page.title}</span>
+                          <span className="min-w-0 flex-1 whitespace-normal break-words leading-snug" title={page.title}>{page.title}</span>
                           <span className="flex shrink-0 items-center gap-2 text-xs text-[#789087]" title="Client-facing questions"><span>{pagePresentations.get(page.id)?.primaryCount ?? 0}</span><ChevronRight className="h-4 w-4" /></span>
                         </button>
                       ))}
@@ -4395,7 +4395,7 @@ export default function AdminQuestionnaireBuilder({
                         }`}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="truncate text-sm font-semibold text-[#24453b]">{page.title}</span>
+                          <span className="min-w-0 flex-1 whitespace-normal break-words text-sm font-semibold leading-snug text-[#24453b]" title={page.title}>{page.title}</span>
                           <ChevronRight className="h-4 w-4 shrink-0 text-[#8aa099]" />
                         </div>
                         <p className="mt-1 text-[11px] text-[#71857d]">{page.metadata?.profileRole ? `${({ main_applicant: "Main Applicant", spouse: "Spouse/Partner", child: "Child", non_migrating: "Other Family" })[page.metadata.profileRole] || page.metadata.profileRole} · ` : ""}{countQuestions(page.questions)} questions</p>

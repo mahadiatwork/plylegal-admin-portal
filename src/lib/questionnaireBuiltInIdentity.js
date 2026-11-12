@@ -42,8 +42,10 @@ function setLabel(question, label) {
 /** JSX, rather than obsolete zod fields, defines the current preserved client form. */
 export function applyQuestionnaireBuiltInIdentity(pages) {
   return pages.map(page => {
-    if (/\/temporary-work\/main-applicant\/other$/.test(page.route)) {
-      const questions = page.questions.filter(question => ['has_other_names', 'other_names'].includes(question.answerKey));
+    if (/\/temporary-work\/(?:main-applicant\/other|spouse-partner\/other-details)$/.test(page.route)) {
+      const questions = /\/main-applicant\/other$/.test(page.route)
+        ? page.questions.filter(question => ['has_other_names', 'other_names'].includes(question.answerKey))
+        : page.questions;
       const records = questions.find(question => question.answerKey === 'other_names');
       if (records) records.visibleIf = conditional('has_other_names');
       return { ...page, questions };
