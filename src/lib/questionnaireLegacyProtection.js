@@ -9,12 +9,10 @@ function definitionContextKey(definition) {
   return `${definition?.visaType || ''}:${context || ''}`;
 }
 
-const legacyPages = questionnaireBuiltInTemplates.flatMap(definition => (
-  definition.pages
-    .filter(page => page.metadata?.renderer === 'legacy')
-    .map(page => ({ key: `${definitionContextKey(definition)}:${page.route}`, page }))
+const builtInPages = questionnaireBuiltInTemplates.flatMap(definition => (
+  definition.pages.map(page => ({ key: `${definitionContextKey(definition)}:${page.route}`, page }))
 ));
-const legacyPagesByRoute = new Map(legacyPages.map(({ key, page }) => [key, page]));
+const builtInPagesByRoute = new Map(builtInPages.map(({ key, page }) => [key, page]));
 
 function questionsById(questions, result = new Map()) {
   for (const question of questions || []) {
@@ -23,6 +21,20 @@ function questionsById(questions, result = new Map()) {
     questionsById(question?.metadata?.fields, result);
   }
   return result;
+}
+
+function catalogBaselineSnapshot(page) {
+  const questions = questionsById(page.questions);
+  return {
+    version: QUESTIONNAIRE_LEGACY_CATALOG_VERSION,
+    questionIds: [...questions.keys()],
+    introBlockCount: page.introBlocks?.length || 0,
+    presentationSectionCounts: Object.fromEntries(
+      [...questions].flatMap(([id, question]) => Array.isArray(question.metadata?.presentation?.sections)
+        ? [[id, question.metadata.presentation.sections.length]]
+        : [])
+    ),
+  };
 }
 
 function upgradeQuestionRequirements(questions, baselineById) {
@@ -89,7 +101,7 @@ function copyVisibleOptionLabels(baselineOptions, savedOptions, originalOptions)
     const saved = savedByValue.get(option.value);
     const original = originalByValue.get(option.value);
     return typeof saved?.label === 'string'
-      ? { ...option, label: migratedCopyValue(saved.label, original?.label, option.label) }
+      ? { ...structuredClone(saved), ...option, label: migratedCopyValue(saved.label, original?.label, option.label) }
       : option;
   });
   const baselineValues = new Set(baselineOptions.map(option => option.value));
@@ -101,16 +113,16 @@ function copyVisibleOptionLabels(baselineOptions, savedOptions, originalOptions)
   return migrated;
 }
 
-function overlayPresentationCopy(baseline, saved, original) {
+function overlayPresentationCopy(baseline, saved, original, previousSectionCount = 0) {
   if (!baseline) return baseline;
-  const presentation = structuredClone(baseline);
+  const presentation = { ...structuredClone(saved || {}), ...structuredClone(baseline) };
   for (const field of ['addLabel', 'emptyMessage', 'addDialogTitle', 'editDialogTitle', 'dialogSubtitle']) {
     if (Object.hasOwn(saved || {}, field)) {
       presentation[field] = migratedCopyValue(saved[field], original?.[field], baseline[field]);
     }
   }
   if (baseline.actions) {
-    presentation.actions = { ...baseline.actions };
+    presentation.actions = { ...(saved?.actions || {}), ...baseline.actions };
     for (const field of Object.keys(baseline.actions)) {
       if (Object.hasOwn(saved?.actions || {}, field)) {
         presentation.actions[field] = migratedCopyValue(saved.actions[field], original?.actions?.[field], baseline.actions[field]);
@@ -122,22 +134,32 @@ function overlayPresentationCopy(baseline, saved, original) {
     const originalColumns = new Map((original?.columns || []).map(column => [column.key, column]));
     presentation.columns = baseline.columns.map(column => {
       const savedColumn = savedColumns.get(column.key);
-      return savedColumn?.label === undefined ? column : {
+      return savedColumn?.label === undefined ? { ...(savedColumn || {}), ...column } : {
+        ...savedColumn,
         ...column,
         label: migratedCopyValue(savedColumn.label, originalColumns.get(column.key)?.label, column.label),
       };
     });
+    const baselineColumnKeys = new Set(baseline.columns.map(column => column.key));
+    presentation.columns.push(...(saved?.columns || [])
+      .filter(column => !baselineColumnKeys.has(column.key))
+      .map(column => structuredClone(column)));
   }
   if (Array.isArray(baseline.sections)) {
-    presentation.sections = baseline.sections.map((section, index) => {
+    presentation.sections = baseline.sections.flatMap((section, index) => {
       const savedSection = saved?.sections?.[index];
       const originalSection = original?.sections?.[index];
-      return {
+      if (!savedSection && index < previousSectionCount) return [];
+      return [{
+        ...(savedSection || {}),
         ...section,
         ...(savedSection?.heading !== undefined ? { heading: migratedCopyValue(savedSection.heading, originalSection?.heading, section.heading) } : {}),
         ...(savedSection?.description !== undefined ? { description: migratedCopyValue(savedSection.description, originalSection?.description, section.description) } : {}),
-      };
+      }];
     });
+    presentation.sections.push(...(saved?.sections || [])
+      .slice(baseline.sections.length)
+      .map(section => structuredClone(section)));
   }
   return presentation;
 }
@@ -158,8 +180,30 @@ function mergeValidation(baseline, saved) {
   };
 }
 
-function overlayQuestionCopy(baseline, savedById) {
-  const saved = savedById.get(baseline.id);
+function mergeQuestionCopies(baselineQuestions, savedQuestions, previousSnapshot, report, path) {
+  const savedById = new Map((savedQuestions || []).filter(question => question?.id).map(question => [question.id, question]));
+  const baselineIds = new Set((baselineQuestions || []).map(question => question.id));
+  const previousIds = new Set(previousSnapshot?.questionIds || []);
+  const merged = [];
+  for (const baseline of baselineQuestions || []) {
+    const saved = savedById.get(baseline.id);
+    if (!saved && previousIds.has(baseline.id)) {
+      report.preserved.push(`${path}: preserved deletion of ${baseline.id}`);
+      continue;
+    }
+    if (!saved) report.added.push(`${path}: added ${baseline.id}`);
+    merged.push(overlayQuestionCopy(baseline, saved, previousSnapshot, report, path));
+  }
+  for (const saved of savedQuestions || []) {
+    if (!baselineIds.has(saved?.id)) {
+      merged.push(structuredClone(saved));
+      report.preserved.push(`${path}: preserved unknown question ${saved?.id || '(without id)'}`);
+    }
+  }
+  return merged;
+}
+
+function overlayQuestionCopy(baseline, saved, previousSnapshot, report, path) {
   let question = saved
     ? { ...structuredClone(saved), ...structuredClone(baseline) }
     : structuredClone(baseline);
@@ -183,47 +227,72 @@ function overlayQuestionCopy(baseline, savedById) {
         baseline.metadata.presentation,
         saved.metadata?.presentation,
         saved.metadata?.originalPresentation,
+        previousSnapshot?.presentationSectionCounts?.[baseline.id] || 0,
       );
     }
     if (saved.metadata?.crm) question.metadata.crm = structuredClone(saved.metadata.crm);
     if (Object.keys(question.metadata).length === 0) delete question.metadata;
   }
 
-  if (baseline.followUps) {
-    question.followUps = baseline.followUps.map(followUp =>
-      overlayQuestionCopy(followUp, savedById)
+  if (baseline.followUps || saved?.followUps) {
+    question.followUps = mergeQuestionCopies(
+      baseline.followUps || [],
+      saved?.followUps || [],
+      previousSnapshot,
+      report,
+      `${path}.${baseline.id}.followUps`,
     );
   }
 
-  if (baseline.metadata?.fields) {
+  if (baseline.metadata?.fields || saved?.metadata?.fields) {
     question.metadata = {
       ...question.metadata,
-      fields: baseline.metadata.fields.map(field =>
-        overlayQuestionCopy(field, savedById)
+      fields: mergeQuestionCopies(
+        baseline.metadata?.fields || [],
+        saved?.metadata?.fields || [],
+        previousSnapshot,
+        report,
+        `${path}.${baseline.id}.fields`,
       ),
     };
   }
   return question;
 }
 
-function hydrateLegacyPage(page, baseline) {
-  const savedById = questionsById(page.questions);
+function hydrateLegacyPage(page, baseline, report) {
+  const previousSnapshot = page.metadata?.legacyCatalogBaseline;
   const originalIntroBlocks = page.metadata?.originalIntroBlocks;
   const introBlocks = Array.isArray(baseline.introBlocks)
-    ? baseline.introBlocks.map((block, index) => {
+    ? baseline.introBlocks.flatMap((block, index) => {
         const saved = page.introBlocks?.[index];
         const original = originalIntroBlocks?.[index];
-        if (!saved || saved.type !== block.type) return structuredClone(block);
-        if (block.type === 'paragraph') {
-          return { ...block, text: migratedCopyValue(saved.text, original?.text, block.text) };
+        if (!saved && index < (previousSnapshot?.introBlockCount || 0)) {
+          report.preserved.push(`${page.id}: preserved deletion of intro block ${index}`);
+          return [];
         }
-        return {
+        if (!saved || saved.type !== block.type) {
+          report.added.push(`${page.id}: added intro block ${index}`);
+          return [structuredClone(block)];
+        }
+        if (block.type === 'paragraph') {
+          return [{ ...structuredClone(saved), ...block, text: migratedCopyValue(saved.text, original?.text, block.text) }];
+        }
+        return [{
+          ...structuredClone(saved),
           ...block,
           ...(saved.lead !== undefined ? { lead: migratedCopyValue(saved.lead, original?.lead, block.lead) } : {}),
           items: (block.items || []).map((item, itemIndex) => migratedCopyValue(saved.items?.[itemIndex], original?.items?.[itemIndex], item)),
-        };
+        }];
       })
     : undefined;
+  if (introBlocks) {
+    introBlocks.push(...(page.introBlocks || [])
+      .slice(baseline.introBlocks.length)
+      .map((block, index) => {
+        report.preserved.push(`${page.id}: preserved unknown intro block ${baseline.introBlocks.length + index}`);
+        return structuredClone(block);
+      }));
+  }
   return {
     ...structuredClone(page),
     ...structuredClone(baseline),
@@ -231,14 +300,19 @@ function hydrateLegacyPage(page, baseline) {
       ? migratedCopyValue(page.title, page.metadata?.originalDisplayTitle || page.metadata?.originalTitle, baseline.title)
       : baseline.title,
     order: Number.isFinite(page.order) ? page.order : baseline.order,
-    questions: baseline.questions.map(question =>
-      overlayQuestionCopy(question, savedById)
+    questions: mergeQuestionCopies(
+      baseline.questions,
+      page.questions,
+      previousSnapshot,
+      report,
+      page.id,
     ),
     ...(introBlocks ? { introBlocks } : {}),
     metadata: {
       ...(page.metadata || {}),
       ...baseline.metadata,
       legacyCatalogVersion: QUESTIONNAIRE_LEGACY_CATALOG_VERSION,
+      legacyCatalogBaseline: catalogBaselineSnapshot(baseline),
     },
   };
 }
@@ -252,19 +326,19 @@ function hydrateLegacyPage(page, baseline) {
  * also lets us carry corrected requirements onto the one page being promoted
  * to the dynamic renderer in the same save.
  */
-export function hydrateLegacyQuestionnaireDefinition(definition) {
-  if (!definition || !Array.isArray(definition.pages)) return definition;
+export function migrateLegacyQuestionnaireDefinition(definition) {
+  const report = { added: [], preserved: [], conflicts: [], unresolved: [] };
+  if (!definition || !Array.isArray(definition.pages)) return { definition, report };
 
   const needsMigration = definition.pages.some(page =>
-    page?.metadata?.renderer === 'legacy'
-      && page.metadata?.legacyCatalogVersion !== QUESTIONNAIRE_LEGACY_CATALOG_VERSION
-      && legacyPagesByRoute.has(`${definitionContextKey(definition)}:${page.route}`)
+    page?.metadata?.legacyCatalogVersion !== QUESTIONNAIRE_LEGACY_CATALOG_VERSION
+      && builtInPagesByRoute.has(`${definitionContextKey(definition)}:${page.route}`)
   );
-  if (!needsMigration) return definition;
+  if (!needsMigration) return { definition, report };
 
   let changed = false;
   const pages = definition.pages.map(page => {
-    const baseline = legacyPagesByRoute.get(`${definitionContextKey(definition)}:${page.route}`);
+    const baseline = builtInPagesByRoute.get(`${definitionContextKey(definition)}:${page.route}`);
     if (
       !baseline
       || page.metadata?.legacyCatalogVersion === QUESTIONNAIRE_LEGACY_CATALOG_VERSION
@@ -272,27 +346,32 @@ export function hydrateLegacyQuestionnaireDefinition(definition) {
       return page;
     }
 
-    if (page.metadata?.renderer === 'legacy') {
+    if (page.metadata?.renderer === 'legacy' && baseline.metadata?.renderer === 'legacy') {
       changed = true;
-      return hydrateLegacyPage(page, baseline);
+      return hydrateLegacyPage(page, baseline, report);
     }
 
-    const requirements = upgradeQuestionRequirements(
-      page.questions,
-      questionsById(baseline.questions)
-    );
+    const requirements = baseline.metadata?.renderer === 'legacy'
+      ? upgradeQuestionRequirements(page.questions, questionsById(baseline.questions))
+      : { changed: false, questions: page.questions };
     changed = true;
+    report.preserved.push(`${page.id}: preserved dynamic structure while advancing the catalog baseline`);
     return {
       ...page,
       questions: requirements.questions,
       metadata: {
         ...page.metadata,
         legacyCatalogVersion: QUESTIONNAIRE_LEGACY_CATALOG_VERSION,
+        legacyCatalogBaseline: catalogBaselineSnapshot(baseline),
       },
     };
   });
 
-  return changed ? { ...definition, pages } : definition;
+  return { definition: changed ? { ...definition, pages } : definition, report };
+}
+
+export function hydrateLegacyQuestionnaireDefinition(definition) {
+  return migrateLegacyQuestionnaireDefinition(definition).definition;
 }
 function stable(value) {
   if (Array.isArray(value)) return value.map(stable);
@@ -318,6 +397,7 @@ function stripCrmFromContractMetadata(metadata) {
 function pageContractMetadata(metadata) {
   const contract = stripCrmFromContractMetadata(metadata || {});
   delete contract.legacyCatalogVersion;
+  delete contract.legacyCatalogBaseline;
   delete contract.titleIncludesPerson;
   delete contract.titleTemplate;
   return contract;
@@ -378,15 +458,14 @@ export function getLegacyQuestionnairePublishIssues(definition) {
   definition = hydrateLegacyQuestionnaireDefinition(definition);
   const issues = [];
   for (const page of definition.pages || []) {
-    // A page that has been deliberately promoted to the schema renderer is no
-    // longer coupled to its shipped React form. Its storage keys are still
-    // validated by the questionnaire schema, while choices and display rules
-    // may now change through the owner-facing builder.
-    if (page.metadata?.renderer !== 'legacy') continue;
-
-    const baseline = legacyPagesByRoute.get(`${definitionContextKey(definition)}:${page.route}`);
+    const baseline = builtInPagesByRoute.get(`${definitionContextKey(definition)}:${page.route}`);
     if (!baseline) {
       if (page.metadata?.renderer === 'legacy') issues.push(`${page.title}: the original built-in page could not be found`);
+      continue;
+    }
+    if (baseline.metadata?.renderer !== 'legacy') continue;
+    if (page.metadata?.renderer !== 'legacy') {
+      issues.push(`${page.title}: this shipped page has not been certified for the dynamic renderer; create and verify a Test copy before requesting promotion`);
       continue;
     }
     if (JSON.stringify(stable(pageContract(page))) !== JSON.stringify(stable(pageContract(baseline)))) {

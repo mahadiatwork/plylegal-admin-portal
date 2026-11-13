@@ -11,27 +11,27 @@ function date(prefix, key, label, extra = {}) {
 const conditional = (field, value = 'yes') => [{ field, op: 'equals', value }];
 function passportFields(prefix) {
   return [
-    field(prefix, 'document_type', 'Type of Document', 'select', { options: choices(['Passport', 'Emergency Passport', 'Travel Document']) }),
-    field(prefix, 'document_number', 'Passport/Document Number'),
-    field(prefix, 'passport_country', 'Passport Country'),
-    field(prefix, 'place_of_issue', 'Place of Issue / Issuing Authority'),
-    field(prefix, 'nationality', 'Nationality'),
-    field(prefix, 'gender', 'Gender as shown on this document', 'select', { options: choices(['Male', 'Female', 'X/Unspecified']) }),
-    field(prefix, 'name', 'Name'),
-    date(prefix, 'date_issued', 'Date of Issue'),
-    field(prefix, 'is_original_date', 'Is this the Original Date of Issue?', 'yesNo', { options: YES_NO }),
+    field(prefix, 'document_type', 'Type of Document', 'select', { required: true, options: choices(['Passport', 'Emergency Passport', 'Travel Document']) }),
+    field(prefix, 'document_number', 'Passport/Document Number', 'text', { required: true }),
+    field(prefix, 'passport_country', 'Passport Country', 'text', { required: true }),
+    field(prefix, 'place_of_issue', 'Place of Issue / Issuing Authority', 'text', { required: true }),
+    field(prefix, 'nationality', 'Nationality', 'text', { required: true }),
+    field(prefix, 'gender', 'Gender as shown on this document', 'select', { required: true, options: choices(['Male', 'Female', 'X/Unspecified']) }),
+    field(prefix, 'name', 'Name', 'text', { required: true }),
+    date(prefix, 'date_issued', 'Date of Issue', { required: true }),
+    field(prefix, 'is_original_date', 'Is this the Original Date of Issue?', 'yesNo', { required: true, options: YES_NO }),
     date(prefix, 'original_date', 'Original Date of Issue', { visibleIf: conditional('is_original_date', 'no') }),
     date(prefix, 'date_expiry', 'Date of Expiry', {
       maxYear: CURRENT_YEAR + 50,
       yearRange: CURRENT_YEAR + 50 - 2016 + 1,
     }),
-    field(prefix, 'document_status', 'Document Status', 'select', { options: choices(['Current', 'Expired', 'Lost', 'Stolen', 'Cancelled', 'Damaged']) }),
+    field(prefix, 'document_status', 'Document Status', 'select', { required: true, options: choices(['Current', 'Expired', 'Lost', 'Stolen', 'Cancelled', 'Damaged']) }),
   ];
 }
 function nationalCardFields(prefix) {
   return [
-    field(prefix, 'family_name', 'Family name'), field(prefix, 'given_names', 'Given names'),
-    field(prefix, 'identification_number', 'Identification number'), field(prefix, 'country_of_issue', 'Country of issue'),
+    field(prefix, 'family_name', 'Family name', 'text', { required: true }), field(prefix, 'given_names', 'Given names', 'text', { required: true }),
+    field(prefix, 'identification_number', 'Identification number', 'text', { required: true }), field(prefix, 'country_of_issue', 'Country of issue', 'text', { required: true }),
     date(prefix, 'date_issued', 'Date of issue (optional)'), date(prefix, 'date_expiry', 'Date of expiry (optional)'),
   ];
 }
@@ -42,6 +42,9 @@ function setLabel(question, label) {
 /** JSX, rather than obsolete zod fields, defines the current preserved client form. */
 export function applyQuestionnaireBuiltInIdentity(pages) {
   return pages.map(page => {
+    if (/\/children\/[^/]+\/(?:other|other-names)$/.test(page.route)) {
+      return { ...page, metadata: { ...page.metadata, titleIncludesPerson: true, titleTemplate: "Other Names — {profileName}" } };
+    }
     if (/\/temporary-work\/(?:main-applicant\/other|spouse-partner\/other-details)$/.test(page.route)) {
       const questions = /\/main-applicant\/other$/.test(page.route)
         ? page.questions.filter(question => ['has_other_names', 'other_names'].includes(question.answerKey))
@@ -51,13 +54,19 @@ export function applyQuestionnaireBuiltInIdentity(pages) {
       return { ...page, questions };
     }
     if (!/\/(?:main-applicant|spouse-partner|children\/[^/]+)\/identity$/.test(page.route)) return page;
+    if (/\/children\/[^/]+\/identity$/.test(page.route)) {
+      page = { ...page, metadata: { ...page.metadata, titleIncludesPerson: true, titleTemplate: "Identity — {profileName}" } };
+    }
     const keys = new Set(page.questions.map(question => question.answerKey));
     const questions = page.questions.map(question => {
       switch (question.answerKey) {
         case 'has_passport':
           return { ...setLabel(question, 'Do you currently hold or have you ever held a Passport or Travel Document?'), type: 'yesNo', options: YES_NO, metadata: { ...question.metadata, group: 'Passport / Travel Document', originalLabel: 'Do you currently hold or have you ever held a Passport or Travel Document?', originalOptions: YES_NO } };
         case 'passports':
-          return { ...setLabel(question, 'Passport / Travel Document'), visibleIf: conditional('has_passport'), metadata: { ...question.metadata, originalLabel: 'Passport / Travel Document', group: 'Passport / Travel Document', fields: passportFields(question.id) } };
+          return { ...setLabel(question, 'Passport / Travel Document'), visibleIf: conditional('has_passport'), metadata: { ...question.metadata, originalLabel: 'Passport / Travel Document', group: 'Passport / Travel Document', fields: passportFields(question.id), validation: { rules: [
+            { id: 'minRowsWhenEquals', field: 'passports', config: { field: 'has_passport', value: 'yes', min: 1 } },
+            { id: 'requiredWhenEquals', field: 'date_expiry_day', config: { field: 'document_status', value: 'Current' } },
+          ] } } };
         case 'has_national_id':
           return { ...setLabel(question, 'Do you have a National ID card?'), metadata: { ...question.metadata, originalLabel: 'Do you have a National ID card?', group: 'National Identity Document' } };
         case 'national_id_card':

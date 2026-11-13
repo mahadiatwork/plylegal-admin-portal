@@ -1341,6 +1341,7 @@ function structuralPage(page) {
     sectionKey: page.sectionKey,
     completionKey: page.completionKey,
     scope: page.scope,
+    order: page.order,
     metadata: structuralMetadata(page.metadata),
     questions: (page.questions || []).map(structuralQuestion),
     introBlocks: (page.introBlocks || []).map((block) => ({

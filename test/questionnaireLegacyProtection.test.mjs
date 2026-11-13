@@ -9,6 +9,7 @@ import { getQuestionnaireDefinitionIssues } from "../src/lib/questionnaireDefini
 import {
   getLegacyQuestionnairePublishIssues,
   hydrateLegacyQuestionnaireDefinition,
+  migrateLegacyQuestionnaireDefinition,
 } from "../src/lib/questionnaireLegacyProtection.js";
 
 function legacyPageWithChoices() {
@@ -66,17 +67,17 @@ test("legacy protection still rejects structural changes while a page uses its l
   assert.match(issues[0], /answer structure is preserved/i);
 });
 
-test("legacy protection allows structural changes after the page is promoted to the dynamic renderer", () => {
+test("legacy protection rejects candidate-declared promotion without server certification", () => {
   const page = legacyPageWithChoices();
   const question = page.questions.find((candidate) => candidate.options?.length);
   question.options.push({ value: "new_choice", label: "New choice" });
   question.visibleIf = [{ field: "a_previous_answer", op: "equals", value: "yes" }];
   page.metadata = { ...page.metadata, renderer: "dynamic" };
 
-  assert.deepEqual(getLegacyQuestionnairePublishIssues(activeDefinition(page)), []);
+  assert.ok(getLegacyQuestionnairePublishIssues(activeDefinition(page)).some((issue) => /not been certified/i.test(issue)));
 });
 
-test("a promoted built-in page with edited choices and a display rule remains publishable", () => {
+test("a promoted built-in page with edited choices and a display rule remains structurally valid but unpublished", () => {
   const definition = structuredClone(questionnaireBuiltInTemplates[0]);
   const page = definition.pages.find((candidate) =>
     candidate.route.endsWith("/main-applicant/details")
@@ -94,7 +95,7 @@ test("a promoted built-in page with edited choices and a display rule remains pu
     value: "Married",
   };
 
-  assert.deepEqual(getLegacyQuestionnairePublishIssues(definition), []);
+  assert.ok(getLegacyQuestionnairePublishIssues(definition).some((issue) => /not been certified/i.test(issue)));
   assert.deepEqual(getQuestionnaireDefinitionIssues(definition), []);
 });
 
@@ -132,7 +133,7 @@ function questionById(page, id) {
   return match;
 }
 
-test("pre-migration saved snapshots receive current requirements before a page is promoted", () => {
+test("pre-migration saved snapshots receive current requirements but cannot self-certify promotion", () => {
   const definition = structuredClone(questionnaireBuiltInTemplates[0]);
   const requiredPages = definition.pages.filter((page) => firstRequiredQuestion(page));
   const migratedPageIds = new Set(
@@ -168,7 +169,7 @@ test("pre-migration saved snapshots receive current requirements before a page i
     firstRequiredQuestion(upgradedPromotedPage),
     "the page promoted during the migration save must receive current dynamic validation",
   );
-  assert.deepEqual(getLegacyQuestionnairePublishIssues(upgraded), []);
+  assert.ok(getLegacyQuestionnairePublishIssues(upgraded).some((issue) => /not been certified/i.test(issue)));
   assert.deepEqual(getQuestionnaireDefinitionIssues(upgraded), []);
 });
 
@@ -288,4 +289,63 @@ test("version-3 migration advances untouched copy without losing presentation ed
   assert.equal(hydratedHospital.metadata.customAuditTag, "preserve-me");
   assert.ok(questionById(hydratedPromoted, "custom-promoted-question"));
   assert.deepEqual(hydrateLegacyQuestionnaireDefinition(hydrated), hydrated);
+});
+
+test("catalog migration preserves unknown nodes and recorded deletions with an idempotent report", () => {
+  const definition = structuredClone(questionnaireBuiltInTemplates[0]);
+  definition.status = "draft";
+  definition.revision = 37;
+  definition.pages.forEach((page) => { page.metadata.legacyCatalogVersion = QUESTIONNAIRE_LEGACY_CATALOG_VERSION; });
+  const page = definition.pages.find((candidate) => candidate.route.endsWith("/main-applicant/details"));
+  const oldQuestionIds = [];
+  visitQuestions(page.questions, (question) => oldQuestionIds.push(question.id));
+  page.metadata.legacyCatalogVersion = QUESTIONNAIRE_LEGACY_CATALOG_VERSION - 1;
+  page.metadata.legacyCatalogBaseline = {
+    version: QUESTIONNAIRE_LEGACY_CATALOG_VERSION - 1,
+    questionIds: oldQuestionIds,
+    introBlockCount: page.introBlocks.length,
+    presentationSectionCounts: {},
+  };
+
+  const deleted = page.questions.pop();
+  const gender = page.questions.find((question) => question.answerKey === "gender");
+  gender.options[0].externalCode = "legacy-male";
+  gender.metadata.presentation = { customChrome: "retain" };
+  page.questions.push({
+    id: "custom-saved-question",
+    answerKey: "custom_saved_answer",
+    label: "Custom saved question",
+    type: "text",
+    required: false,
+    customField: "retain",
+  });
+  page.introBlocks.push({ type: "paragraph", text: "Administrator-added note", customBlock: true });
+
+  const migration = migrateLegacyQuestionnaireDefinition(definition);
+  const migratedPage = migration.definition.pages.find((candidate) => candidate.id === page.id);
+  assert.equal(migration.definition.status, "draft");
+  assert.equal(migration.definition.revision, 37);
+  assert.equal(questionById(migratedPage, deleted.id), null);
+  assert.equal(questionById(migratedPage, "custom-saved-question").customField, "retain");
+  assert.equal(questionById(migratedPage, gender.id).options[0].externalCode, "legacy-male");
+  assert.equal(questionById(migratedPage, gender.id).metadata.presentation.customChrome, "retain");
+  assert.equal(migratedPage.introBlocks.at(-1).text, "Administrator-added note");
+  assert.ok(migration.report.preserved.some((entry) => entry.includes(`deletion of ${deleted.id}`)));
+  assert.ok(migration.report.preserved.some((entry) => entry.includes("custom-saved-question")));
+
+  const repeated = migrateLegacyQuestionnaireDefinition(migration.definition);
+  assert.strictEqual(repeated.definition, migration.definition);
+  assert.deepEqual(repeated.report, { added: [], preserved: [], conflicts: [], unresolved: [] });
+});
+
+test("catalog migration advances native dynamic pages even when every legacy page is current", () => {
+  const definition = structuredClone(questionnaireBuiltInTemplates[0]);
+  definition.pages.forEach((page) => { page.metadata.legacyCatalogVersion = QUESTIONNAIRE_LEGACY_CATALOG_VERSION; });
+  const character = definition.pages.find((page) => page.metadata?.renderer !== "legacy");
+  character.metadata.legacyCatalogVersion = QUESTIONNAIRE_LEGACY_CATALOG_VERSION - 1;
+
+  const migration = migrateLegacyQuestionnaireDefinition(definition);
+  const migrated = migration.definition.pages.find((page) => page.id === character.id);
+  assert.equal(migrated.metadata.legacyCatalogVersion, QUESTIONNAIRE_LEGACY_CATALOG_VERSION);
+  assert.ok(migration.report.preserved.some((entry) => entry.includes("preserved dynamic structure")));
 });

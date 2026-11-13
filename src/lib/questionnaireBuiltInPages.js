@@ -427,9 +427,7 @@ export const questionnaireBuiltInPages = [
               "label": "Country of Citizenship",
               "type": "text",
               "required": true,
-              "placeholder": "Choose Country",
               "metadata": {
-                "originalPlaceholder": "Choose Country",
                 "originalLabel": "Country of Citizenship"
               }
             },
@@ -991,9 +989,7 @@ export const questionnaireBuiltInPages = [
               "label": "Issuing Country",
               "type": "text",
               "required": false,
-              "placeholder": "Choose country",
               "metadata": {
-                "originalPlaceholder": "Choose country",
                 "originalLabel": "Issuing Country"
               }
             },
@@ -5155,9 +5151,7 @@ export const questionnaireBuiltInPages = [
               "label": "Country of Citizenship",
               "type": "text",
               "required": true,
-              "placeholder": "Choose Country",
               "metadata": {
-                "originalPlaceholder": "Choose Country",
                 "originalLabel": "Country of Citizenship"
               }
             },
@@ -7689,13 +7683,476 @@ export const questionnaireBuiltInPages = [
     ]
   },
   {
+    "id": "temporary-work-spouse-partner-other-details",
+    "route": "/intake/temporary-work/spouse-partner/other-details",
+    "title": "Other Names",
+    "sectionKey": "temporary_work_spouse_other",
+    "completionKey": "temporary-work/spouse-partner/other-details",
+    "scope": "profile",
+    "order": 150,
+    "introBlocks": [
+      {
+        "type": "paragraph",
+        "text": "In this section, provide additional details about the main applicant's spouse/partner."
+      }
+    ],
+    "metadata": {
+      "renderer": "legacy",
+      "builtInPageId": "temporary-work-spouse-partner-other-details",
+      "storagePath": "temporary_work_spouse_other",
+      "profileSection": "other",
+      "originalTitle": "Other Personal Details",
+      "titleIncludesPerson": false,
+      "originalIntroBlocks": [
+        {
+          "type": "paragraph",
+          "text": "In this section, provide additional details about the main applicant's spouse/partner."
+        }
+      ],
+      "profileRole": "spouse"
+    },
+    "questions": [
+      {
+        "id": "temporary-work-spouse-partner-other-details-has_other_names",
+        "answerKey": "has_other_names",
+        "label": "Have you ever had or been known by any other Name or Alias, or had a different name spelling?",
+        "type": "yesNo",
+        "required": true,
+        "options": [
+          {
+            "value": "yes",
+            "label": "Yes"
+          },
+          {
+            "value": "no",
+            "label": "No"
+          }
+        ],
+        "metadata": {
+          "originalLabel": "Have you ever had or been known by any other Name or Alias, or had a different name spelling?",
+          "originalOptions": [
+            {
+              "value": "yes",
+              "label": "Yes"
+            },
+            {
+              "value": "no",
+              "label": "No"
+            }
+          ]
+        }
+      },
+      {
+        "id": "temporary-work-spouse-partner-other-details-other_names",
+        "answerKey": "other_names",
+        "label": "Other Names",
+        "type": "repeater",
+        "required": false,
+        "metadata": {
+          "fields": [
+            {
+              "id": "temporary-work-spouse-partner-other-details-other_names-family_name",
+              "answerKey": "family_name",
+              "label": "Family Name",
+              "type": "text",
+              "required": true,
+              "metadata": {
+                "originalLabel": "Family Name"
+              }
+            },
+            {
+              "id": "temporary-work-spouse-partner-other-details-other_names-given_names",
+              "answerKey": "given_names",
+              "label": "Given Names",
+              "type": "text",
+              "required": true,
+              "metadata": {
+                "originalLabel": "Given Names"
+              }
+            },
+            {
+              "id": "temporary-work-spouse-partner-other-details-other_names-reason_for_change",
+              "answerKey": "reason_for_change",
+              "label": "Reason for Change",
+              "type": "select",
+              "required": true,
+              "options": [
+                {
+                  "value": "Adoption",
+                  "label": "Adoption"
+                },
+                {
+                  "value": "Alternative spelling",
+                  "label": "Alternative spelling"
+                },
+                {
+                  "value": "Anglicisation of name",
+                  "label": "Anglicisation of name"
+                },
+                {
+                  "value": "Birth",
+                  "label": "Birth"
+                },
+                {
+                  "value": "Cultural origins",
+                  "label": "Cultural origins"
+                },
+                {
+                  "value": "Divorce",
+                  "label": "Divorce"
+                },
+                {
+                  "value": "Gender change",
+                  "label": "Gender change"
+                },
+                {
+                  "value": "Maiden name",
+                  "label": "Maiden name"
+                },
+                {
+                  "value": "Marriage",
+                  "label": "Marriage"
+                },
+                {
+                  "value": "Name in full",
+                  "label": "Name in full"
+                },
+                {
+                  "value": "Nickname",
+                  "label": "Nickname"
+                },
+                {
+                  "value": "Preferred name",
+                  "label": "Preferred name"
+                },
+                {
+                  "value": "Prefix and/or suffix",
+                  "label": "Prefix and/or suffix"
+                },
+                {
+                  "value": "Religious name",
+                  "label": "Religious name"
+                },
+                {
+                  "value": "Reordering of name",
+                  "label": "Reordering of name"
+                },
+                {
+                  "value": "Split or joining name",
+                  "label": "Split or joining name"
+                },
+                {
+                  "value": "Transliteration",
+                  "label": "Transliteration"
+                },
+                {
+                  "value": "Truncation",
+                  "label": "Truncation"
+                },
+                {
+                  "value": "Other",
+                  "label": "Other"
+                }
+              ],
+              "metadata": {
+                "originalLabel": "Reason for Change",
+                "originalOptions": [
+                  {
+                    "value": "Adoption",
+                    "label": "Adoption"
+                  },
+                  {
+                    "value": "Alternative spelling",
+                    "label": "Alternative spelling"
+                  },
+                  {
+                    "value": "Anglicisation of name",
+                    "label": "Anglicisation of name"
+                  },
+                  {
+                    "value": "Birth",
+                    "label": "Birth"
+                  },
+                  {
+                    "value": "Cultural origins",
+                    "label": "Cultural origins"
+                  },
+                  {
+                    "value": "Divorce",
+                    "label": "Divorce"
+                  },
+                  {
+                    "value": "Gender change",
+                    "label": "Gender change"
+                  },
+                  {
+                    "value": "Maiden name",
+                    "label": "Maiden name"
+                  },
+                  {
+                    "value": "Marriage",
+                    "label": "Marriage"
+                  },
+                  {
+                    "value": "Name in full",
+                    "label": "Name in full"
+                  },
+                  {
+                    "value": "Nickname",
+                    "label": "Nickname"
+                  },
+                  {
+                    "value": "Preferred name",
+                    "label": "Preferred name"
+                  },
+                  {
+                    "value": "Prefix and/or suffix",
+                    "label": "Prefix and/or suffix"
+                  },
+                  {
+                    "value": "Religious name",
+                    "label": "Religious name"
+                  },
+                  {
+                    "value": "Reordering of name",
+                    "label": "Reordering of name"
+                  },
+                  {
+                    "value": "Split or joining name",
+                    "label": "Split or joining name"
+                  },
+                  {
+                    "value": "Transliteration",
+                    "label": "Transliteration"
+                  },
+                  {
+                    "value": "Truncation",
+                    "label": "Truncation"
+                  },
+                  {
+                    "value": "Other",
+                    "label": "Other"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "temporary-work-spouse-partner-other-details-other_names-has_evidence",
+              "answerKey": "has_evidence",
+              "label": "Do you have identity documents for this name? *",
+              "type": "yesNo",
+              "required": false,
+              "options": [
+                {
+                  "value": "yes",
+                  "label": "Yes"
+                },
+                {
+                  "value": "no",
+                  "label": "No"
+                }
+              ],
+              "metadata": {
+                "originalLabel": "Do you have identity documents for this name? *",
+                "originalOptions": [
+                  {
+                    "value": "yes",
+                    "label": "Yes"
+                  },
+                  {
+                    "value": "no",
+                    "label": "No"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "temporary-work-spouse-partner-other-details-other_names-evidence_type",
+              "answerKey": "evidence_type",
+              "label": "Evidence Type",
+              "type": "select",
+              "required": false,
+              "options": [
+                {
+                  "value": "Adoption papers",
+                  "label": "Adoption papers"
+                },
+                {
+                  "value": "Deed Poll/Change of Name Certificate",
+                  "label": "Deed Poll/Change of Name Certificate"
+                },
+                {
+                  "value": "Divorce Certificate",
+                  "label": "Divorce Certificate"
+                },
+                {
+                  "value": "Marriage Certificate",
+                  "label": "Marriage Certificate"
+                },
+                {
+                  "value": "Other Document",
+                  "label": "Other Document"
+                }
+              ],
+              "metadata": {
+                "originalLabel": "Evidence Type",
+                "originalOptions": [
+                  {
+                    "value": "Adoption papers",
+                    "label": "Adoption papers"
+                  },
+                  {
+                    "value": "Deed Poll/Change of Name Certificate",
+                    "label": "Deed Poll/Change of Name Certificate"
+                  },
+                  {
+                    "value": "Divorce Certificate",
+                    "label": "Divorce Certificate"
+                  },
+                  {
+                    "value": "Marriage Certificate",
+                    "label": "Marriage Certificate"
+                  },
+                  {
+                    "value": "Other Document",
+                    "label": "Other Document"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "temporary-work-spouse-partner-other-details-other_names-document_issue_day",
+              "answerKey": "document_issue_day",
+              "label": "Date of Document Issue",
+              "type": "text",
+              "required": false,
+              "metadata": {
+                "originalLabel": "Date of Document Issue"
+              }
+            },
+            {
+              "id": "temporary-work-spouse-partner-other-details-other_names-document_issue_month",
+              "answerKey": "document_issue_month",
+              "label": "Date of Document Issue",
+              "type": "text",
+              "required": false,
+              "metadata": {
+                "originalLabel": "Date of Document Issue"
+              }
+            },
+            {
+              "id": "temporary-work-spouse-partner-other-details-other_names-document_issue_year",
+              "answerKey": "document_issue_year",
+              "label": "Date of Document Issue",
+              "type": "text",
+              "required": false,
+              "metadata": {
+                "originalLabel": "Date of Document Issue"
+              }
+            },
+            {
+              "id": "temporary-work-spouse-partner-other-details-other_names-document_reference_number",
+              "answerKey": "document_reference_number",
+              "label": "Document Reference Number",
+              "type": "text",
+              "required": false,
+              "metadata": {
+                "originalLabel": "Document Reference Number"
+              }
+            },
+            {
+              "id": "temporary-work-spouse-partner-other-details-other_names-issuing_country",
+              "answerKey": "issuing_country",
+              "label": "Issuing Country",
+              "type": "text",
+              "required": false,
+              "metadata": {
+                "originalLabel": "Issuing Country"
+              }
+            },
+            {
+              "id": "temporary-work-spouse-partner-other-details-other_names-issuing_state",
+              "answerKey": "issuing_state",
+              "label": "Issuing State / Province",
+              "type": "text",
+              "required": false,
+              "metadata": {
+                "originalLabel": "Issuing State / Province"
+              }
+            },
+            {
+              "id": "temporary-work-spouse-partner-other-details-other_names-place_of_issue",
+              "answerKey": "place_of_issue",
+              "label": "Place of Issue / Issuing Authority",
+              "type": "text",
+              "required": false,
+              "metadata": {
+                "originalLabel": "Place of Issue / Issuing Authority"
+              }
+            }
+          ],
+          "originalLabel": "Other Names"
+        }
+      },
+      {
+        "id": "temporary-work-spouse-partner-other-details-use_chinese_code",
+        "answerKey": "use_chinese_code",
+        "label": "Do you use a Chinese Commercial Code for your name?",
+        "type": "yesNo",
+        "required": false,
+        "options": [
+          {
+            "value": "yes",
+            "label": "Yes"
+          },
+          {
+            "value": "no",
+            "label": "No"
+          }
+        ],
+        "metadata": {
+          "originalLabel": "Do you use a Chinese Commercial Code for your name?",
+          "originalOptions": [
+            {
+              "value": "yes",
+              "label": "Yes"
+            },
+            {
+              "value": "no",
+              "label": "No"
+            }
+          ]
+        }
+      },
+      {
+        "id": "temporary-work-spouse-partner-other-details-chinese_code",
+        "answerKey": "chinese_code",
+        "label": "Chinese Commercial Code",
+        "type": "text",
+        "required": false,
+        "placeholder": "Enter your Chinese Commercial Code",
+        "metadata": {
+          "originalPlaceholder": "Enter your Chinese Commercial Code",
+          "originalLabel": "Chinese Commercial Code"
+        },
+        "visibleIf": [
+          {
+            "field": "use_chinese_code",
+            "op": "equals",
+            "value": "yes"
+          }
+        ]
+      }
+    ]
+  },
+  {
     "id": "temporary-work-spouse-partner-education",
     "route": "/intake/temporary-work/spouse-partner/education",
     "title": "Education",
     "sectionKey": "temporary_work_spouse_education",
     "completionKey": "temporary-work/spouse-partner/education",
     "scope": "profile",
-    "order": 150,
+    "order": 160,
     "introBlocks": [
       {
         "type": "paragraph",
@@ -8252,7 +8709,7 @@ export const questionnaireBuiltInPages = [
     "sectionKey": "temporary_work_spouse_language",
     "completionKey": "temporary-work/spouse-partner/language",
     "scope": "profile",
-    "order": 160,
+    "order": 170,
     "introBlocks": [
       {
         "type": "paragraph",
@@ -9363,471 +9820,6 @@ export const questionnaireBuiltInPages = [
     ]
   },
   {
-    "id": "temporary-work-spouse-partner-other-details",
-    "route": "/intake/temporary-work/spouse-partner/other-details",
-    "title": "Other Names",
-    "sectionKey": "temporary_work_spouse_other",
-    "completionKey": "temporary-work/spouse-partner/other-details",
-    "scope": "profile",
-    "order": 170,
-    "introBlocks": [
-      {
-        "type": "paragraph",
-        "text": "In this section, provide additional details about the main applicant's spouse/partner."
-      }
-    ],
-    "metadata": {
-      "renderer": "legacy",
-      "builtInPageId": "temporary-work-spouse-partner-other-details",
-      "storagePath": "temporary_work_spouse_other",
-      "profileSection": "other",
-      "originalTitle": "Other Personal Details",
-      "titleIncludesPerson": false,
-      "originalIntroBlocks": [
-        {
-          "type": "paragraph",
-          "text": "In this section, provide additional details about the main applicant's spouse/partner."
-        }
-      ],
-      "profileRole": "spouse"
-    },
-    "questions": [
-      {
-        "id": "temporary-work-spouse-partner-other-details-has_other_names",
-        "answerKey": "has_other_names",
-        "label": "Have you ever had or been known by any other Name or Alias, or had a different name spelling?",
-        "type": "yesNo",
-        "required": true,
-        "options": [
-          {
-            "value": "yes",
-            "label": "Yes"
-          },
-          {
-            "value": "no",
-            "label": "No"
-          }
-        ],
-        "metadata": {
-          "originalLabel": "Have you ever had or been known by any other Name or Alias, or had a different name spelling?",
-          "originalOptions": [
-            {
-              "value": "yes",
-              "label": "Yes"
-            },
-            {
-              "value": "no",
-              "label": "No"
-            }
-          ]
-        }
-      },
-      {
-        "id": "temporary-work-spouse-partner-other-details-other_names",
-        "answerKey": "other_names",
-        "label": "Other Names",
-        "type": "repeater",
-        "required": false,
-        "metadata": {
-          "fields": [
-            {
-              "id": "temporary-work-spouse-partner-other-details-other_names-family_name",
-              "answerKey": "family_name",
-              "label": "Family Name",
-              "type": "text",
-              "required": true,
-              "metadata": {
-                "originalLabel": "Family Name"
-              }
-            },
-            {
-              "id": "temporary-work-spouse-partner-other-details-other_names-given_names",
-              "answerKey": "given_names",
-              "label": "Given Names",
-              "type": "text",
-              "required": true,
-              "metadata": {
-                "originalLabel": "Given Names"
-              }
-            },
-            {
-              "id": "temporary-work-spouse-partner-other-details-other_names-reason_for_change",
-              "answerKey": "reason_for_change",
-              "label": "Reason for Change",
-              "type": "select",
-              "required": true,
-              "options": [
-                {
-                  "value": "Adoption",
-                  "label": "Adoption"
-                },
-                {
-                  "value": "Alternative spelling",
-                  "label": "Alternative spelling"
-                },
-                {
-                  "value": "Anglicisation of name",
-                  "label": "Anglicisation of name"
-                },
-                {
-                  "value": "Birth",
-                  "label": "Birth"
-                },
-                {
-                  "value": "Cultural origins",
-                  "label": "Cultural origins"
-                },
-                {
-                  "value": "Divorce",
-                  "label": "Divorce"
-                },
-                {
-                  "value": "Gender change",
-                  "label": "Gender change"
-                },
-                {
-                  "value": "Maiden name",
-                  "label": "Maiden name"
-                },
-                {
-                  "value": "Marriage",
-                  "label": "Marriage"
-                },
-                {
-                  "value": "Name in full",
-                  "label": "Name in full"
-                },
-                {
-                  "value": "Nickname",
-                  "label": "Nickname"
-                },
-                {
-                  "value": "Preferred name",
-                  "label": "Preferred name"
-                },
-                {
-                  "value": "Prefix and/or suffix",
-                  "label": "Prefix and/or suffix"
-                },
-                {
-                  "value": "Religious name",
-                  "label": "Religious name"
-                },
-                {
-                  "value": "Reordering of name",
-                  "label": "Reordering of name"
-                },
-                {
-                  "value": "Split or joining name",
-                  "label": "Split or joining name"
-                },
-                {
-                  "value": "Transliteration",
-                  "label": "Transliteration"
-                },
-                {
-                  "value": "Truncation",
-                  "label": "Truncation"
-                },
-                {
-                  "value": "Other",
-                  "label": "Other"
-                }
-              ],
-              "metadata": {
-                "originalLabel": "Reason for Change",
-                "originalOptions": [
-                  {
-                    "value": "Adoption",
-                    "label": "Adoption"
-                  },
-                  {
-                    "value": "Alternative spelling",
-                    "label": "Alternative spelling"
-                  },
-                  {
-                    "value": "Anglicisation of name",
-                    "label": "Anglicisation of name"
-                  },
-                  {
-                    "value": "Birth",
-                    "label": "Birth"
-                  },
-                  {
-                    "value": "Cultural origins",
-                    "label": "Cultural origins"
-                  },
-                  {
-                    "value": "Divorce",
-                    "label": "Divorce"
-                  },
-                  {
-                    "value": "Gender change",
-                    "label": "Gender change"
-                  },
-                  {
-                    "value": "Maiden name",
-                    "label": "Maiden name"
-                  },
-                  {
-                    "value": "Marriage",
-                    "label": "Marriage"
-                  },
-                  {
-                    "value": "Name in full",
-                    "label": "Name in full"
-                  },
-                  {
-                    "value": "Nickname",
-                    "label": "Nickname"
-                  },
-                  {
-                    "value": "Preferred name",
-                    "label": "Preferred name"
-                  },
-                  {
-                    "value": "Prefix and/or suffix",
-                    "label": "Prefix and/or suffix"
-                  },
-                  {
-                    "value": "Religious name",
-                    "label": "Religious name"
-                  },
-                  {
-                    "value": "Reordering of name",
-                    "label": "Reordering of name"
-                  },
-                  {
-                    "value": "Split or joining name",
-                    "label": "Split or joining name"
-                  },
-                  {
-                    "value": "Transliteration",
-                    "label": "Transliteration"
-                  },
-                  {
-                    "value": "Truncation",
-                    "label": "Truncation"
-                  },
-                  {
-                    "value": "Other",
-                    "label": "Other"
-                  }
-                ]
-              }
-            },
-            {
-              "id": "temporary-work-spouse-partner-other-details-other_names-has_evidence",
-              "answerKey": "has_evidence",
-              "label": "Do you have identity documents for this name? *",
-              "type": "yesNo",
-              "required": false,
-              "options": [
-                {
-                  "value": "yes",
-                  "label": "Yes"
-                },
-                {
-                  "value": "no",
-                  "label": "No"
-                }
-              ],
-              "metadata": {
-                "originalLabel": "Do you have identity documents for this name? *",
-                "originalOptions": [
-                  {
-                    "value": "yes",
-                    "label": "Yes"
-                  },
-                  {
-                    "value": "no",
-                    "label": "No"
-                  }
-                ]
-              }
-            },
-            {
-              "id": "temporary-work-spouse-partner-other-details-other_names-evidence_type",
-              "answerKey": "evidence_type",
-              "label": "Evidence Type",
-              "type": "select",
-              "required": false,
-              "options": [
-                {
-                  "value": "Adoption papers",
-                  "label": "Adoption papers"
-                },
-                {
-                  "value": "Deed Poll/Change of Name Certificate",
-                  "label": "Deed Poll/Change of Name Certificate"
-                },
-                {
-                  "value": "Divorce Certificate",
-                  "label": "Divorce Certificate"
-                },
-                {
-                  "value": "Marriage Certificate",
-                  "label": "Marriage Certificate"
-                },
-                {
-                  "value": "Other Document",
-                  "label": "Other Document"
-                }
-              ],
-              "metadata": {
-                "originalLabel": "Evidence Type",
-                "originalOptions": [
-                  {
-                    "value": "Adoption papers",
-                    "label": "Adoption papers"
-                  },
-                  {
-                    "value": "Deed Poll/Change of Name Certificate",
-                    "label": "Deed Poll/Change of Name Certificate"
-                  },
-                  {
-                    "value": "Divorce Certificate",
-                    "label": "Divorce Certificate"
-                  },
-                  {
-                    "value": "Marriage Certificate",
-                    "label": "Marriage Certificate"
-                  },
-                  {
-                    "value": "Other Document",
-                    "label": "Other Document"
-                  }
-                ]
-              }
-            },
-            {
-              "id": "temporary-work-spouse-partner-other-details-other_names-document_issue_day",
-              "answerKey": "document_issue_day",
-              "label": "Date of Document Issue",
-              "type": "text",
-              "required": false,
-              "metadata": {
-                "originalLabel": "Date of Document Issue"
-              }
-            },
-            {
-              "id": "temporary-work-spouse-partner-other-details-other_names-document_issue_month",
-              "answerKey": "document_issue_month",
-              "label": "Date of Document Issue",
-              "type": "text",
-              "required": false,
-              "metadata": {
-                "originalLabel": "Date of Document Issue"
-              }
-            },
-            {
-              "id": "temporary-work-spouse-partner-other-details-other_names-document_issue_year",
-              "answerKey": "document_issue_year",
-              "label": "Date of Document Issue",
-              "type": "text",
-              "required": false,
-              "metadata": {
-                "originalLabel": "Date of Document Issue"
-              }
-            },
-            {
-              "id": "temporary-work-spouse-partner-other-details-other_names-document_reference_number",
-              "answerKey": "document_reference_number",
-              "label": "Document Reference Number",
-              "type": "text",
-              "required": false,
-              "metadata": {
-                "originalLabel": "Document Reference Number"
-              }
-            },
-            {
-              "id": "temporary-work-spouse-partner-other-details-other_names-issuing_country",
-              "answerKey": "issuing_country",
-              "label": "Issuing Country",
-              "type": "text",
-              "required": false,
-              "placeholder": "Choose country",
-              "metadata": {
-                "originalPlaceholder": "Choose country",
-                "originalLabel": "Issuing Country"
-              }
-            },
-            {
-              "id": "temporary-work-spouse-partner-other-details-other_names-issuing_state",
-              "answerKey": "issuing_state",
-              "label": "Issuing State / Province",
-              "type": "text",
-              "required": false,
-              "metadata": {
-                "originalLabel": "Issuing State / Province"
-              }
-            },
-            {
-              "id": "temporary-work-spouse-partner-other-details-other_names-place_of_issue",
-              "answerKey": "place_of_issue",
-              "label": "Place of Issue / Issuing Authority",
-              "type": "text",
-              "required": false,
-              "metadata": {
-                "originalLabel": "Place of Issue / Issuing Authority"
-              }
-            }
-          ],
-          "originalLabel": "Other Names"
-        }
-      },
-      {
-        "id": "temporary-work-spouse-partner-other-details-use_chinese_code",
-        "answerKey": "use_chinese_code",
-        "label": "Do you use a Chinese Commercial Code for your name?",
-        "type": "yesNo",
-        "required": false,
-        "options": [
-          {
-            "value": "yes",
-            "label": "Yes"
-          },
-          {
-            "value": "no",
-            "label": "No"
-          }
-        ],
-        "metadata": {
-          "originalLabel": "Do you use a Chinese Commercial Code for your name?",
-          "originalOptions": [
-            {
-              "value": "yes",
-              "label": "Yes"
-            },
-            {
-              "value": "no",
-              "label": "No"
-            }
-          ]
-        }
-      },
-      {
-        "id": "temporary-work-spouse-partner-other-details-chinese_code",
-        "answerKey": "chinese_code",
-        "label": "Chinese Commercial Code",
-        "type": "text",
-        "required": false,
-        "placeholder": "Enter your Chinese Commercial Code",
-        "metadata": {
-          "originalPlaceholder": "Enter your Chinese Commercial Code",
-          "originalLabel": "Chinese Commercial Code"
-        },
-        "visibleIf": [
-          {
-            "field": "use_chinese_code",
-            "op": "equals",
-            "value": "yes"
-          }
-        ]
-      }
-    ]
-  },
-  {
     "id": "temporary-work-children-child-profile-details",
     "route": "/intake/temporary-work/children/child-profile/details",
     "title": "Details",
@@ -10153,9 +10145,7 @@ export const questionnaireBuiltInPages = [
               "label": "Country of Citizenship",
               "type": "text",
               "required": true,
-              "placeholder": "Choose Country",
               "metadata": {
-                "originalPlaceholder": "Choose Country",
                 "originalLabel": "Country of Citizenship"
               }
             },
@@ -12574,9 +12564,7 @@ export const questionnaireBuiltInPages = [
               "label": "Country of Citizenship",
               "type": "text",
               "required": true,
-              "placeholder": "Choose Country",
               "metadata": {
-                "originalPlaceholder": "Choose Country",
                 "originalLabel": "Country of Citizenship"
               }
             },
@@ -33832,9 +33820,7 @@ export const questionnaireBuiltInPages = [
               "label": "Country of Citizenship",
               "type": "text",
               "required": true,
-              "placeholder": "Choose Country",
               "metadata": {
-                "originalPlaceholder": "Choose Country",
                 "originalLabel": "Country of Citizenship"
               }
             },

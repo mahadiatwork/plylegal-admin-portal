@@ -201,6 +201,55 @@ function auditAddresses(definition, issues) {
   }
 }
 
+function auditRemainingPartnerSurfaces(definition, issues) {
+  const introRoutes = [
+    "/intake/partner/main-applicant/family",
+    "/intake/partner/family-sponsor/details",
+    "/intake/partner/family-sponsor/other",
+    "/intake/partner/family-sponsor/family",
+    "/intake/partner/all-applicants/future-travel",
+    "/intake/partner/all-applicants/future-addresses",
+    "/intake/partner/relationships/supporting-witnesses",
+    "/intake/partner/all-applicants/contacts",
+  ];
+  introRoutes.forEach((route) => {
+    const page = definition.pages.find((candidate) => candidate.route === route);
+    if (!page?.introBlocks?.length) issues.push({ category: "missing_page_copy", message: "Mounted introduction is missing", route });
+  });
+
+  const character = definition.pages.find((page) => page.route === "/intake/partner/all-applicants/character");
+  (character?.questions || []).filter((question) => question.type === "repeater").forEach((question) => {
+    if (findQuestion(question.metadata?.fields, "applicant_name")?.optionsSource !== "applicants") {
+      issues.push({ category: "wrong_option_source", message: `${question.answerKey} has no applicant selector`, route: character.route });
+    }
+  });
+
+  const sponsor = definition.pages.find((page) => page.route === "/intake/partner/family-sponsor/character");
+  const sponsorControllers = sponsor?.questions?.filter((question) => question.type === "yesNo") || [];
+  const sponsorDetails = sponsor?.questions?.filter((question) => question.type === "repeater") || [];
+  if (sponsorControllers.length !== 14 || sponsorDetails.length !== 14) {
+    issues.push({ category: "wrong_field_count", message: `Sponsor Character has ${sponsorControllers.length} declarations and ${sponsorDetails.length} detail lists`, route: sponsor?.route });
+  }
+
+  const futureTravelPage = definition.pages.find((page) => page.route === "/intake/partner/all-applicants/future-travel");
+  const futureTravel = findQuestion(futureTravelPage?.questions, "future_travel");
+  if (futureTravel?.required !== false || !findQuestion(futureTravel?.metadata?.fields, "other_reason_details")) {
+    issues.push({ category: "wrong_requiredness", message: "Future Travel must preserve optional rows and the mounted Other details field", route: futureTravelPage?.route });
+  }
+
+  const visasPage = definition.pages.find((page) => page.route === "/intake/partner/all-applicants/visas");
+  const visas = findQuestion(visasPage?.questions, "visa_history");
+  if (findQuestion(visas?.metadata?.fields, "date_granted")?.visibleIf?.[0]?.value !== "Granted") {
+    issues.push({ category: "wrong_condition", message: "Granted visa fields are not gated by the mounted outcome", route: visasPage?.route });
+  }
+
+  const contactsPage = definition.pages.find((page) => page.route === "/intake/partner/all-applicants/contacts");
+  const contacts = findQuestion(contactsPage?.questions, "family_in_australia");
+  if (findQuestion(contacts?.metadata?.fields, "city_of_birth")?.metadata?.storageOnly !== true) {
+    issues.push({ category: "storage_only_visible", message: "Unmounted city_of_birth must remain compatibility-only", route: contactsPage?.route });
+  }
+}
+
 function auditPage(page, allIds, issues) {
   const pageStorageKeys = new Set();
 
@@ -277,6 +326,7 @@ function main() {
   auditCharacter(definition, issues);
   auditHealth(definition, issues);
   auditAddresses(definition, issues);
+  auditRemainingPartnerSurfaces(definition, issues);
 
   const summary = {
     generatedAt: new Date().toISOString(),

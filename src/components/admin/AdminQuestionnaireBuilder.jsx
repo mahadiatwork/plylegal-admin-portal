@@ -3658,7 +3658,7 @@ export default function AdminQuestionnaireBuilder({
     );
   }
 
-  if (!embeddedInMatter && adminView === "editor") {
+  if ((!embeddedInMatter && adminView === "editor") || (embeddedInMatter && editorLayout === BUILDER_LAYOUTS.PROPOSED)) {
     return (
       <div className="space-y-6">
         <header className="flex flex-col gap-5">
@@ -3668,10 +3668,10 @@ export default function AdminQuestionnaireBuilder({
               variant="outline"
               size="sm"
               className="w-fit cursor-pointer border-[#c7d8d0] bg-white text-[#38564b] shadow-sm transition-all hover:-translate-y-0.5 hover:border-[#7ea698] hover:bg-[#edf7f2] hover:text-[#17372e] hover:shadow-md"
-              onClick={returnToQuestionnaireLibrary}
+              onClick={embeddedInMatter ? () => changeEditorLayout(BUILDER_LAYOUTS.CURRENT) : returnToQuestionnaireLibrary}
             >
               <ArrowLeft className="h-4 w-4" />
-              All questionnaires
+              {embeddedInMatter ? "Visa questionnaires" : "All questionnaires"}
             </Button>
             <BuilderLayoutToggle value={editorLayout} onChange={changeEditorLayout} />
           </div>
@@ -4337,7 +4337,8 @@ export default function AdminQuestionnaireBuilder({
               : "Edit the questions, answer options and help text shown in the Client Portal. Choose a questionnaire, select a page, make your changes, then save."}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {embeddedInMatter ? <BuilderLayoutToggle value={editorLayout} onChange={changeEditorLayout} /> : null}
           <Button
             type="button"
             variant="outline"

@@ -112,6 +112,60 @@ const CHARACTER_INSTRUCTIONS = [
   },
 ];
 
+const PARTNER_PAGE_COPY = {
+  "/intake/partner/main-applicant/family": {
+    title: "Family",
+    introBlocks: [
+      {
+        type: "list",
+        lead: "Enter details about all of the Main Applicant ({mainApplicantName})'s:",
+        items: [
+          "Spouse/Partner (if applicable); and",
+          "Parents (including Step-Parents); and",
+          "Siblings (including Step-Sisters/Step-Brothers); and",
+          "Children (including children from a previous relationship, Step-Children and Adopted Children)",
+          "Guardians (include any other person who has, or will have, custody or guardianship of this person)",
+        ],
+      },
+      { type: "paragraph", text: "Please include details even if the family member is no longer alive." },
+    ],
+  },
+  "/intake/partner/family-sponsor/details": {
+    title: "Details",
+    introBlocks: [{ type: "paragraph", text: "If your application is being sponsored by a family member, in the Family Sponsor section you are to provide details about the person who is sponsoring this application." }],
+  },
+  "/intake/partner/family-sponsor/other": {
+    title: "Other Personal Details",
+    introBlocks: [
+      { type: "paragraph", text: "In this section, provide additional details about your Family Sponsor." },
+      { type: "paragraph", text: "Enter details of the other names your Sponsor has been known by, including names before marriage" },
+    ],
+  },
+  "/intake/partner/family-sponsor/family": {
+    title: "Family",
+    introBlocks: [{ type: "paragraph", text: "Enter details of all your Family Sponsor's Parents, Siblings and Children (including if they are deceased)" }],
+  },
+  "/intake/partner/all-applicants/future-travel": {
+    title: "Future Travel Plans",
+    introBlocks: [{ type: "paragraph", text: "Enter details of any proposed or booked travel to any Country" }],
+  },
+  "/intake/partner/all-applicants/future-addresses": {
+    title: "Future Addresses",
+    introBlocks: [
+      { type: "paragraph", text: "Please provide your intended addresses after arrival" },
+      { type: "paragraph", text: "Enter details of all known addresses/places that {mainApplicantName} will stay during their time in Australia:" },
+    ],
+  },
+  "/intake/partner/relationships/supporting-witnesses": {
+    title: "Supporting Witnesses for Current Relationship",
+    introBlocks: [{ type: "paragraph", text: "Enter details of at least two supporting witness of the relationship between the main applicant and their spouse/partner." }],
+  },
+  "/intake/partner/all-applicants/contacts": {
+    title: "Additional Contact Information",
+    introBlocks: [{ type: "paragraph", text: "Provide details of the main applicant's family contacts in Australia." }],
+  },
+};
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -157,6 +211,31 @@ function pageTitle(page, title) {
     titleIncludesPerson: false,
     titleTemplate: title,
   };
+  return page;
+}
+
+function enrichPartnerPageCopy(page) {
+  const copy = PARTNER_PAGE_COPY[page.route];
+  if (copy) {
+    page.title = copy.title;
+    page.introBlocks = clone(copy.introBlocks);
+    page.metadata = {
+      ...page.metadata,
+      originalTitle: copy.title,
+      originalIntroBlocks: clone(copy.introBlocks),
+      titleIncludesPerson: false,
+      titleTemplate: copy.title,
+    };
+  }
+  if (page.route === "/intake/partner/children/child-profile/custody") {
+    page.title = "Custody";
+    page.metadata = {
+      ...page.metadata,
+      originalTitle: "Custody",
+      titleIncludesPerson: true,
+      titleTemplate: "Custody — {profileName}",
+    };
+  }
   return page;
 }
 
@@ -312,9 +391,9 @@ function enrichRelationshipsPage(page) {
             validation: {
               rules: [
                 { id: "minRowsWhenEquals", field: "applicant_previous_relationships_list", config: { field: "applicant_previous_relationships", value: "Yes", min: 1 } },
-                { id: "datePartsAllOrNone", field: "date_from_day" },
-                { id: "datePartsAllOrNone", field: "date_to_day" },
-                { id: "dateToNotBeforeDateFrom", field: "date_to_day" },
+                { id: "datePartsAllOrNone", field: "relationship_started_day" },
+                { id: "datePartsAllOrNone", field: "relationship_ceased_day" },
+                { id: "dateToNotBeforeDateFrom", field: "relationship_ceased_day", config: { fromField: "relationship_started_day" } },
               ],
             },
           },
@@ -329,9 +408,9 @@ function enrichRelationshipsPage(page) {
             validation: {
               rules: [
                 { id: "minRowsWhenEquals", field: "spouse_previous_relationships_list", config: { field: "spouse_previous_relationships", value: "Yes", min: 1 } },
-                { id: "datePartsAllOrNone", field: "date_from_day" },
-                { id: "datePartsAllOrNone", field: "date_to_day" },
-                { id: "dateToNotBeforeDateFrom", field: "date_to_day" },
+                { id: "datePartsAllOrNone", field: "relationship_started_day" },
+                { id: "datePartsAllOrNone", field: "relationship_ceased_day" },
+                { id: "dateToNotBeforeDateFrom", field: "relationship_ceased_day", config: { fromField: "relationship_started_day" } },
               ],
             },
           },
@@ -364,6 +443,7 @@ function enrichRelationshipsPage(page) {
         {
           sections: [
             { heading: "Personal Details" },
+            { heading: "Relationship" },
             { heading: "Telephone and Email Contact" },
             { heading: "Residential Address" },
           ],
@@ -418,12 +498,32 @@ function enrichCharacterPage(page) {
     if (controllerKeys.has(question.answerKey)) return { ...question, required: true, defaultValue: question.defaultValue || "no" };
     const controller = CHARACTER_DETAIL_CONTROLLERS[question.answerKey];
     if (!controller) return question;
+    const sourceFields = question.metadata?.fields || [];
+    const fields = (sourceFields.some((field) => field.answerKey === "applicant_name")
+      ? sourceFields
+      : [{
+          id: `${question.id}-applicant_name`,
+          answerKey: "applicant_name",
+          label: "Which applicant does this declaration apply to?",
+          type: "select",
+          optionsSource: "applicants",
+          required: true,
+          metadata: { originalLabel: "Which applicant does this declaration apply to?" },
+        }, ...sourceFields]
+    ).map((field) => {
+      if (field.answerKey !== "applicant_name") return field;
+      const applicantField = { ...field, metadata: { ...(field.metadata || {}) } };
+      delete applicantField.options;
+      delete applicantField.metadata.originalOptions;
+      return { ...applicantField, type: "select", optionsSource: "applicants", required: true };
+    });
     return {
       ...question,
       visibleIf: [{ field: controller, op: "equals", value: "yes" }],
       required: false,
       metadata: {
         ...question.metadata,
+        fields,
         validation: {
           ...(question.metadata?.validation || {}),
           rules: [
@@ -443,6 +543,85 @@ function enrichCharacterPage(page) {
     };
   });
 
+  return page;
+}
+
+function enrichFutureTravelPage(page) {
+  if (page.route !== "/intake/partner/all-applicants/future-travel") return page;
+  page.questions = page.questions.map((question) => {
+    if (question.answerKey !== "future_travel") return question;
+    const fields = [...(question.metadata?.fields || [])];
+    if (!fields.some((field) => field.answerKey === "other_reason_details")) {
+      fields.push({
+        id: `${question.id}-other_reason_details`,
+        answerKey: "other_reason_details",
+        label: "Please provide details",
+        description: "",
+        placeholder: "Please describe the reason for visiting this country...",
+        type: "textarea",
+        required: false,
+        visibleIf: [{ field: "reason", op: "equals", value: "Other" }],
+        metadata: { originalLabel: "Please provide details", originalPlaceholder: "Please describe the reason for visiting this country..." },
+      });
+    }
+    return setPresentation(
+      { ...question, required: false, metadata: { ...question.metadata, fields } },
+      [
+        { key: "departure_country", label: "Departure Country" },
+        { key: "departure_date", label: "Departure Date", format: "groupedDate" },
+        { key: "arrival_country", label: "Arrival Country" },
+        { key: "arrival_date", label: "Arrival Date", format: "groupedDate" },
+        { key: "reason", label: "Reason" },
+      ],
+      { addDialogTitle: "Proposed or Booked Travel", editDialogTitle: "Proposed or Booked Travel" },
+    );
+  });
+  return page;
+}
+
+function enrichVisasPage(page) {
+  if (page.route !== "/intake/partner/all-applicants/visas") return page;
+  const grantedFields = new Set([
+    "date_granted", "date_granted_day", "date_granted_month", "date_granted_year",
+    "expiry_date", "expiry_date_day", "expiry_date_month", "expiry_date_year",
+    "place_of_issue", "visa_number", "cancelled",
+  ]);
+  page.questions = page.questions.map((question) => {
+    if (question.answerKey !== "visa_history") return question;
+    const fields = (question.metadata?.fields || []).map((field) => grantedFields.has(field.answerKey)
+      ? { ...field, visibleIf: [{ field: "outcome", op: "equals", value: "Granted" }] }
+      : field);
+    return setPresentation(
+      { ...question, metadata: { ...question.metadata, fields } },
+      [
+        { key: "visa_country", label: "Country" },
+        { key: "visa_type", label: "Type" },
+        { key: "linked_passport", label: "Linked Passport" },
+        { key: "decision_date", label: "Decision Date", format: "groupedDate" },
+        { key: "outcome", label: "Outcome" },
+        { key: "cancelled", label: "Cancelled" },
+      ],
+    );
+  });
+  return page;
+}
+
+function enrichContactsPage(page) {
+  if (page.route !== "/intake/partner/all-applicants/contacts") return page;
+  page.questions = page.questions.map((question) => {
+    if (question.answerKey !== "family_in_australia") return question;
+    const fields = (question.metadata?.fields || []).map((field) => field.answerKey === "city_of_birth"
+      ? { ...field, metadata: { ...field.metadata, storageOnly: true, compatibility: true, editorLocked: true } }
+      : field);
+    return setPresentation(
+      { ...question, metadata: { ...question.metadata, fields } },
+      [
+        { key: "family_name", label: "Family Name" },
+        { key: "given_names", label: "Given Names" },
+        { key: "relationship", label: "Relationship" },
+      ],
+    );
+  });
   return page;
 }
 
@@ -632,11 +811,15 @@ export function applyQuestionnaireBuiltInPartnerEnrichment(pages) {
   return pages.map((page) => {
     if (!page.route?.startsWith("/intake/partner/")) return page;
     let enriched = clone(page);
+    enriched = enrichPartnerPageCopy(enriched);
     if (page.route === "/intake/partner/main-applicant/employment") enriched = enrichEmploymentPage(enriched);
     else if (page.route.startsWith("/intake/partner/relationships/")) enriched = enrichRelationshipsPage(enriched);
     else if (page.route === "/intake/partner/all-applicants/character") enriched = enrichCharacterPage(enriched);
     else if (page.route === "/intake/partner/all-applicants/health") enriched = enrichHealthPage(enriched);
     else if (page.route === "/intake/partner/all-applicants/addresses") enriched = classifyApplicantSelector(enriched);
+    enriched = enrichFutureTravelPage(enriched);
+    enriched = enrichVisasPage(enriched);
+    enriched = enrichContactsPage(enriched);
     enriched = classifyCompatibilityFields(enriched);
     enriched = { ...enriched, questions: dedupeNestedAnswerKeys(enriched.questions) };
     return enriched;

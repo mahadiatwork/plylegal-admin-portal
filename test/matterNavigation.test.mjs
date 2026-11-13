@@ -182,14 +182,19 @@ test("matter header keeps role-aware local tabs without dashboard links", async 
   navigation.params = { matterId: "app-123" };
   navigation.pathname = "/matter/app-123/questionnaire-builder";
   navigation.replacements = [];
-  let fetchCalls = 0;
+  const fetchCalls = [];
   globalThis.window = {
     scrollY: 0,
     addEventListener() {},
     removeEventListener() {},
   };
   globalThis.fetch = async (url) => {
-    fetchCalls += 1;
+    fetchCalls.push(url);
+    if (url === "/api/matter/app-123/shared-folder") {
+      return { ok: true, async json() {
+        return { success: true, folderUrl: "https://workdrive.zoho.com.au/folder/matter-folder" };
+      } };
+    }
     assert.equal(url, "/api/matter/app-123");
     return {
       async json() {
@@ -216,9 +221,10 @@ test("matter header keeps role-aware local tabs without dashboard links", async 
   const harness = createHarness(MatterLayout, { children: React.createElement("div", null, "Matter content") });
   harness.render();
   await flushEffects(harness);
+  await flushEffects(harness);
 
   const links = [...walk(harness.tree)]
-    .filter((node) => node.type === "a")
+    .filter((node) => node.type === "a" && node.props.href?.startsWith("/matter/"))
     .map((node) => ({
       label: text(node),
       href: node.props.href,
@@ -230,6 +236,10 @@ test("matter header keeps role-aware local tabs without dashboard links", async 
     { label: "Resources", href: "/matter/app-123/resources", current: undefined },
     { label: "Questionnaire builder", href: "/matter/app-123/questionnaire-builder", current: "page" },
   ]);
+  assert.equal(
+    [...walk(harness.tree)].find((node) => node.type === "a" && text(node).includes("Matter Folder"))?.props.href,
+    "https://workdrive.zoho.com.au/folder/matter-folder",
+  );
   assert.equal(links.some(({ label }) => label === "Dashboard" || label === "Questionnaires"), false);
   assert.deepEqual(navigation.replacements, []);
 
@@ -240,7 +250,8 @@ test("matter header keeps role-aware local tabs without dashboard links", async 
   harness.render();
 
   const linksAfterTabChange = [...walk(harness.tree)].filter((node) => node.type === "a");
-  assert.equal(fetchCalls, 1, "changing matter tabs must reuse the loaded matter");
+  assert.deepEqual(fetchCalls, ["/api/matter/app-123", "/api/matter/app-123/shared-folder"],
+    "changing matter tabs must reuse the loaded matter and folder link");
   assert.equal(text(harness.tree).includes("Loading matter data..."), false);
   assert.equal(
     linksAfterTabChange.find((node) => text(node) === "Resources")?.props["aria-current"],
@@ -263,6 +274,16 @@ test("the retired shared files route redirects to resources", async () => {
 
   await SharedFilesPage({ params: Promise.resolve({ matterId: "app 123" }) });
 
+  assert.deepEqual(redirects, ["/matter/app%20123/resources"]);
+});
+
+test("the retired shared folder route redirects to resources", async () => {
+  const redirects = [];
+  const { default: SharedFolderPage } = await loadComponent(
+    "src/app/matter/[matterId]/shared-folder/page.js",
+    { "next/navigation": { redirect(href) { redirects.push(href); } } },
+  );
+  await SharedFolderPage({ params: Promise.resolve({ matterId: "app 123" }) });
   assert.deepEqual(redirects, ["/matter/app%20123/resources"]);
 });
 
@@ -319,6 +340,7 @@ test("non-questionnaire matter tabs load a summary and upgrade only when questio
 
   assert.deepEqual(fetchCalls, [
     "/api/matter/app-123?view=summary",
+    "/api/matter/app-123/shared-folder",
     "/api/matter/app-123",
   ]);
   assert.ok(text(harness.tree).includes("31%"));
@@ -339,6 +361,12 @@ test("matter questionnaire-builder page renders the shared builder in embedded m
   const page = await pageModule.default({ params: Promise.resolve({ matterId: "app-123" }) });
   assert.equal(page.type, BuilderSentinel);
   assert.equal(page.props.embeddedInMatter, true);
+
+  const proposedPage = await pageModule.default({
+    params: Promise.resolve({ matterId: "app-123" }),
+    searchParams: Promise.resolve({ layout: "proposed" }),
+  });
+  assert.equal(proposedPage.props.initialLayout, "proposed");
 });
 
 test("client answer review does not render a circular back-to-application link", async () => {

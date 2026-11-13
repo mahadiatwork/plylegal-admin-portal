@@ -86,6 +86,8 @@ export function applyQuestionnaireBuiltInDetails(pages = []) {
         ...page.metadata,
         ...(visaType === "partner" && role === "spouse" ? { profileSection: "details" } : {}),
         originalTitle: "Details",
+        titleIncludesPerson: true,
+        titleTemplate: "Details — {profileName}",
         originalIntroBlocks: [{ type: "paragraph", text: intro }],
         hiddenAnswerKeys,
       } };

@@ -400,6 +400,13 @@ test("shipped legacy pages reject uncertified structural edits at the persistenc
     () => assertQuestionnaireDefinitionStructureEditable(current, changed),
     QuestionnaireDefinitionValidationError,
   );
+
+  const reordered = structuredClone(copyEdit);
+  reordered.pages[0].order += 10;
+  assert.throws(
+    () => assertQuestionnaireDefinitionStructureEditable(current, reordered),
+    QuestionnaireDefinitionValidationError,
+  );
 });
 
 test("conditional questions require a source answer key on the same page", () => {

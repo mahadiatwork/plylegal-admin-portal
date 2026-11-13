@@ -47,7 +47,7 @@ const CONDITIONAL_RULES = [
     target: "future_travel",
     source: "has_future_travel",
     value: "Yes",
-    required: true,
+    required: false,
   },
   {
     route: "/intake/partner/family-sponsor/previous-sponsorship",

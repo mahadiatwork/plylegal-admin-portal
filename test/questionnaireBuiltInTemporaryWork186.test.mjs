@@ -198,8 +198,8 @@ describe("Employer Nomination Visa (Subclass 186) built-in parity", () => {
     assert.strictEqual(findQuestion(contact.questions, "residential_address").metadata.collection, "object");
 
     const travel = definition.pages.find((page) => page.route === "/intake/temporary-work/all-applicants/travel-history");
-    assert.strictEqual(travel.introBlocks.length, 2);
-    assert.match(travel.introBlocks[1].text, /under 16 years of age/);
+    assert.strictEqual(travel.introBlocks.length, 3);
+    assert.match(travel.introBlocks[2].text, /under 16 years of age/);
 
     const residence = definition.pages.find((page) => page.route === "/intake/temporary-work/all-applicants/countries-of-residence");
     const coverageRule = findQuestion(residence.questions, "residence_records").metadata.validation.rules.find((rule) => rule.id === "residenceHistoryCoverage");

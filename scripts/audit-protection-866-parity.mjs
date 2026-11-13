@@ -61,23 +61,38 @@ function isDateFragment(question) {
 }
 
 function isCountryLike(question) {
-  return /country|nationality|citizenship/i.test(question.answerKey || "") && question.type === "text";
+  const answerKey = question.answerKey || "";
+  return !/(?:^|_)country_code$/.test(answerKey)
+    && /country|nationality|citizenship/i.test(answerKey)
+    && question.type === "text";
 }
 
-function loadClientRoutes() {
+function exportedArray(source, name) {
+  const declaration = `export const ${name}`;
+  const start = source.indexOf(declaration);
+  if (start < 0) throw new Error(`Could not find ${name} in the client route registry`);
+  const open = source.indexOf("[", start);
+  const close = source.indexOf("];", open);
+  if (open < 0 || close < 0) throw new Error(`Could not parse ${name} in the client route registry`);
+  return source.slice(open, close + 1);
+}
+
+function loadClientRouteTemplates() {
   const routeFile = path.join(clientRoot, "src/lib/routes.js");
-  // This audit intentionally runs against the admin built-in catalog and only
-  // cross-checks route presence. Deep client AST analysis is performed by the
-  // extractor; the audit focuses on catalog completeness and known gaps.
   const source = fs.readFileSync(routeFile, "utf8");
-  const protectionRoutes = source
-    .split("export const PROTECTION_VISA_ROUTES")[1]
-    ?.split(";")[0];
-  const routes = [];
-  const hrefMatches = protectionRoutes?.matchAll(/href:\s*"([^"]+)"/g) || [];
-  for (const match of hrefMatches) {
-    const href = match[1];
-    if (!/(?:start|profile|submit)$/.test(href)) routes.push(href);
+  const routes = [
+    ...exportedArray(source, "PROTECTION_VISA_ROUTES").matchAll(/href:\s*"([^"]+)"/g),
+    ...exportedArray(source, "PROTECTION_MAIN_APPLICANT_PROFILE_SUBPAGES").matchAll(/href:\s*"([^"]+)"/g),
+    ...exportedArray(source, "PROTECTION_SPOUSE_PROFILE_SUBPAGES").matchAll(/href:\s*"([^"]+)"/g),
+  ].map((match) => match[1]).filter((route) =>
+    !/(?:start|profile|submit)$/.test(route)
+      && route !== "/intake/protection/children"
+  );
+  for (const match of exportedArray(source, "PROTECTION_CHILD_PROFILE_SUBPAGES").matchAll(/pathSuffix:\s*"([^"]+)"/g)) {
+    routes.push(`/intake/protection/children/child-profile/${match[1]}`);
+  }
+  for (const match of exportedArray(source, "NON_MIGRATING_MEMBER_SUBPAGES").matchAll(/pathSuffix:\s*"([^"]+)"/g)) {
+    routes.push(`/intake/protection/non-migrating/member-profile/${match[1]}`);
   }
   return [...new Set(routes)];
 }
@@ -87,8 +102,16 @@ function auditPage(page) {
   const pageId = page.id;
   const route = page.route;
 
-  if (!page.title || page.title === formatLabel(route.split("/").pop())) {
-    issues.push({ category: "presentation_not_represented", message: "Page title may be a generated fallback, not the client title/template", pageId, route });
+  if (!page.title?.trim()) {
+    issues.push({ category: "presentation_not_represented", message: "Page title is missing", pageId, route });
+  }
+  if (page.metadata?.renderer === "legacy" && !page.metadata?.originalDisplayTitle?.trim()) {
+    issues.push({ category: "presentation_not_represented", message: "Legacy page title has no captured display baseline", pageId, route });
+  }
+  for (const token of page.metadata?.titleTemplate?.match(/\{[^}]+\}/g) || []) {
+    if (!KNOWN_TOKENS.has(token)) {
+      issues.push({ category: "presentation_not_represented", message: `Page title uses unsupported interpolation token ${token}`, pageId, route });
+    }
   }
 
   if (!Array.isArray(page.introBlocks) || page.introBlocks.length === 0) {
@@ -137,11 +160,6 @@ function auditPage(page) {
   return issues;
 }
 
-function formatLabel(value) {
-  return value.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").replace(/-/g, " ")
-    .replace(/\b\w/g, (match) => match.toUpperCase());
-}
-
 function main() {
   const definition = getBuiltInQuestionnaireDefinition({ visaType: "protection" });
   if (!definition) {
@@ -149,7 +167,7 @@ function main() {
     process.exit(1);
   }
 
-  const activeRoutes = loadClientRoutes();
+  const activeRoutes = loadClientRouteTemplates();
   const adminRoutes = new Set(definition.pages.map((page) => page.route));
   const missingRoutes = activeRoutes.filter((route) => !adminRoutes.has(route));
   const extraRoutes = [...adminRoutes].filter((route) => !activeRoutes.includes(route));
@@ -252,6 +270,7 @@ function main() {
   console.log(`  JSON: ${jsonPath}`);
   console.log(`  Markdown: ${markdownPath}`);
   console.log(`  Total issues: ${issues.length}`);
+  if (issues.length) process.exitCode = 1;
 }
 
 main();

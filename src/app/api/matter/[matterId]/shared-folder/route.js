@@ -22,11 +22,11 @@ export async function GET(_request, { params }) {
     const dealId = String(application.zohoId || application.zohoDealId || application.dealId || "").trim();
     if (!/^\d+$/.test(dealId)) return respond({ success: true, folderUrl: null });
 
-    const deal = await zohoClient.getRecord("Deals", dealId, "id,Matter_Workdrive_Folder_URL");
+    const deal = await zohoClient.getRecord("Deals", dealId, "id,Matter_Folder_URL");
     if (!deal) throw new Error("Zoho Deal could not be loaded");
-    return respond({ success: true, folderUrl: getMatterSharedFolderUrl(deal.Matter_Workdrive_Folder_URL) });
+    return respond({ success: true, folderUrl: getMatterSharedFolderUrl(deal.Matter_Folder_URL) });
   } catch (error) {
-    console.error("[matter/shared-folder] Load failed", { code: error.name });
-    return respond({ success: false, error: "Unable to load the shared folder. Please try again." }, 502);
+    console.error("[matter/folder] Load failed", { code: error.name });
+    return respond({ success: false, error: "Unable to load the matter folder. Please try again." }, 502);
   }
 }

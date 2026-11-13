@@ -102,9 +102,55 @@ describe("Partner Visa (Subclass 820) built-in parity", () => {
       const minimum = question.metadata.validation.rules.find((rule) => rule.id === "minRowsWhenEquals");
       assert.strictEqual(minimum.field, question.answerKey);
       assert.strictEqual(minimum.config.field, question.visibleIf[0].field);
+      assert.strictEqual(findQuestion(question.metadata.fields, "applicant_name")?.optionsSource, "applicants");
     });
     const nationalSecurity = page.questions.find((question) => question.answerKey === "national_security_details");
     assert.deepStrictEqual(nationalSecurity.visibleIf, [{ field: "national_security_risk", op: "equals", value: "yes" }]);
+  });
+
+  it("captures mounted Partner headings, introductions, branches and compatibility fields", () => {
+    const expectedCopy = {
+      "/intake/partner/main-applicant/family": "Family",
+      "/intake/partner/family-sponsor/details": "Details",
+      "/intake/partner/family-sponsor/other": "Other Personal Details",
+      "/intake/partner/family-sponsor/family": "Family",
+      "/intake/partner/all-applicants/future-travel": "Future Travel Plans",
+      "/intake/partner/all-applicants/future-addresses": "Future Addresses",
+      "/intake/partner/relationships/supporting-witnesses": "Supporting Witnesses for Current Relationship",
+      "/intake/partner/all-applicants/contacts": "Additional Contact Information",
+    };
+    for (const [route, title] of Object.entries(expectedCopy)) {
+      const page = definition.pages.find((candidate) => candidate.route === route);
+      assert.strictEqual(page.title, title);
+      assert.ok(page.introBlocks.length > 0, `${route} needs mounted introduction copy`);
+    }
+
+    const custody = definition.pages.find((page) => page.route.endsWith("/children/child-profile/custody"));
+    assert.strictEqual(custody.metadata.titleTemplate, "Custody — {profileName}");
+
+    const futureTravel = findQuestion(
+      definition.pages.find((page) => page.route.endsWith("/all-applicants/future-travel")).questions,
+      "future_travel",
+    );
+    assert.strictEqual(futureTravel.required, false);
+    assert.deepStrictEqual(findQuestion(futureTravel.metadata.fields, "other_reason_details")?.visibleIf, [
+      { field: "reason", op: "equals", value: "Other" },
+    ]);
+
+    const visas = findQuestion(
+      definition.pages.find((page) => page.route.endsWith("/all-applicants/visas")).questions,
+      "visa_history",
+    );
+    assert.deepStrictEqual(findQuestion(visas.metadata.fields, "date_granted")?.visibleIf, [
+      { field: "outcome", op: "equals", value: "Granted" },
+    ]);
+    assert.strictEqual(findQuestion(visas.metadata.fields, "decision_date")?.visibleIf, undefined);
+
+    const contacts = findQuestion(
+      definition.pages.find((page) => page.route.endsWith("/all-applicants/contacts")).questions,
+      "family_in_australia",
+    );
+    assert.strictEqual(findQuestion(contacts.metadata.fields, "city_of_birth")?.metadata?.storageOnly, true);
   });
 
   it("adds active TB exposure and excludes commented Health Insurance", () => {

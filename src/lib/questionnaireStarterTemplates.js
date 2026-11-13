@@ -1,11 +1,11 @@
-// Starter copied from the client portal's bundled 482 Character questionnaire.
-// Keep routes and answer keys aligned with temporaryWork482.definition.js in that portal.
+// Generated from the client portal's canonical temporary-work Character contract.
+// Regenerate with scripts/extract-questionnaire-built-ins.cjs; do not maintain a second declaration inventory here.
 const YES_NO_OPTIONS = [
   { value: "yes", label: "Yes" },
   { value: "no", label: "No" },
 ];
 
-const CHARACTER_QUESTIONS = [
+export const TEMPORARY_WORK_CHARACTER_QUESTIONS = [
   {
     key: "char_q01",
     label: "Has any applicant ever been charged with any offence that is currently awaiting legal action?",
@@ -151,10 +151,9 @@ export const temporaryWork482Definition = {
           ],
         },
       ],
-      questions: CHARACTER_QUESTIONS.map(makeCharacterQuestion),
+      questions: TEMPORARY_WORK_CHARACTER_QUESTIONS.map(makeCharacterQuestion),
     },
   ],
 };
 
 export const questionnaireDefinitions = [temporaryWork482Definition];
-

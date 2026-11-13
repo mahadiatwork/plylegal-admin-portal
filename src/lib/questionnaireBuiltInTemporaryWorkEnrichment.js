@@ -10,7 +10,7 @@ import {
 
 export const TEMPORARY_WORK_PAGE_TITLES = {
   "/intake/temporary-work/main-applicant/details": "Main Applicant's Details",
-  "/intake/temporary-work/main-applicant/other": "Main Applicant's Other Names",
+  "/intake/temporary-work/main-applicant/other": "Main Applicant's Other Details",
   "/intake/temporary-work/main-applicant/identity": "Main Applicant's Identity",
   "/intake/temporary-work/main-applicant/contact-details": "Main Applicant's Contact Details",
   "/intake/temporary-work/main-applicant/employment": "Main Applicant's Employment",
@@ -18,8 +18,10 @@ export const TEMPORARY_WORK_PAGE_TITLES = {
   "/intake/temporary-work/main-applicant/skills": "Main Applicant's Skills",
   "/intake/temporary-work/main-applicant/language": "Main Applicant's Language",
   "/intake/temporary-work/spouse-partner/details": "Spouse/Partner's Details",
-  "/intake/temporary-work/spouse-partner/other-details": "Spouse/Partner's Other Names",
+  "/intake/temporary-work/spouse-partner/other-details": "Other Personal Details",
   "/intake/temporary-work/spouse-partner/identity": "Spouse/Partner's Identity",
+  "/intake/temporary-work/spouse-partner/education": "Spouse/Partner's Education",
+  "/intake/temporary-work/spouse-partner/language": "Spouse/Partner's Language",
   "/intake/temporary-work/all-applicants/visas": "All Applicants' Visas",
   "/intake/temporary-work/all-applicants/travel-history": "Travel History",
   "/intake/temporary-work/all-applicants/countries-of-residence": "Countries of Residence",
@@ -34,6 +36,8 @@ export const TEMPORARY_WORK_DEFAULT_ACTIONS = {
   confirm: "Ok",
   actionsHeading: "Actions",
 };
+
+const choiceOptions = (values) => values.map((value) => ({ value, label: value }));
 
 const SKILLS_REGISTRATION_MESSAGES = {
   authority: "Name of Authority is required",
@@ -55,6 +59,37 @@ const SKILLS_ASSESSMENT_MESSAGES = {
   lodgement_date_month: "Month is required",
   lodgement_date_year: "Year is required",
   outcome: "Outcome is required",
+};
+
+const EDUCATION_MESSAGES = {
+  date_from_day: "Day is required",
+  date_from_month: "Month is required",
+  date_from_year: "Year is required",
+  qualification: "Qualification is required",
+  course_name: "Course Name / Research Description is required",
+  course_language: "Course Language is required",
+  course_status: "Course Status is required",
+  institution: "Institution name is required",
+  country: "Country is required",
+  institution_address: "Address is required",
+  institution_suburb: "Suburb/Town/City is required",
+  institution_state: "State is required",
+  institution_postcode: "Postcode is required",
+};
+
+const LANGUAGE_MESSAGES = {
+  language: "Language is required",
+  proficiency: "Proficiency is required",
+};
+
+const ENGLISH_TEST_MESSAGES = {
+  test_type: "Test type is required",
+  date_day: "Day is required",
+  date_month: "Month is required",
+  date_year: "Year is required",
+  location: "Location is required",
+  reference_number: "Reference number is required",
+  overall_score: "Overall score is required",
 };
 
 export const TEMPORARY_WORK_HEALTH_RECORD_CONTRACTS = {
@@ -131,6 +166,25 @@ export function updateQuestionTree(questions, questionId, updater) {
         metadata: {
           ...next.metadata,
           fields: updateQuestionTree(next.metadata.fields, questionId, updater),
+        },
+      };
+    }
+    return next;
+  });
+}
+
+export function updateQuestionByAnswerKey(questions, answerKey, updater) {
+  return (questions || []).map((question) => {
+    let next = question.answerKey === answerKey ? updater(question) : question;
+    if (next.followUps?.length) {
+      next = { ...next, followUps: updateQuestionByAnswerKey(next.followUps, answerKey, updater) };
+    }
+    if (next.metadata?.fields?.length) {
+      next = {
+        ...next,
+        metadata: {
+          ...next.metadata,
+          fields: updateQuestionByAnswerKey(next.metadata.fields, answerKey, updater),
         },
       };
     }
@@ -240,7 +294,11 @@ export function enrichSkillsPage(page) {
       ...question.metadata,
       originalLabel: "Skills Assessments",
       collection: "array",
-      fields: withFieldMessages(question.metadata.fields, SKILLS_ASSESSMENT_MESSAGES),
+      fields: withFieldMessages(question.metadata.fields, SKILLS_ASSESSMENT_MESSAGES).map((field) => {
+        if (field.answerKey === "assessment_type") return { ...field, options: choiceOptions(["Full Skills Assessment", "Provisional Skills Assessment", "Job Ready Program", "Points Test Advice", "Other"]) };
+        if (field.answerKey === "outcome") return { ...field, options: choiceOptions(["Positive", "Negative", "Unexpected", "Pending", "Other"]) };
+        return field;
+      }),
       originalPresentation: {
         addLabel: "Add",
         emptyMessage: "No entries added",
@@ -601,45 +659,283 @@ export function enrichChildCustodyPage(page) {
   return page;
 }
 
+export function enrichEducationPage(page) {
+  applyPageTitle(page);
+  page.questions = updateQuestionByAnswerKey(page.questions, "education_history", (question) => ({
+    ...question,
+    label: "Education History",
+    metadata: {
+      ...question.metadata,
+      originalLabel: "Education History",
+      collection: "array",
+      fields: withFieldMessages(question.metadata.fields, EDUCATION_MESSAGES).map((field) => {
+        if (field.answerKey === "qualification") return { ...field, options: choiceOptions(["Secondary", "Diploma/Certificate", "Bachelor's", "Master's", "Doctorate/PhD", "Other"]) };
+        if (field.answerKey === "course_status") return { ...field, options: choiceOptions(["Completed", "Current/Ongoing", "Deferred", "Withdrawn"]) };
+        return field;
+      }),
+      validation: { rules: [{ id: "datePartsAllOrNone", field: "date_to_day" }] },
+      originalPresentation: {
+        addLabel: "Add",
+        emptyMessage: "No entries added",
+        addDialogTitle: "Add Entry",
+        editDialogTitle: "Edit Entry",
+        columns: [
+          { key: "institution", label: "Institution" },
+          { key: "qualification", label: "Qualification" },
+          { key: "course_name", label: "Course Name" },
+          { key: "date_from_year", label: "Year Started" },
+          { key: "country", label: "Country" },
+        ],
+        actions: TEMPORARY_WORK_DEFAULT_ACTIONS,
+        sections: [{ heading: "Institution Details" }],
+      },
+      presentation: {
+        addLabel: "Add",
+        emptyMessage: "No entries added",
+        addDialogTitle: "Add Entry",
+        editDialogTitle: "Edit Entry",
+        columns: [
+          { key: "institution", label: "Institution" },
+          { key: "qualification", label: "Qualification" },
+          { key: "course_name", label: "Course Name" },
+          { key: "date_from_year", label: "Year Started" },
+          { key: "country", label: "Country" },
+        ],
+        actions: TEMPORARY_WORK_DEFAULT_ACTIONS,
+        sections: [{ heading: "Institution Details" }],
+      },
+    },
+  }));
+  return page;
+}
+
+export function enrichLanguagePage(page) {
+  applyPageTitle(page);
+  page.questions = updateQuestionByAnswerKey(page.questions, "languages", (question) => ({
+    ...question,
+    label: "Languages Used",
+    metadata: {
+      ...question.metadata,
+      originalLabel: "Languages Used",
+      collection: "array",
+      fields: withFieldMessages(question.metadata.fields, LANGUAGE_MESSAGES),
+      originalPresentation: {
+        addLabel: "Add",
+        emptyMessage: "No entries added",
+        addDialogTitle: "Add Entry",
+        editDialogTitle: "Edit Entry",
+        columns: [
+          { key: "language", label: "Language" },
+          { key: "proficiency", label: "Proficiency" },
+          { key: "is_main_language", label: "Main Language?", format: "yesNoLabel" },
+        ],
+        actions: TEMPORARY_WORK_DEFAULT_ACTIONS,
+      },
+      presentation: {
+        addLabel: "Add",
+        emptyMessage: "No entries added",
+        addDialogTitle: "Add Entry",
+        editDialogTitle: "Edit Entry",
+        columns: [
+          { key: "language", label: "Language" },
+          { key: "proficiency", label: "Proficiency" },
+          { key: "is_main_language", label: "Main Language?", format: "yesNoLabel" },
+        ],
+        actions: TEMPORARY_WORK_DEFAULT_ACTIONS,
+      },
+    },
+  }));
+  page.questions = updateQuestionByAnswerKey(page.questions, "english_tests", (question) => ({
+    ...question,
+    label: "English Test Results",
+    metadata: {
+      ...question.metadata,
+      originalLabel: "English Test Results",
+      collection: "array",
+      fields: withFieldMessages(question.metadata.fields, ENGLISH_TEST_MESSAGES).map((field) => field.answerKey === "test_type"
+        ? { ...field, options: choiceOptions(["IELTS Academic", "IELTS General", "PTE Academic", "TOEFL iBT", "OET", "Other"]) }
+        : field),
+      originalPresentation: {
+        addLabel: "Add",
+        emptyMessage: "No entries added",
+        addDialogTitle: "Add Entry",
+        editDialogTitle: "Edit Entry",
+        columns: [
+          { key: "date_day", label: "Date", format: "groupedDate" },
+          { key: "test_type", label: "Test Type" },
+          { key: "location", label: "Location" },
+          { key: "reference_number", label: "Reference Number" },
+          { key: "overall_score", label: "Overall Score" },
+        ],
+        actions: TEMPORARY_WORK_DEFAULT_ACTIONS,
+        sections: [{ heading: "Sub-scores (optional)" }],
+      },
+      presentation: {
+        addLabel: "Add",
+        emptyMessage: "No entries added",
+        addDialogTitle: "Add Entry",
+        editDialogTitle: "Edit Entry",
+        columns: [
+          { key: "date_day", label: "Date", format: "groupedDate" },
+          { key: "test_type", label: "Test Type" },
+          { key: "location", label: "Location" },
+          { key: "reference_number", label: "Reference Number" },
+          { key: "overall_score", label: "Overall Score" },
+        ],
+        actions: TEMPORARY_WORK_DEFAULT_ACTIONS,
+        sections: [{ heading: "Sub-scores (optional)" }],
+      },
+    },
+  }));
+  page.questions = updateQuestionByAnswerKey(page.questions, "studied_in_english_details", (question) => ({
+    ...question,
+    rows: 4,
+    placeholder: "e.g. University of Melbourne – Bachelor of Commerce, 2018–2021",
+    metadata: {
+      ...question.metadata,
+      originalPlaceholder: "e.g. University of Melbourne – Bachelor of Commerce, 2018–2021",
+      validation: { rules: [{ id: "requiredWhenEquals", field: "studied_in_english_details", config: { field: "studied_in_english", value: "yes" } }] },
+    },
+  }));
+  return page;
+}
+
 export function enrichTravelPage(page) {
+  applyPageTitle(page);
   const requiredIntro = [
     {
       type: "paragraph",
       text: "In the past 10 years since turning 16 years of age, have any of the applicants travelled outside their usual country of residence?",
     },
     {
+      type: "list",
+      items: [
+        "work, study or training",
+        "business",
+        "holiday/leisure trips",
+        "military deployment",
+        "visits back to your own country",
+      ],
+    },
+    {
       type: "paragraph",
       text: "Please note if an applicant is under 16 years of age, this information is not required.",
     },
   ];
-  if (!Array.isArray(page.introBlocks) || page.introBlocks.length < 2) {
-    page.introBlocks = requiredIntro;
-    page.metadata = { ...page.metadata, originalIntroBlocks: clone(requiredIntro) };
-  }
-  page.questions = page.questions.map((question) => (
-    question.answerKey === "has_travel_history"
-      ? {
+  page.introBlocks = clone(requiredIntro);
+  page.metadata = { ...page.metadata, originalIntroBlocks: clone(requiredIntro) };
+  page.questions = page.questions.map((question) => {
+    if (question.answerKey === "has_travel_history") {
+      return {
         ...question,
         label: "In the past 10 years since turning 16 years of age, have any of the applicants travelled outside their usual country of residence?",
         metadata: {
           ...question.metadata,
           originalLabel: "In the past 10 years since turning 16 years of age, have any of the applicants travelled outside their usual country of residence?",
         },
-      }
-      : question
-  ));
+      };
+    }
+    if (question.answerKey !== "travel_history") return question;
+    const fields = (question.metadata?.fields || []).map((field) => {
+      if (field.answerKey !== "applicant_ids") return field;
+      const metadata = { ...(field.metadata || {}), collection: "multi-select-array" };
+      delete metadata.fields;
+      delete metadata.presentation;
+      delete metadata.originalPresentation;
+      return {
+        ...field,
+        type: "select",
+        optionsSource: "applicants",
+        required: true,
+        metadata,
+      };
+    });
+    return {
+      ...question,
+      label: "Travel records",
+      metadata: {
+        ...question.metadata,
+        originalLabel: "Travel records",
+        collection: "array",
+        fields,
+        originalPresentation: {
+          addLabel: "Add",
+          emptyMessage: "No travel records added yet",
+          addDialogTitle: "Add Travel Record",
+          editDialogTitle: "Edit Travel Record",
+          columns: [
+            { key: "applicant_ids", label: "Applicant(s)", format: "applicantNames" },
+            { key: "country", label: "Country" },
+            { key: "date_arrived", label: "Arrival Date", format: "groupedDate" },
+            { key: "departure", label: "Departure Date", format: "groupedDate" },
+            { key: "reason_for_visit", label: "Reason for Travel" },
+          ],
+          actions: TEMPORARY_WORK_DEFAULT_ACTIONS,
+        },
+        presentation: {
+          addLabel: "Add",
+          emptyMessage: "No travel records added yet",
+          addDialogTitle: "Add Travel Record",
+          editDialogTitle: "Edit Travel Record",
+          columns: [
+            { key: "applicant_ids", label: "Applicant(s)", format: "applicantNames" },
+            { key: "country", label: "Country" },
+            { key: "date_arrived", label: "Arrival Date", format: "groupedDate" },
+            { key: "departure", label: "Departure Date", format: "groupedDate" },
+            { key: "reason_for_visit", label: "Reason for Travel" },
+          ],
+          actions: TEMPORARY_WORK_DEFAULT_ACTIONS,
+        },
+      },
+    };
+  });
   return page;
 }
 
 export function enrichResidenceCoveragePage(page) {
   if (page.route !== "/intake/temporary-work/all-applicants/countries-of-residence") return page;
+  const introBlocks = [{ type: "paragraph", text: "Provide details of all countries where the applicant(s) have spent a total of 12 months or more in the past 10 years since turning 16." }];
+  page.introBlocks = clone(introBlocks);
+  page.metadata = { ...page.metadata, originalIntroBlocks: clone(introBlocks) };
   page.questions = updateQuestionTree(
     page.questions,
     "temporary-work-all-applicants-countries-of-residence-residence_records",
     (question) => ({
       ...question,
+      label: "Details of country of residence",
       metadata: {
         ...question.metadata,
+        originalLabel: "Details of country of residence",
+        collection: "array",
+        fields: (question.metadata?.fields || []).map((field) => field.answerKey === "applicant_name"
+          ? { ...field, type: "select", optionsSource: "applicants", required: true }
+          : field),
+        originalPresentation: {
+          addLabel: "Add",
+          emptyMessage: "No countries of residence added yet",
+          addDialogTitle: "Add Country of Residence",
+          editDialogTitle: "Edit Country of Residence",
+          columns: [
+            { key: "applicant_name", label: "Applicant", format: "applicantNames" },
+            { key: "country", label: "Country" },
+            { key: "date_from", label: "From", format: "groupedDate" },
+            { key: "date_to", label: "To", format: "groupedDateOrOngoing" },
+          ],
+          actions: TEMPORARY_WORK_DEFAULT_ACTIONS,
+        },
+        presentation: {
+          addLabel: "Add",
+          emptyMessage: "No countries of residence added yet",
+          addDialogTitle: "Add Country of Residence",
+          editDialogTitle: "Edit Country of Residence",
+          columns: [
+            { key: "applicant_name", label: "Applicant", format: "applicantNames" },
+            { key: "country", label: "Country" },
+            { key: "date_from", label: "From", format: "groupedDate" },
+            { key: "date_to", label: "To", format: "groupedDateOrOngoing" },
+          ],
+          actions: TEMPORARY_WORK_DEFAULT_ACTIONS,
+        },
         validation: {
           ...(question.metadata?.validation || {}),
           rules: [
@@ -720,7 +1016,9 @@ export function applySharedTemporaryWorkPageEnrichment(pages) {
     if (page.route === "/intake/temporary-work/main-applicant/skills") enriched = enrichSkillsPage(enriched);
     else if (page.route === "/intake/temporary-work/all-applicants/visas") enriched = enrichVisasPage(enriched);
     else if (page.route === "/intake/temporary-work/main-applicant/contact-details") enriched = enrichContactPage(enriched);
+    else if (["/intake/temporary-work/main-applicant/education", "/intake/temporary-work/spouse-partner/education"].includes(page.route)) enriched = enrichEducationPage(enriched);
     else if (page.route === "/intake/temporary-work/children/child-profile/custody") enriched = enrichChildCustodyPage(enriched);
+    else if (["/intake/temporary-work/main-applicant/language", "/intake/temporary-work/spouse-partner/language"].includes(page.route)) enriched = enrichLanguagePage(enriched);
     else if (page.route === "/intake/temporary-work/all-applicants/travel-history") enriched = enrichTravelPage(enriched);
     else if (page.route === "/intake/temporary-work/all-applicants/countries-of-residence") enriched = enrichResidenceCoveragePage(applyPageTitle(enriched));
     else if (page.route === "/intake/temporary-work/all-applicants/health") enriched = enrichHealthPage(enriched);

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
-import { Loader2, AlertCircle } from "lucide-react";
+import { Loader2, AlertCircle, ExternalLink, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatVisaApplicationType } from "@/lib/visaDisplay";
 import AdminSessionMonitor from "@/components/admin/AdminSessionMonitor";
@@ -39,9 +39,35 @@ export default function MatterLayout({ children }) {
   const [isLoadingFullData, setIsLoadingFullData] = useState(false);
   const [error, setError] = useState(null);
   const [headerHeight, setHeaderHeight] = useState(255);
+  const [matterFolderUrl, setMatterFolderUrl] = useState(null);
 
   const [isScrolled, setIsScrolled] = useState(false);
   const needsFullMatterData = routeNeedsFullMatterData(pathname);
+  const folderLookupMatterId = matterData && (
+    matterData.requestedMatterId === matterId || matterData.application?.id === matterId
+  ) ? (matterData.application?.id || matterId) : null;
+
+  useEffect(() => {
+    setMatterFolderUrl(null);
+    if (!folderLookupMatterId) return;
+
+    const controller = new AbortController();
+    async function loadMatterFolderUrl() {
+      try {
+        const response = await fetch(`/api/matter/${encodeURIComponent(folderLookupMatterId)}/shared-folder`, {
+          cache: "no-store", signal: controller.signal,
+        });
+        const data = await response.json().catch(() => ({}));
+        if (response.ok && data.success && !controller.signal.aborted) {
+          setMatterFolderUrl(data.folderUrl || null);
+        }
+      } catch {
+        // The matter remains usable when its WorkDrive link is unavailable.
+      }
+    }
+    loadMatterFolderUrl();
+    return () => controller.abort();
+  }, [folderLookupMatterId]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -202,7 +228,6 @@ export default function MatterLayout({ children }) {
   const tabs = [
     { href: `/matter/${canonicalMatterId}/questionnaire`, label: "Client answers" },
     { href: `/matter/${canonicalMatterId}/resources`, label: "Resources" },
-    { href: `/matter/${canonicalMatterId}/shared-folder`, label: "Shared Folder" },
     ...(canAccessQuestionnaireBuilder(user?.role)
       ? [{ href: `/matter/${canonicalMatterId}/questionnaire-builder`, label: "Questionnaire builder" }]
       : []),
@@ -252,33 +277,54 @@ export default function MatterLayout({ children }) {
                 </p>
               </div>
 
-              {/* Progress Indicator */}
-              <div className="flex items-center gap-4 bg-gray-50 px-4 py-2 rounded-lg border border-gray-100">
-                <div className="relative h-12 w-12">
-                  <svg className="h-full w-full" viewBox="0 0 36 36">
-                    <path
-                      className="text-gray-200"
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="3"
-                    />
-                    <path
-                      className="text-[#4F726B]"
-                      strokeDasharray={`${displayedPercentage}, 100`}
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="3"
-                    />
-                  </svg>
-                  <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-[#4F726B]">
-                    {hasPercentage ? `${displayedPercentage}%` : "—"}
+              <div className="flex flex-wrap items-center gap-3">
+                {matterFolderUrl ? (
+                  <a
+                    href={matterFolderUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm font-medium text-[#284d41] hover:bg-[#e8f3ee] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]"
+                  >
+                    <FolderOpen className="h-4 w-4" /> Matter Folder <ExternalLink className="h-4 w-4" />
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    disabled
+                    title="Matter folder link is not available"
+                    className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-medium text-gray-400"
+                  >
+                    <FolderOpen className="h-4 w-4" /> Matter Folder
+                  </button>
+                )}
+                {/* Progress Indicator */}
+                <div className="flex items-center gap-4 bg-gray-50 px-4 py-2 rounded-lg border border-gray-100">
+                  <div className="relative h-12 w-12">
+                    <svg className="h-full w-full" viewBox="0 0 36 36">
+                      <path
+                        className="text-gray-200"
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                      />
+                      <path
+                        className="text-[#4F726B]"
+                        strokeDasharray={`${displayedPercentage}, 100`}
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                      />
+                    </svg>
+                    <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-[#4F726B]">
+                      {hasPercentage ? `${displayedPercentage}%` : "—"}
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-900">Completion</p>
-                  <p className="text-xs text-gray-500">Questionnaire Progress</p>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">Completion</p>
+                    <p className="text-xs text-gray-500">Questionnaire Progress</p>
+                  </div>
                 </div>
               </div>
             </div>

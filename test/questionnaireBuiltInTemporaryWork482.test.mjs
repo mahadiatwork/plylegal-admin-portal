@@ -212,9 +212,10 @@ describe("Skills in Demand Visa (Subclass 482) built-in parity", () => {
     assert.strictEqual(address.metadata.presentation.addLabel, undefined);
 
     const travel = definition.pages.find((candidate) => candidate.route === "/intake/temporary-work/all-applicants/travel-history");
-    assert.strictEqual(travel.introBlocks.length, 2);
+    assert.strictEqual(travel.introBlocks.length, 3);
     assert.match(travel.introBlocks[0].text, /travelled outside their usual country of residence/);
-    assert.match(travel.introBlocks[1].text, /under 16 years of age/);
+    assert.deepStrictEqual(travel.introBlocks[1].items, ["work, study or training", "business", "holiday/leisure trips", "military deployment", "visits back to your own country"]);
+    assert.match(travel.introBlocks[2].text, /under 16 years of age/);
     assert.strictEqual(findQuestion(travel.questions, "has_travel_history").label, travel.introBlocks[0].text);
   });
 
@@ -229,6 +230,41 @@ describe("Skills in Demand Visa (Subclass 482) built-in parity", () => {
       fromFields: ["date_from_day", "date_from_month", "date_from_year"],
       toFields: ["date_to_day", "date_to_month", "date_to_year"],
     });
+    assert.deepStrictEqual(records.metadata.presentation.columns.map((column) => column.label), ["Applicant", "Country", "From", "To"]);
+    assert.strictEqual(findQuestion(records.metadata.fields, "applicant_name")?.optionsSource, "applicants");
+  });
+
+  it("shares main Education and Language popup contracts with the 186 spouse fixtures", () => {
+    const education = definition.pages.find((page) => page.route.endsWith("/main-applicant/education"));
+    const history = findQuestion(education.questions, "education_history");
+    assert.deepStrictEqual(history.metadata.presentation.columns.map((column) => column.label), ["Institution", "Qualification", "Course Name", "Year Started", "Country"]);
+    assert.deepStrictEqual(findQuestion(history.metadata.fields, "qualification").options.map((option) => option.value), ["Secondary", "Diploma/Certificate", "Bachelor's", "Master's", "Doctorate/PhD", "Other"]);
+
+    const language = definition.pages.find((page) => page.route.endsWith("/main-applicant/language"));
+    assert.deepStrictEqual(findQuestion(language.questions, "languages").metadata.presentation.columns.map((column) => column.label), ["Language", "Proficiency", "Main Language?"]);
+    assert.deepStrictEqual(findQuestion(findQuestion(language.questions, "english_tests").metadata.fields, "test_type").options.map((option) => option.value), ["IELTS Academic", "IELTS General", "PTE Academic", "TOEFL iBT", "OET", "Other"]);
+  });
+
+  it("models Travel applicants and Identity gates exactly as mounted", () => {
+    const travel = definition.pages.find((page) => page.route.endsWith("/all-applicants/travel-history"));
+    const records = findQuestion(travel.questions, "travel_history");
+    const applicants = findQuestion(records.metadata.fields, "applicant_ids");
+    assert.strictEqual(applicants.type, "select");
+    assert.strictEqual(applicants.optionsSource, "applicants");
+    assert.strictEqual(applicants.metadata.collection, "multi-select-array");
+    assert.deepStrictEqual(records.metadata.presentation.columns.map((column) => column.label), ["Applicant(s)", "Country", "Arrival Date", "Departure Date", "Reason for Travel"]);
+
+    const identity = definition.pages.find((page) => page.route.endsWith("/main-applicant/identity"));
+    const passports = findQuestion(identity.questions, "passports");
+    const passportFields = new Map(passports.metadata.fields.map((field) => [field.answerKey, field]));
+    for (const key of ["document_type", "document_number", "passport_country", "place_of_issue", "nationality", "gender", "name", "date_issued", "is_original_date", "document_status"]) {
+      assert.strictEqual(passportFields.get(key)?.required, true, `${key} should match the mounted dialog`);
+    }
+    assert.ok(passports.metadata.validation.rules.some((rule) => rule.id === "minRowsWhenEquals"));
+    const nationalId = findQuestion(identity.questions, "national_id_card");
+    for (const key of ["family_name", "given_names", "identification_number", "country_of_issue"]) {
+      assert.strictEqual(findQuestion(nationalId.metadata.fields, key)?.required, true);
+    }
   });
 
   it("models all ten Health dialogs as distinct applicant-scoped records", () => {

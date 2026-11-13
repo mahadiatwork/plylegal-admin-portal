@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { questionnaireBuiltInTemplates, getBuiltInQuestionnaireDefinition } from './questionnaireBuiltIns.js';
+import { questionnaireBuiltInPages } from './questionnaireBuiltInPages.js';
 import { createQuestionnaireDraft } from './questionnaireDrafts.js';
 import { getQuestionnaireDefinitionIssues, normalizeQuestionnaireDefinition, assertQuestionnaireDefinitionStructureEditable } from './questionnaireDefinitions.js';
 import { getLegacyQuestionnairePublishIssues } from './questionnaireLegacyProtection.js';
@@ -86,6 +87,21 @@ function findTemplateQuestion(template, questionId) {
   }
   return null;
 }
+
+test('employment history fields keep the labels shown beside their client controls', () => {
+  const employment = questionnaireBuiltInPages.find(page => page.id === 'temporary-work-main-applicant-employment');
+  assert.ok(employment);
+  const prefix = 'temporary-work-main-applicant-employment-employment_history-';
+  for (const [key, label] of [
+    ['date_from_day', 'Date From'],
+    ['date_to_day', 'Date To (leave blank if ongoing)'],
+    ['status', 'Status'],
+    ['employer_address', 'Workplace Address'],
+    ['duties', 'Duties/Notes (max 300 characters)'],
+  ]) {
+    assert.equal(findQuestionById(employment.questions, `${prefix}${key}`)?.label, label, key);
+  }
+});
 
 test('custom client choice controls remain editable in every final built-in catalog', () => {
   const genderValues = ['Male', 'Female', 'Other'];
@@ -195,7 +211,7 @@ test('choice casing and conditional rows match the client answer contract', () =
   assert.deepEqual(values(temporaryWork, 'temporary-work-main-applicant-employment-employment_history-is_related_to_nominated_position'), ['yes', 'no']);
 
   const futureTravel = findTemplateQuestion(partner, 'partner-all-applicants-future-travel-future_travel');
-  assert.equal(futureTravel.required, true);
+  assert.equal(futureTravel.required, false);
   assert.deepEqual(futureTravel.visibleIf, [{ field: 'has_future_travel', op: 'equals', value: 'Yes' }]);
   const futureTravelOther = findTemplateQuestion(partner, 'partner-all-applicants-future-travel-future_travel-other_reason_details');
   assert.deepEqual(futureTravelOther.visibleIf, [{ field: 'reason', op: 'equals', value: 'Other' }]);

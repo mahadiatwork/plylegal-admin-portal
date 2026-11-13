@@ -35,9 +35,9 @@ const sharedUrl = "https://workdrive.zohopublic.com.au/external/matter-folder";
 const request = (id = "app") => GET(new Request("https://admin.test/api/matter/app/shared-folder"), {
   params: Promise.resolve({ matterId: id }),
 });
-const reset = () => { fixture = { session: { role: "admin" }, application: { zohoId: "123456789" }, deal: { Matter_Workdrive_Folder_URL: sharedUrl }, calls: [] }; };
+const reset = () => { fixture = { session: { role: "admin" }, application: { zohoId: "123456789" }, deal: { Matter_Folder_URL: sharedUrl }, calls: [] }; };
 
-test("admin folder embeds accept WorkDrive shared and internal URLs only", () => {
+test("admin folder button accepts WorkDrive shared and internal URLs only", () => {
   for (const url of [sharedUrl, "https://workdrive.zohoexternal.com.au/file/folder-id", "https://workdrive.zoho.com.au/team/teams/team/ws/workspace/folders/folder-id"]) {
     assert.equal(getMatterSharedFolderUrl(url), url);
   }
@@ -58,8 +58,8 @@ test("admin folder route reads the live CRM field including updates and clearing
   const response = await request();
   assert.equal(response.headers.get("cache-control"), "private, no-store");
   assert.deepEqual(await response.json(), { success: true, folderUrl: sharedUrl });
-  assert.deepEqual(fixture.calls, [{ module: "Deals", id: "123456789", fields: "id,Matter_Workdrive_Folder_URL" }]);
-  fixture.deal.Matter_Workdrive_Folder_URL = null;
+  assert.deepEqual(fixture.calls, [{ module: "Deals", id: "123456789", fields: "id,Matter_Folder_URL" }]);
+  fixture.deal.Matter_Folder_URL = null;
   assert.deepEqual(await (await request()).json(), { success: true, folderUrl: null });
 });
 
@@ -73,7 +73,7 @@ test("admin folder route handles missing matters, invalid IDs, and missing Deal 
 test("admin folder route supports legacy Deal ID aliases and rejects unsafe CRM links", async () => {
   for (const field of ["zohoDealId", "dealId"]) {
     reset(); fixture.application = { [field]: "123456789" };
-    fixture.deal.Matter_Workdrive_Folder_URL = "https://example.test/unsafe-folder";
+    fixture.deal.Matter_Folder_URL = "https://example.test/unsafe-folder";
     assert.deepEqual(await (await request()).json(), { success: true, folderUrl: null });
     assert.equal(fixture.calls[0].id, "123456789");
   }

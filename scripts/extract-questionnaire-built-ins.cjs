@@ -8,6 +8,8 @@ const { pathToFileURL } = require('node:url');
 const parser = require('next/dist/compiled/babel/bundle').parser();
 const clientRoot = path.resolve(process.argv[2] || '../plylegal-client-portal');
 const outputPath = path.resolve(__dirname, '../src/lib/questionnaireBuiltInPages.js');
+const characterSourcePath = path.join(clientRoot, 'src/lib/questionnaires/temporaryWork482.definition.js');
+const characterOutputPath = path.resolve(__dirname, '../src/lib/questionnaireStarterTemplates.js');
 const parsed = new Map();
 function walk(node, visit, ancestors = []) {
   if (!node || typeof node !== 'object') return;
@@ -32,6 +34,9 @@ function textOf(node) {
   if (node?.type === 'JSXText') return node.value;
   if (node?.type === 'StringLiteral') return node.value;
   if (node?.type === 'JSXExpressionContainer') return textOf(node.expression);
+  if (node?.type === 'CallExpression' && /^translate/.test(node.callee?.name || '')) {
+    return textOf(node.arguments[0]);
+  }
   return (node?.children || []).map(textOf).join(' ');
 }
 function cleanLabel(value) {
@@ -465,7 +470,7 @@ function describeField(key, rawSchema, context, prefix, depth = 0, schemaBacked 
   const descriptor = {
     id: `${prefix}-${key}`.replace(/[^A-Za-z0-9_.:-]/g, '-').slice(0, 128),
     answerKey: key,
-    label: ui.label,
+    label: ui.label || formatLabel(key),
     type: 'text',
     required: schemaBacked && !schemaAcceptsUndefined(rawSchema, sourceSchemaContext),
   };
@@ -685,6 +690,8 @@ async function main() {
     }
   }
   fs.writeFileSync(outputPath, `// Generated from shipped client questionnaire forms by scripts/extract-questionnaire-built-ins.cjs.\n// Kept in this repository so fallback rendering never depends on a sibling checkout.\nexport const questionnaireBuiltInPages = ${JSON.stringify(pages, null, 2)};\n`);
+  fs.writeFileSync(characterOutputPath, `// Generated from the client portal's canonical temporary-work Character contract.\n// Regenerate with scripts/extract-questionnaire-built-ins.cjs; do not maintain a second declaration inventory here.\n${fs.readFileSync(characterSourcePath, 'utf8')}`);
   console.log(`Extracted ${pages.length} pages into ${outputPath}`);
+  console.log(`Copied the shared Character contract into ${characterOutputPath}`);
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

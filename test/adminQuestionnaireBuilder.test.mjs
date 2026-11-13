@@ -348,7 +348,7 @@ async function mountBuilder(t, {
     confirm,
     location: {
       hash: "",
-      pathname: "/admin/questionnaires",
+      pathname: embeddedInMatter ? "/matter/app-123/questionnaire-builder" : "/admin/questionnaires",
       search: `?layout=${initialLayout}`,
     },
     history: {
@@ -1125,6 +1125,25 @@ test("the proposed questionnaire layout can be presented without removing the cu
     harness.control("questionnaire-page-group"),
     "the existing questionnaire group dropdown should remain available in the current view"
   );
+  assert.equal(text(harness.tree).includes("Design preview."), false);
+});
+
+test("the matter builder switches between its questionnaire list and the new layout", async (t) => {
+  const { harness, replacedUrls } = await mountBuilder(t, { routes: questionnaireRoutes });
+
+  assert.ok(harness.control("embedded-questionnaire-page-group"));
+  harness.button("Proposed layout").props.onClick();
+  harness.render();
+
+  assert.equal(replacedUrls.at(-1), "/matter/app-123/questionnaire-builder?layout=proposed");
+  assert.ok(text(harness.tree).includes("Design preview."));
+  assert.equal(harness.maybeControl("embedded-questionnaire-page-group"), undefined);
+
+  harness.button("Visa questionnaires").props.onClick();
+  harness.render();
+
+  assert.equal(replacedUrls.at(-1), "/matter/app-123/questionnaire-builder?layout=current");
+  assert.ok(harness.control("embedded-questionnaire-page-group"));
   assert.equal(text(harness.tree).includes("Design preview."), false);
 });
 
