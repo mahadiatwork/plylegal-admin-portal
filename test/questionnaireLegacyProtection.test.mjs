@@ -131,9 +131,16 @@ test("wording updates to a live questionnaire do not revalidate unchanged publis
   edited.pages.find((page) => page.id === employment.id).introBlocks[0].text += " Please check dates.";
   assert.deepEqual(getLegacyQuestionnairePublishIssues(edited, current), []);
 
+  const replacement = { ...structuredClone(edited), id: "replacement-482" };
+  assert.deepEqual(getLegacyQuestionnairePublishIssues(replacement, current), [],
+    "a separate saved copy may replace the live questionnaire when only wording changes");
+
   const changedStructure = structuredClone(edited);
   changedStructure.pages.find((page) => page.id === employment.id).questions[1].answerKey = "changed_storage_key";
   assert.ok(getLegacyQuestionnairePublishIssues(changedStructure, current).some((issue) => issue.includes(employment.title)));
+  assert.ok(getLegacyQuestionnairePublishIssues({ ...changedStructure, id: replacement.id }, current)
+    .some((issue) => issue.includes(employment.title)),
+    "a replacement copy cannot introduce a new storage contract");
   assert.ok(getLegacyQuestionnairePublishIssues(edited, { ...current, status: "draft" }).length >= 3);
   assert.ok(getLegacyQuestionnairePublishIssues({ ...edited, visaContexts: ["482", "186"] }, current).length >= 3);
   assert.deepEqual(current, publishedSnapshot);

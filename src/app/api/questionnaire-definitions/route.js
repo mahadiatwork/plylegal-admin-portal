@@ -71,9 +71,9 @@ function requireSafeMutationRequest(request, { expectsJson = false } = {}) {
   }
 }
 
-function requireRegisteredActiveRoutes(definition) {
+function requireRegisteredActiveRoutes(definition, previousDefinition = null) {
   if (definition.status !== "active") return;
-  const legacyIssues = getLegacyQuestionnairePublishIssues(definition);
+  const legacyIssues = getLegacyQuestionnairePublishIssues(definition, previousDefinition);
   if (legacyIssues.length) throw new ApiError("Built-in questionnaire structure must be preserved", 400, legacyIssues);
 }
 
@@ -121,6 +121,24 @@ function hasSameAudience(existing, nextDefinition) {
   return existing.visaType === nextDefinition.visaType &&
     existingContexts.length === nextContexts.length &&
     existingContexts.every((context, index) => context === nextContexts[index]);
+}
+
+async function getPublishedAudienceDefinition(transaction, snapshot, nextDefinition) {
+  const matching = snapshot.docs.filter((doc) => {
+    const existing = doc.data() || {};
+    return existing.status === "active" && hasSameAudience(existing, nextDefinition);
+  });
+  if (matching.length > 1) {
+    throw new ApiError("Multiple live questionnaires cover this audience", 409);
+  }
+  if (!matching.length) return null;
+  const publishedDoc = matching[0];
+  const data = publishedDoc.data() || {};
+  const legacyPages = Object.prototype.hasOwnProperty.call(data, "pages")
+    ? undefined
+    : (await transaction.get(publishedDoc.ref.collection("pages"))).docs
+      .map((pageDoc) => ({ id: pageDoc.id, ...pageDoc.data() }));
+  return serializeQuestionnaireDefinitionDoc(publishedDoc, legacyPages);
 }
 
 async function archiveConflictingDefinitions(transaction, snapshot, nextDefinition, actor, now) {
@@ -242,7 +260,6 @@ export async function POST(request) {
       ),
       { id: definitionId }
     );
-    requireRegisteredActiveRoutes(normalized);
     const now = new Date();
     const record = {
       ...normalized,
@@ -282,6 +299,10 @@ export async function POST(request) {
           collectionRef.where("visaType", "==", record.visaType)
         );
       }
+      const publishedDefinition = conflicts
+        ? await getPublishedAudienceDefinition(transaction, conflicts, record)
+        : null;
+      requireRegisteredActiveRoutes(record, publishedDefinition);
       if (conflicts) {
         await archiveConflictingDefinitions(transaction, conflicts, record, actor, now);
       }

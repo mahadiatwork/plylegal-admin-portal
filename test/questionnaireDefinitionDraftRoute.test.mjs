@@ -7,6 +7,7 @@ import { test } from "node:test";
 const definitions = new Map();
 const revisions = new Map();
 let definitionAudienceQueries = 0;
+let lastLegacyComparison = null;
 
 function clone(value) {
   return structuredClone(value);
@@ -17,6 +18,7 @@ function snapshot(collectionName, id) {
   const value = collection.get(id);
   return {
     id,
+    ref: documentRef(collectionName, id),
     exists: value !== undefined,
     data: () => value === undefined ? undefined : clone(value),
   };
@@ -88,6 +90,10 @@ const db = {
 
 globalThis.__questionnaireDraftRouteDependencies = {
   db,
+  getLegacyQuestionnairePublishIssues(definition, previousDefinition) {
+    lastLegacyComparison = { definition, previousDefinition };
+    return [];
+  },
   async getAdminSession() {
     return { role: "super_admin", email: "admin@example.com" };
   },
@@ -106,7 +112,7 @@ const mocks = {
   `,
   "@/lib/questionnaireLegacyProtection": `
     export const hydrateLegacyQuestionnaireDefinition = (definition) => definition;
-    export const getLegacyQuestionnairePublishIssues = () => [];
+    export const getLegacyQuestionnairePublishIssues = globalThis.__questionnaireDraftRouteDependencies.getLegacyQuestionnairePublishIssues;
   `,
 };
 
@@ -193,4 +199,29 @@ test("creating a draft definition preserves draft status and does not replace th
   assert.equal(definitions.get(draft.id).status, "draft");
   assert.equal(definitionAudienceQueries, 0, "draft creation should not search for or archive a live conflict");
   assert.ok(revisions.has(`${draft.id}__1`), "the immutable first draft revision should be captured");
+});
+
+test("creating a live copy checks the current live structure before archiving it", async () => {
+  definitions.clear();
+  revisions.clear();
+  definitionAudienceQueries = 0;
+  lastLegacyComparison = null;
+
+  const live = definition({ id: "live-482", status: "active", revision: 7 });
+  definitions.set(live.id, clone(live));
+  const replacement = definition({ id: "replacement-482", status: "active", revision: 0 });
+  replacement.title = "Replacement live questionnaire";
+  const response = await POST(new Request("https://portal.test/api/questionnaire-definitions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(replacement),
+  }));
+
+  assert.equal(response.status, 201);
+  assert.equal(lastLegacyComparison?.definition.id, replacement.id);
+  assert.equal(lastLegacyComparison?.previousDefinition.id, live.id);
+  assert.equal(lastLegacyComparison?.previousDefinition.status, "active");
+  assert.equal(definitions.get(live.id).status, "archived");
+  assert.equal(definitions.get(replacement.id).status, "active");
+  assert.equal(definitionAudienceQueries, 1);
 });

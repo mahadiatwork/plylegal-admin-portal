@@ -259,6 +259,10 @@ test("publishing a test questionnaire archives the conflicting live questionnair
   assert.equal(payload.definition.title, "Replacement live questionnaire");
   assert.match(payload.definition.publishedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(definitionAudienceQueries, 1, "publishing should check for a conflicting live audience");
+  assert.equal(lastLegacyComparison?.definition.id, draft.id);
+  assert.equal(lastLegacyComparison?.previousDefinition.id, live.id,
+    "the saved copy must be checked against the current live questionnaire, not its draft snapshot");
+  assert.equal(lastLegacyComparison?.previousDefinition.status, "active");
 
   const archivedLive = definitions.get(live.id);
   assert.equal(archivedLive.status, "archived");
@@ -270,4 +274,17 @@ test("publishing a test questionnaire archives the conflicting live questionnair
   assert.ok(revisions.has(`${live.id}__8`));
   assert.ok(revisions.has(`${draft.id}__1`));
   assert.ok(revisions.has(`${draft.id}__2`));
+});
+
+test("publishing another visa context does not inherit the 482 questionnaire structure", async () => {
+  const { live, draft } = seedAudience();
+  const otherContext = { ...draft, id: "test-186", visaContexts: ["186"], visaContext: "186" };
+  definitions.set(otherContext.id, clone(otherContext));
+
+  const response = await putDefinition(otherContext.id, { ...otherContext, status: "active" });
+
+  assert.equal(response.status, 200);
+  assert.equal(lastLegacyComparison?.previousDefinition, null);
+  assert.equal(definitions.get(live.id).status, "active");
+  assert.equal(definitions.get(otherContext.id).status, "active");
 });

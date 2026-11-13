@@ -240,6 +240,21 @@ async function getLegacyPages(definitionRef, data, transaction = null) {
   return snapshot.docs.map((pageDoc) => ({ id: pageDoc.id, ...pageDoc.data() }));
 }
 
+async function getPublishedAudienceDefinition(transaction, snapshot, nextDefinition) {
+  const matching = snapshot.docs.filter((doc) => {
+    const existing = doc.data() || {};
+    return doc.id !== nextDefinition.id && existing.status === "active" &&
+      hasSameAudience(existing, nextDefinition);
+  });
+  if (matching.length > 1) {
+    throw new ApiError("Multiple live questionnaires cover this audience", 409);
+  }
+  if (!matching.length) return null;
+  const publishedDoc = matching[0];
+  const legacyPages = await getLegacyPages(publishedDoc.ref, publishedDoc.data() || {}, transaction);
+  return serializeQuestionnaireDefinitionDoc(publishedDoc, legacyPages);
+}
+
 export async function GET(_request, { params }) {
   try {
     await requireAdmin();
@@ -299,19 +314,21 @@ async function updateDefinition(request, params, { replace }) {
         hydrateLegacyQuestionnaireDefinition(candidate),
         { id: definitionId }
       );
-      requireRegisteredActiveRoutes(normalized, current);
-      assertQuestionnaireDefinitionStructureEditable(
-        hydrateLegacyQuestionnaireDefinition(current),
-        normalized,
-        { id: definitionId },
-      );
-
       let conflicts = null;
       if (normalized.status === "active") {
         conflicts = await transaction.get(
           collectionRef.where("visaType", "==", normalized.visaType)
         );
       }
+      const publishedDefinition = current.status === "active"
+        ? current
+        : conflicts && await getPublishedAudienceDefinition(transaction, conflicts, normalized);
+      requireRegisteredActiveRoutes(normalized, publishedDefinition);
+      assertQuestionnaireDefinitionStructureEditable(
+        hydrateLegacyQuestionnaireDefinition(current),
+        normalized,
+        { id: definitionId },
+      );
 
       const now = new Date();
       savedRecord = {
