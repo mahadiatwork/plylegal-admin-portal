@@ -72,9 +72,9 @@ function requireSafeMutationRequest(request, { expectsJson = false } = {}) {
   }
 }
 
-function requireRegisteredActiveRoutes(definition) {
+function requireRegisteredActiveRoutes(definition, previousDefinition = null) {
   if (definition.status !== "active") return;
-  const legacyIssues = getLegacyQuestionnairePublishIssues(definition);
+  const legacyIssues = getLegacyQuestionnairePublishIssues(definition, previousDefinition);
   if (legacyIssues.length) throw new ApiError("Built-in questionnaire structure must be preserved", 400, legacyIssues);
 }
 
@@ -299,7 +299,7 @@ async function updateDefinition(request, params, { replace }) {
         hydrateLegacyQuestionnaireDefinition(candidate),
         { id: definitionId }
       );
-      requireRegisteredActiveRoutes(normalized);
+      requireRegisteredActiveRoutes(normalized, current);
       assertQuestionnaireDefinitionStructureEditable(
         hydrateLegacyQuestionnaireDefinition(current),
         normalized,

@@ -7,6 +7,7 @@ import { test } from "node:test";
 const definitions = new Map();
 const revisions = new Map();
 let definitionAudienceQueries = 0;
+let lastLegacyComparison = null;
 
 function clone(value) {
   return structuredClone(value);
@@ -89,6 +90,10 @@ const db = {
 
 globalThis.__questionnaireStatusUpdateDependencies = {
   db,
+  getLegacyQuestionnairePublishIssues(definition, previousDefinition) {
+    lastLegacyComparison = { definition, previousDefinition };
+    return [];
+  },
   async getAdminSession() {
     return { role: "super_admin", email: "admin@example.com" };
   },
@@ -107,7 +112,7 @@ const mocks = {
   `,
   "@/lib/questionnaireLegacyProtection": `
     export const hydrateLegacyQuestionnaireDefinition = (definition) => definition;
-    export const getLegacyQuestionnairePublishIssues = () => [];
+    export const getLegacyQuestionnairePublishIssues = globalThis.__questionnaireStatusUpdateDependencies.getLegacyQuestionnairePublishIssues;
   `,
 };
 
@@ -170,6 +175,7 @@ function seedAudience() {
   definitions.clear();
   revisions.clear();
   definitionAudienceQueries = 0;
+  lastLegacyComparison = null;
 
   const live = definition({
     id: "live-482",
@@ -222,6 +228,19 @@ test("updating a test questionnaire preserves draft status without touching the 
   assert.equal(definitions.get(draft.id).status, "draft");
   assert.ok(revisions.has(`${draft.id}__1`));
   assert.ok(revisions.has(`${draft.id}__2`));
+});
+
+test("updating a live questionnaire checks changes against its published definition", async () => {
+  const { live } = seedAudience();
+  const edited = clone(live);
+  edited.pages[0].questions[0].label = "Updated health notes";
+
+  const response = await putDefinition(live.id, edited);
+
+  assert.equal(response.status, 200);
+  assert.equal(lastLegacyComparison?.definition.pages[0].questions[0].label, "Updated health notes");
+  assert.equal(lastLegacyComparison?.previousDefinition.id, live.id);
+  assert.equal(lastLegacyComparison?.previousDefinition.pages[0].questions[0].label, "Health notes");
 });
 
 test("publishing a test questionnaire archives the conflicting live questionnaire", async () => {

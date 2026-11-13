@@ -109,6 +109,36 @@ test("legacy pages continue to allow visible wording and choice-label edits", ()
   assert.deepEqual(getLegacyQuestionnairePublishIssues(activeDefinition(page)), []);
 });
 
+test("wording updates to a live questionnaire do not revalidate unchanged published structure", () => {
+  const current = structuredClone(questionnaireBuiltInTemplates.find((candidate) => candidate.visaContexts?.includes("482")));
+  const details = current.pages.find((page) => page.route.endsWith("/main-applicant/details"));
+  const otherNames = current.pages.find((page) => page.route.endsWith("/main-applicant/other"));
+  const employment = current.pages.find((page) => page.route.endsWith("/main-applicant/employment"));
+  details.metadata.renderer = "dynamic";
+  otherNames.questions[1].metadata.fields.push({
+    id: "previously-published-field",
+    answerKey: "previously_published_field",
+    label: "Previously published field",
+    type: "text",
+  });
+  employment.questions[1].required = !employment.questions[1].required;
+  const publishedSnapshot = structuredClone(current);
+  assert.ok(getLegacyQuestionnairePublishIssues(current).length >= 3);
+
+  const edited = structuredClone(current);
+  edited.pages.find((page) => page.id === details.id).questions[0].label = "Updated family name";
+  edited.pages.find((page) => page.id === otherNames.id).title = "Other names and prior names";
+  edited.pages.find((page) => page.id === employment.id).introBlocks[0].text += " Please check dates.";
+  assert.deepEqual(getLegacyQuestionnairePublishIssues(edited, current), []);
+
+  const changedStructure = structuredClone(edited);
+  changedStructure.pages.find((page) => page.id === employment.id).questions[1].answerKey = "changed_storage_key";
+  assert.ok(getLegacyQuestionnairePublishIssues(changedStructure, current).some((issue) => issue.includes(employment.title)));
+  assert.ok(getLegacyQuestionnairePublishIssues(edited, { ...current, status: "draft" }).length >= 3);
+  assert.ok(getLegacyQuestionnairePublishIssues({ ...edited, visaContexts: ["482", "186"] }, current).length >= 3);
+  assert.deepEqual(current, publishedSnapshot);
+});
+
 function visitQuestions(questions, visit) {
   for (const question of questions || []) {
     visit(question);

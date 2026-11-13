@@ -9,6 +9,15 @@ function definitionContextKey(definition) {
   return `${definition?.visaType || ''}:${context || ''}`;
 }
 
+function sameDefinitionAudience(left, right) {
+  if (left?.visaType !== right?.visaType) return false;
+  const contexts = definition => (Array.isArray(definition?.visaContexts)
+    ? definition.visaContexts
+    : definition?.visaContext ? [definition.visaContext] : [])
+    .map(String).sort();
+  return JSON.stringify(contexts(left)) === JSON.stringify(contexts(right));
+}
+
 const builtInPages = questionnaireBuiltInTemplates.flatMap(definition => (
   definition.pages.map(page => ({ key: `${definitionContextKey(definition)}:${page.route}`, page }))
 ));
@@ -518,9 +527,17 @@ function ambiguousCopyIssues(page, baseline) {
 }
 
 /** Preserve the storage contract of the shipped forms when saving edits. */
-export function getLegacyQuestionnairePublishIssues(definition) {
+export function getLegacyQuestionnairePublishIssues(definition, previousDefinition = null) {
   if (definition.status !== 'active') return [];
   definition = hydrateLegacyQuestionnaireDefinition(definition);
+  const previousPages = previousDefinition?.status === 'active'
+    && sameDefinitionAudience(previousDefinition, definition)
+    ? new Map((hydrateLegacyQuestionnaireDefinition(previousDefinition).pages || []).map(page => [page.route, page]))
+    : new Map();
+  const matchesPublishedStructure = page => {
+    const previousPage = previousPages.get(page.route);
+    return previousPage && JSON.stringify(stable(pageContract(page))) === JSON.stringify(stable(pageContract(previousPage)));
+  };
   const issues = [];
   for (const page of definition.pages || []) {
     const baseline = builtInPagesByRoute.get(`${definitionContextKey(definition)}:${page.route}`);
@@ -530,11 +547,15 @@ export function getLegacyQuestionnairePublishIssues(definition) {
     }
     if (baseline.metadata?.renderer !== 'legacy') continue;
     if (page.metadata?.renderer !== 'legacy') {
-      issues.push(`${page.title}: this shipped page has not been certified for the dynamic renderer; create and verify a Test copy before requesting promotion`);
+      if (!matchesPublishedStructure(page)) {
+        issues.push(`${page.title}: this shipped page has not been certified for the dynamic renderer; create and verify a Test copy before requesting promotion`);
+      }
       continue;
     }
     if (JSON.stringify(stable(pageContract(page))) !== JSON.stringify(stable(pageContract(baseline)))) {
-      issues.push(`${page.title}: the built-in page's answer structure is preserved; edit its wording and option labels or restore the original structure before saving`);
+      if (!matchesPublishedStructure(page)) {
+        issues.push(`${page.title}: the built-in page's answer structure is preserved; edit its wording and option labels or restore the original structure before saving`);
+      }
     } else {
       issues.push(...ambiguousCopyIssues(page, baseline));
     }
