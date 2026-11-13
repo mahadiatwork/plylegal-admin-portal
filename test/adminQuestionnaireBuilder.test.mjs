@@ -335,6 +335,7 @@ async function mountBuilder(t, {
   definition = richDefinition(),
   embeddedInMatter = true,
   initialLayout = "current",
+  initialView = "editor",
   routes = [],
   confirm = () => true,
 } = {}) {
@@ -351,11 +352,15 @@ async function mountBuilder(t, {
     location: {
       hash: "",
       pathname: embeddedInMatter ? "/matter/app-123/questionnaire-builder" : "/admin/questionnaires",
-      search: `?layout=${initialLayout}`,
+      search: `?layout=${initialLayout}${initialView === "list" ? "&view=list" : ""}`,
     },
     history: {
       replaceState(_state, _unused, url) {
         replacedUrls.push(url);
+        const next = new URL(url, "https://portal.test");
+        globalThis.window.location.pathname = next.pathname;
+        globalThis.window.location.search = next.search;
+        globalThis.window.location.hash = next.hash;
       },
     },
   };
@@ -393,7 +398,7 @@ async function mountBuilder(t, {
     registeredQuestionnaireRoutes = [];
   });
 
-  const harness = createHarness(AdminQuestionnaireBuilder, { embeddedInMatter, initialLayout });
+  const harness = createHarness(AdminQuestionnaireBuilder, { embeddedInMatter, initialLayout, initialView });
   harness.render();
   await flushEffects(harness);
   return { harness, calls, definition, replacedUrls, storedDefinitions };
@@ -1187,9 +1192,84 @@ test("the matter builder switches between its questionnaire list and the new lay
   harness.button("Visa questionnaires").props.onClick();
   harness.render();
 
+  assert.equal(replacedUrls.at(-1), "/matter/app-123/questionnaire-builder?layout=proposed&view=list");
+  assert.ok(harness.button("New layout"));
+  assert.equal(harness.maybeControl("embedded-questionnaire-page-group"), undefined);
+  assert.equal(text(harness.tree).includes("Design preview."), false);
+
+  await harness.button("New layout").props.onClick();
+  harness.render();
+  assert.equal(replacedUrls.at(-1), "/matter/app-123/questionnaire-builder?layout=proposed");
+  assert.ok(text(harness.tree).includes("Design preview."));
+
+  harness.button("Current layout").props.onClick();
+  harness.render();
+  harness.button("Visa questionnaires").props.onClick();
+  harness.render();
+  assert.equal(replacedUrls.at(-1), "/matter/app-123/questionnaire-builder?layout=current&view=list");
+  assert.ok(harness.button("New layout"));
+  await harness.button("Edit").props.onClick();
+  harness.render();
   assert.equal(replacedUrls.at(-1), "/matter/app-123/questionnaire-builder?layout=current");
   assert.ok(harness.control("embedded-questionnaire-page-group"));
+});
+
+test("a matter questionnaire list link opens the list directly", async (t) => {
+  const { harness } = await mountBuilder(t, { initialLayout: "proposed", initialView: "list" });
+  assert.ok(harness.button("New layout"));
   assert.equal(text(harness.tree).includes("Design preview."), false);
+});
+
+test("creating a questionnaire from the matter list returns to the selected editor layout", async (t) => {
+  const { harness, replacedUrls } = await mountBuilder(t, {
+    initialLayout: "proposed",
+    initialView: "list",
+  });
+  harness.button("Add questionnaire").props.onClick();
+  harness.render();
+  assert.ok(harness.control("new-questionnaire-source"));
+  await harness.button("Create questionnaire").props.onClick();
+  harness.render();
+
+  assert.ok(text(harness.tree).includes("Design preview."));
+  assert.equal(replacedUrls.at(-1), "/matter/app-123/questionnaire-builder?layout=proposed");
+});
+
+test("returning to the list keeps unsaved changes when discard is cancelled", async (t) => {
+  const { harness, replacedUrls } = await mountBuilder(t, { confirm: () => false });
+  harness.button("Proposed layout").props.onClick();
+  harness.render();
+  harness.control("Edit section title and description").props.onClick();
+  harness.render();
+  harness.control("proposed-page-intro").props.onChange({ target: { value: "Unsaved description " } });
+  harness.render();
+  harness.button("Visa questionnaires").props.onClick();
+  harness.render();
+
+  assert.ok(text(harness.tree).includes("Design preview."));
+  assert.equal(harness.control("proposed-page-intro").props.value, "Unsaved description ");
+  assert.equal(replacedUrls.at(-1), "/matter/app-123/questionnaire-builder?layout=proposed");
+});
+
+test("the proposed section description keeps spaces while typing", async (t) => {
+  const { harness, calls } = await mountBuilder(t, { routes: questionnaireRoutes });
+  harness.button("Proposed layout").props.onClick();
+  harness.render();
+  harness.control("Edit section title and description").props.onClick();
+  harness.render();
+
+  const original = harness.control("proposed-page-intro").props.value;
+  harness.control("proposed-page-intro").props.onChange({ target: { value: `${original} new ` } });
+  harness.render();
+  assert.equal(harness.control("proposed-page-intro").props.value, `${original} new `);
+  harness.control("proposed-page-intro").props.onChange({ target: { value: `${original} new words` } });
+  harness.render();
+  assert.equal(harness.control("proposed-page-intro").props.value, `${original} new words`);
+
+  await harness.button("Save changes").props.onClick();
+  const saved = calls.find(({ options }) => options.method === "PUT");
+  assert.ok(saved);
+  assert.equal(JSON.parse(saved.options.body).pages[0].introBlocks[0].text, `${original} new words`);
 });
 
 test("the proposed layout edits Getting Started and Included Applicants workflow copy", async (t) => {

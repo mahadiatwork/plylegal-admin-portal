@@ -7,6 +7,7 @@ export default async function MatterQuestionnaireBuilderPage({ params, searchPar
   await requireAdminRole(ADMIN_ROLES.SUPER_ADMIN, `/matter/${matterId}/questionnaire-builder`);
   const query = await searchParams;
   const requestedLayout = Array.isArray(query?.layout) ? query.layout[0] : query?.layout;
+  const requestedView = Array.isArray(query?.view) ? query.view[0] : query?.view;
 
-  return <AdminQuestionnaireBuilder embeddedInMatter initialLayout={requestedLayout} />;
+  return <AdminQuestionnaireBuilder embeddedInMatter initialLayout={requestedLayout} initialView={requestedView} />;
 }

@@ -651,7 +651,6 @@ function setIntroText(page, text) {
   const nonParagraphBlocks = (page.introBlocks || []).filter((block) => block?.type !== "paragraph");
   const paragraphs = text
     .split(/\n\s*\n/)
-    .map((value) => value.trim())
     .filter(Boolean)
     .map((value) => ({ type: "paragraph", text: value }));
   return { ...page, introBlocks: [...paragraphs, ...nonParagraphBlocks] };
@@ -2087,6 +2086,7 @@ function BuilderLayoutToggle({ value, onChange }) {
 export default function AdminQuestionnaireBuilder({
   embeddedInMatter = false,
   initialLayout = BUILDER_LAYOUTS.CURRENT,
+  initialView = "editor",
 } = {}) {
   const matterData = useMatterData();
   const [definitions, setDefinitions] = useState([]);
@@ -2107,7 +2107,9 @@ export default function AdminQuestionnaireBuilder({
   const [isDeleting, setIsDeleting] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [definitionSearch, setDefinitionSearch] = useState("");
-  const [adminView, setAdminView] = useState("library");
+  const [adminView, setAdminView] = useState(() =>
+    embeddedInMatter && initialView !== "list" ? "editor" : "library"
+  );
   const [editorLayout, setEditorLayout] = useState(() => normalizeBuilderLayout(initialLayout));
   const [expandedPageGroupKeys, setExpandedPageGroupKeys] = useState([]);
   const [proposedNavigationOpen, setProposedNavigationOpen] = useState(false);
@@ -2642,6 +2644,7 @@ export default function AdminQuestionnaireBuilder({
       setQuestionEditorOpen(false);
       setSectionSettingsOpen(nextDefinition.pages.length === 0);
       setAdminView("editor");
+      if (embeddedInMatter) writeBuilderUrl(editorLayout, "editor");
       setCreateDialogOpen(false);
     } catch (createError) {
       setError(createError.message || "Could not create the questionnaire.");
@@ -2685,6 +2688,7 @@ export default function AdminQuestionnaireBuilder({
     setQuestionEditorOpen(false);
     setSectionSettingsOpen(false);
     setAdminView("library");
+    if (embeddedInMatter) writeBuilderUrl(editorLayout, "library");
   }
 
   function updateDefinitionField(field, value) {
@@ -3376,11 +3380,7 @@ export default function AdminQuestionnaireBuilder({
     }
   }
 
-  function changeEditorLayout(nextLayout) {
-    const normalizedLayout = normalizeBuilderLayout(nextLayout);
-    setEditorLayout(normalizedLayout);
-    setProposedNavigationOpen(false);
-
+  function writeBuilderUrl(layout, view) {
     if (
       typeof window === "undefined"
       || !window.history?.replaceState
@@ -3390,10 +3390,19 @@ export default function AdminQuestionnaireBuilder({
     }
 
     const params = new URLSearchParams(window.location.search || "");
-    params.set("layout", normalizedLayout);
+    params.set("layout", layout);
+    if (embeddedInMatter && view === "library") params.set("view", "list");
+    else params.delete("view");
     const query = params.toString();
     const nextUrl = `${window.location.pathname || "/admin/questionnaires"}${query ? `?${query}` : ""}${window.location.hash || ""}`;
     window.history.replaceState(null, "", nextUrl);
+  }
+
+  function changeEditorLayout(nextLayout) {
+    const normalizedLayout = normalizeBuilderLayout(nextLayout);
+    setEditorLayout(normalizedLayout);
+    setProposedNavigationOpen(false);
+    writeBuilderUrl(normalizedLayout, "editor");
   }
 
   const firstCondition = activeQuestion?.visibleIf?.[0] || null;
@@ -3485,12 +3494,12 @@ export default function AdminQuestionnaireBuilder({
 
   ) : null;
 
-  if (!embeddedInMatter && adminView === "library") {
+  if (adminView === "library") {
     return (
       <div className="space-y-6">
         <section className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-            Questionnaires
+            {embeddedInMatter ? "Visa questionnaires" : "Questionnaires"}
           </h1>
           <Button
             type="button"
@@ -3499,7 +3508,7 @@ export default function AdminQuestionnaireBuilder({
             onClick={openCreateQuestionnaireDialog}
           >
             <Plus className="h-4 w-4" />
-            New questionnaire
+            {embeddedInMatter ? "Add questionnaire" : "New questionnaire"}
           </Button>
         </section>
 
@@ -3597,7 +3606,7 @@ export default function AdminQuestionnaireBuilder({
                     variant="outline"
                     className="w-full border-[#cedbd5] bg-white text-[#31564a] hover:border-[#8ac6ad] hover:text-[#17372e] hover:bg-[#fafcfb] md:w-auto"
                     disabled={isBusy}
-                    onClick={() => openAdminDefinition(entry)}
+                    onClick={() => openAdminDefinition(entry, BUILDER_LAYOUTS.CURRENT)}
                   >
                     {entry.source === "builtIn" ? "Use template" : "Edit"}
                   </Button>
@@ -3655,7 +3664,7 @@ export default function AdminQuestionnaireBuilder({
               variant="outline"
               size="sm"
               className="w-fit cursor-pointer border-[#c7d8d0] bg-white text-[#38564b] shadow-sm transition-all hover:-translate-y-0.5 hover:border-[#7ea698] hover:bg-[#edf7f2] hover:text-[#17372e] hover:shadow-md"
-              onClick={embeddedInMatter ? () => changeEditorLayout(BUILDER_LAYOUTS.CURRENT) : returnToQuestionnaireLibrary}
+              onClick={returnToQuestionnaireLibrary}
             >
               <ArrowLeft className="h-4 w-4" />
               {embeddedInMatter ? "Visa questionnaires" : "All questionnaires"}
@@ -4316,6 +4325,7 @@ export default function AdminQuestionnaireBuilder({
       {createQuestionnaireDialog}
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
+          {embeddedInMatter ? <Button type="button" variant="outline" size="sm" className="mb-5 border-[#c7d8d0] bg-white text-[#38564b]" onClick={returnToQuestionnaireLibrary}><ArrowLeft className="h-4 w-4" />Visa questionnaires</Button> : null}
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#70877e]">
             {embeddedInMatter ? "Matter workspace" : "Admin · Questionnaires"}
           </p>
