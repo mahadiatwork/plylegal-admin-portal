@@ -6,6 +6,7 @@ import { test } from "node:test";
 import * as React from "react";
 import * as crmFieldCatalog from "../src/lib/crmFieldCatalog.js";
 import * as questionnaireClientPresentation from "../src/lib/questionnaireClientPresentation.js";
+import * as questionnaireDrafts from "../src/lib/questionnaireDrafts.js";
 import * as questionnaireCrmContract from "../src/lib/questionnaireCrmContract.js";
 import * as questionnairePageGroups from "../src/lib/questionnairePageGroups.js";
 import { getQuestionnaireWorkflowPages } from "../src/lib/questionnaireWorkflowPages.js";
@@ -124,6 +125,7 @@ async function loadComponent(relativePath) {
       return { completeAdminQuestionnairePages: (definition) => definition };
     }
     if (specifier === "@/lib/questionnaireClientPresentation") return questionnaireClientPresentation;
+    if (specifier === "@/lib/questionnaireDrafts") return questionnaireDrafts;
     if (specifier === "@/lib/crmFieldCatalog") return crmFieldCatalog;
     if (specifier === "@/lib/questionnaireCrmContract") return questionnaireCrmContract;
     if (specifier === "@/lib/questionnairePageGroups") return questionnairePageGroups;
@@ -613,6 +615,49 @@ test("copy as test creates a separate draft and saving posts it without mutating
     storedDefinitions.some((candidate) => candidate.id === submitted.id && candidate.status === "draft"),
     "the saved test copy should coexist as a draft",
   );
+});
+
+test("Add questionnaire copies an existing questionnaire into a separate draft", async (t) => {
+  const definition = richDefinition();
+  const original = structuredClone(definition);
+  const { harness, calls, storedDefinitions } = await mountBuilder(t, {
+    definition,
+    routes: questionnaireRoutes,
+  });
+
+  harness.button("Add questionnaire").props.onClick();
+  harness.render();
+  assert.ok(harness.control("new-questionnaire-source"));
+  assert.equal(harness.control("new-questionnaire-source").props.value, `saved:${definition.id}`);
+  assert.equal(harness.control("new-questionnaire-visa-type").props.value, "482");
+  harness.control("new-questionnaire-name").props.onChange({ target: { value: "Revised 482 questionnaire" } });
+  harness.render();
+
+  await harness.button("Create questionnaire").props.onClick();
+  harness.render();
+  assert.equal(harness.control("questionnaire-title").props.value, "Revised 482 questionnaire");
+  assert.ok(text(harness.tree).includes("Working copy created"));
+  assert.equal(calls.some(({ options }) => options.method === "POST"), false);
+  assert.deepEqual(definition, original);
+
+  await harness.button("Save").props.onClick();
+  harness.render();
+  const post = calls.find(({ url, options }) => url === "/api/questionnaire-definitions" && options.method === "POST");
+  assert.ok(post);
+  const submitted = JSON.parse(post.options.body);
+  assert.notEqual(submitted.id, definition.id);
+  assert.equal(submitted.status, "draft");
+  assert.equal(submitted.title, "Revised 482 questionnaire");
+  assert.deepEqual(submitted.pages, definition.pages);
+  assert.equal(storedDefinitions.find((item) => item.id === definition.id).status, "active");
+  assert.equal(storedDefinitions.find((item) => item.id === submitted.id).status, "draft");
+});
+
+test("Add questionnaire is also available in the proposed layout", async (t) => {
+  const { harness } = await mountBuilder(t, { initialLayout: "proposed" });
+  harness.button("Add questionnaire").props.onClick();
+  harness.render();
+  assert.ok(harness.control("new-questionnaire-source"));
 });
 
 test("a copied test can add and delete registered pages and questions while keeping machine keys hidden", async (t) => {

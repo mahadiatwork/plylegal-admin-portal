@@ -45,6 +45,7 @@ import { temporaryWork482Definition } from "@/lib/questionnaireStarterTemplates"
 import { questionnaireBuiltInTemplates } from "@/lib/questionnaireBuiltIns";
 import { completeAdminQuestionnairePages } from "@/lib/questionnaireAdminCoverage";
 import { hydrateLegacyQuestionnaireDefinition } from "@/lib/questionnaireLegacyProtection";
+import { createQuestionnaireDraftForMatterType } from "@/lib/questionnaireDrafts";
 import {
   getQuestionnairePageGroupKey,
   groupQuestionnairePages,
@@ -472,8 +473,13 @@ function definitionUpdatedAt(definition) {
 function getOwnerQuestionnaires(definitions) {
   const currentActiveByAudience = new Map();
   const tests = [];
+  const backups = [];
   definitions.forEach((candidate) => {
-    if (!candidate || candidate.status === "archived") return;
+    if (!candidate) return;
+    if (candidate.status === "archived") {
+      backups.push(candidate);
+      return;
+    }
     if (candidate.status !== "active") {
       tests.push(candidate);
       return;
@@ -485,9 +491,10 @@ function getOwnerQuestionnaires(definitions) {
     }
   });
 
-  return [...currentActiveByAudience.values(), ...tests]
+  const statusOrder = { active: 0, draft: 1, archived: 2 };
+  return [...currentActiveByAudience.values(), ...tests, ...backups]
     .sort((left, right) =>
-      Number(right.status === "active") - Number(left.status === "active") ||
+      (statusOrder[left.status] ?? 3) - (statusOrder[right.status] ?? 3) ||
       definitionUpdatedAt(right) - definitionUpdatedAt(left) ||
       String(left?.title || left?.id || "").localeCompare(String(right?.title || right?.id || ""))
     );
@@ -671,7 +678,7 @@ function StatusBadge({ status }) {
       ? "Not published"
       : status === "template"
         ? "Template"
-        : "Archived";
+        : "Backup";
   return (
     <Badge variant="outline" className={STATUS_STYLES[status] || STATUS_STYLES.draft}>
       {label}
@@ -2217,7 +2224,6 @@ export default function AdminQuestionnaireBuilder({
   }, [adminLibraryEntries, definitionSearch]);
   const createSourceEntries = useMemo(() => {
     return definitions
-      .filter((item) => item.status === "active")
       .map((item) => ({
         definition: item,
         source: "saved",
@@ -2512,25 +2518,6 @@ export default function AdminQuestionnaireBuilder({
     }
   }
 
-  function createDefinition() {
-    if (!confirmDiscard()) return;
-    selectionRequestId.current += 1;
-    setIsLoading(false);
-    setIsLoadingDefinition(false);
-    const nextDefinition = makeNewDefinition();
-    setDefinition(nextDefinition);
-    setSavedDefinition(null);
-    setJsonText(JSON.stringify(nextDefinition, null, 2));
-    setJsonHasPendingEdits(false);
-    setJsonError("");
-    setSelectedId(nextDefinition.id);
-    setActivePageId("");
-    setActiveQuestionId("");
-    setIsCreating(true);
-    setError("");
-    setNotice("New test questionnaire ready. Add pages and questions, then save when you are finished.");
-  }
-
   function createDefinitionFrom(source, {
     starter = false,
     asTestCopy = false,
@@ -2573,41 +2560,36 @@ export default function AdminQuestionnaireBuilder({
 
   function openCreateQuestionnaireDialog() {
     const crmMatterType = getApplicationMatterTypeOption(matterData?.application);
-    const matterSource = crmMatterType
-      ? createSourceEntries.find((entry) => definitionMatchesMatterType(entry.definition, crmMatterType))
-      : null;
-    const firstSource = matterSource || createSourceEntries[0];
-    const matterType = matterSource
-      ? crmMatterType
-      : getDefinitionMatterTypeOption(firstSource?.definition) || crmMatterType || getMatterTypeOption("482");
+    const matterType = crmMatterType || getDefinitionMatterTypeOption(createSourceEntries[0]?.definition) || getMatterTypeOption("482");
+    const firstSource = createSourceEntries.find((entry) => definitionMatchesMatterType(entry.definition, matterType))
+      || createSourceEntries.find((entry) => entry.definition.visaType === matterType.visaType);
     setCreateMode(firstSource ? "copy" : "blank");
     setCreateSourceKey(firstSource?.key || "");
     setCreateName(firstSource ? `${matterType.label} — working copy` : "New questionnaire");
     setCreateMatterType(matterType.value);
+    setError("");
     setCreateDialogOpen(true);
   }
 
   function changeCreateMatterType(value) {
     const matterType = getMatterTypeOption(value);
     if (!matterType) return;
+    const previousMatterType = getMatterTypeOption(createMatterType);
     setCreateMatterType(matterType.value);
+    setCreateName((current) => current === `${previousMatterType?.label} — working copy`
+      ? `${matterType.label} — working copy`
+      : current);
     if (createMode !== "copy") return;
-    const matchingSource = createSourceEntries.find((entry) =>
-      definitionMatchesMatterType(entry.definition, matterType)
-    );
+    const currentSource = createSourceEntries.find((entry) => entry.key === createSourceKey);
+    if (currentSource?.definition.visaType === matterType.visaType) return;
+    const matchingSource = createSourceEntries.find((entry) => definitionMatchesMatterType(entry.definition, matterType))
+      || createSourceEntries.find((entry) => entry.definition.visaType === matterType.visaType);
     setCreateSourceKey(matchingSource?.key || "");
-    if (matchingSource) setCreateName(`${matterType.label} — working copy`);
+    if (!matchingSource) setCreateMode("blank");
   }
 
   function changeCreateSource(key) {
-    const sourceEntry = createSourceEntries.find((entry) => entry.key === key);
     setCreateSourceKey(key);
-    if (!sourceEntry) return;
-    const matterType = getDefinitionMatterTypeOption(sourceEntry.definition);
-    if (matterType) {
-      setCreateMatterType(matterType.value);
-      setCreateName(`${matterType.label} — working copy`);
-    }
   }
 
   async function createQuestionnaireFromDialog() {
@@ -2616,6 +2598,7 @@ export default function AdminQuestionnaireBuilder({
       setError("Questionnaire name is required.");
       return;
     }
+    if (!confirmDiscard()) return;
 
     try {
       setIsLoadingDefinition(true);
@@ -2626,18 +2609,12 @@ export default function AdminQuestionnaireBuilder({
         const sourceEntry = createSourceEntries.find((entry) => entry.key === createSourceKey);
         if (!sourceEntry) throw new Error("Choose a questionnaire to copy.");
         const matterType = getMatterTypeOption(createMatterType);
-        if (!definitionMatchesMatterType(sourceEntry.definition, matterType)) {
-          throw new Error("Choose a questionnaire that matches the CRM matter type.");
-        }
         const source = sourceEntry.source === "saved"
           ? await fetchDefinition(sourceEntry.definition.id)
           : sourceEntry.definition;
         nextDefinition = normalizeDefinition({
-          ...clone(source),
-          id: `questionnaire-${crypto.randomUUID()}`,
+          ...createQuestionnaireDraftForMatterType(source, `questionnaire-${crypto.randomUUID()}`, matterType),
           title,
-          status: "draft",
-          revision: 0,
         });
       } else {
         const matterType = getMatterTypeOption(createMatterType) || getMatterTypeOption("482");
@@ -3434,6 +3411,80 @@ export default function AdminQuestionnaireBuilder({
   const showOptions = ["select", "radio", "yesNo"].includes(activeQuestion?.type)
     && !activeQuestion?.optionsSource;
 
+  const createQuestionnaireDialog = createDialogOpen ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#18352d]/35 p-4 backdrop-blur-[1px]" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreateDialogOpen(false); }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="new-questionnaire-title" aria-describedby="new-questionnaire-description" className="max-h-[90vh] w-full max-w-[880px] overflow-y-auto rounded-2xl border border-[#dce6e1] bg-white p-0 text-[#17372e] shadow-2xl">
+            <div className="relative px-6 pt-6 sm:px-8 sm:pt-8">
+              <h2 id="new-questionnaire-title" className="text-2xl font-semibold text-[#17372e]">New questionnaire</h2>
+              <p id="new-questionnaire-description" className="mt-2 text-sm text-[#6d8179]">Choose a starting point, then edit the draft before making it live.</p>
+              <button type="button" className="absolute right-5 top-5 inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm font-medium text-[#5d776d] hover:bg-[#f0f5f2] hover:text-[#24453b]" onClick={() => setCreateDialogOpen(false)}>Close <X className="h-4 w-4" /></button>
+            </div>
+            <div className="space-y-5 px-6 py-3 sm:px-8">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <FieldLabel htmlFor="new-questionnaire-name">Questionnaire name</FieldLabel>
+                  <Input id="new-questionnaire-name" className={`${inputClassName} h-12`} value={createName} onChange={(event) => setCreateName(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <FieldLabel htmlFor="new-questionnaire-visa-type">Matter type</FieldLabel>
+                  <select id="new-questionnaire-visa-type" className={`${selectClassName} h-12`} value={createMatterType} onChange={(event) => changeCreateMatterType(event.target.value)}>
+                    {CRM_QUESTIONNAIRE_MATTER_TYPES.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                  {getMatterTypeOption(createMatterType)?.visaType === "partner" ? (
+                    <p className="text-xs leading-5 text-[#71857d]">Partner subclasses share one live questionnaire. Making this draft live replaces it for all Partner subclasses.</p>
+                  ) : null}
+                </div>
+              </div>
+              <fieldset className="space-y-3">
+                <legend className="mb-3 text-sm font-semibold text-[#24453b]">How would you like to start?</legend>
+                <label className={`block cursor-pointer rounded-xl border p-4 transition ${createMode === "copy" ? "border-[#79ae97] bg-[#f0f7f3] ring-1 ring-[#79ae97]/25" : "border-[#dce6e1] bg-white hover:bg-[#f8fbf9]"}`}>
+                  <span className="flex items-start gap-3">
+                    <input type="radio" name="create-mode" className="mt-1 h-4 w-4 accent-[#1f6654]" checked={createMode === "copy"} disabled={!createSourceEntries.length} onChange={() => setCreateMode("copy")} />
+                    <span className="min-w-0 flex-1">
+                      <span className="font-semibold text-[#24453b]">Copy an existing questionnaire</span>
+                      <span className="ml-2 rounded border border-[#bee2cf] bg-[#edf9f2] px-2 py-1 text-[10px] font-semibold text-[#2d6a55]">Recommended</span>
+                      <span className="mt-1 block text-xs leading-5 text-[#71857d]">Keep its compatible sections and questions, then make your changes.</span>
+                    </span>
+                  </span>
+                  {createMode === "copy" ? (
+                    <select id="new-questionnaire-source" aria-label="Questionnaire to copy" className={`${selectClassName} mt-4 h-11`} value={createSourceKey} onChange={(event) => changeCreateSource(event.target.value)}>
+                      {createSourceEntries.map((entry) => {
+                        const counts = definitionCounts(entry.definition);
+                        const compatible = entry.definition.visaType === getMatterTypeOption(createMatterType)?.visaType;
+                        const status = entry.definition.status === "active" ? "Live" : entry.definition.status === "archived" ? "Backup" : "Draft";
+                        return <option key={entry.key} value={entry.key} disabled={!compatible}>{entry.definition.title} · {counts.pageCount} {counts.pageCount === 1 ? "section" : "sections"} · {status}{compatible ? "" : " · Different visa family"}</option>;
+                      })}
+                    </select>
+                  ) : null}
+                  {createMode === "copy" ? <span className="mt-2 block text-xs leading-5 text-[#71857d]">A 482 questionnaire can start a new 186 draft, and vice versa. Sections specific to the selected matter type use its own template.</span> : null}
+                </label>
+                <label className={`block cursor-pointer rounded-xl border p-4 transition ${createMode === "blank" ? "border-[#79ae97] bg-[#f0f7f3] ring-1 ring-[#79ae97]/25" : "border-[#dce6e1] bg-white hover:bg-[#f8fbf9]"}`}>
+                  <span className="flex items-start gap-3">
+                    <input type="radio" name="create-mode" className="mt-1 h-4 w-4 accent-[#1f6654]" checked={createMode === "blank"} onChange={() => setCreateMode("blank")} />
+                    <span>
+                      <span className="font-semibold text-[#24453b]">Start with a blank questionnaire</span>
+                      <span className="mt-1 block text-xs leading-5 text-[#71857d]">Add your own sections and questions.</span>
+                    </span>
+                  </span>
+                </label>
+              </fieldset>
+              <div className="flex items-center gap-3 rounded-lg bg-[#f3f6f4] px-4 py-3 text-xs text-[#647a72]"><LockKeyhole className="h-4 w-4" />This starts as a private draft. Publishing it archives the previous live questionnaire as a backup.</div>
+              {error ? <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
+            </div>
+            <div className="flex flex-col-reverse gap-2 border-t border-[#e3eae6] px-6 py-5 sm:flex-row sm:justify-end sm:px-8">
+              <Button type="button" variant="outline" className="border-[#d1ddd7] bg-white text-[#38564b]" onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
+              <Button type="button" className="bg-[#4F726B] text-white hover:bg-[#3d625a]" disabled={isLoadingDefinition || (createMode === "copy" && !createSourceKey)} onClick={createQuestionnaireFromDialog}>
+                {isLoadingDefinition ? <Loader2 className="animate-spin" /> : <Plus />}
+                Create questionnaire
+              </Button>
+            </div>
+          </section>
+          </div>
+
+  ) : null;
+
   if (!embeddedInMatter && adminView === "library") {
     return (
       <div className="space-y-6">
@@ -3444,7 +3495,7 @@ export default function AdminQuestionnaireBuilder({
           <Button
             type="button"
             className="bg-[#4F726B] text-white hover:bg-[#3d625a]"
-            disabled={isSaving || isDeleting}
+            disabled={isBusy}
             onClick={openCreateQuestionnaireDialog}
           >
             <Plus className="h-4 w-4" />
@@ -3588,72 +3639,7 @@ export default function AdminQuestionnaireBuilder({
           Need a similar questionnaire? Create a new questionnaire and choose an existing one as the starting point.
         </p>
 
-        {createDialogOpen ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#18352d]/35 p-4 backdrop-blur-[1px]" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreateDialogOpen(false); }}>
-          <section role="dialog" aria-modal="true" aria-labelledby="new-questionnaire-title" aria-describedby="new-questionnaire-description" className="max-h-[90vh] w-full max-w-[880px] overflow-y-auto rounded-2xl border border-[#dce6e1] bg-white p-0 text-[#17372e] shadow-2xl">
-            <div className="relative px-6 pt-6 sm:px-8 sm:pt-8">
-              <h2 id="new-questionnaire-title" className="text-2xl font-semibold text-[#17372e]">New questionnaire</h2>
-              <p id="new-questionnaire-description" className="mt-2 text-sm text-[#6d8179]">Choose a starting point. You can change everything later.</p>
-              <button type="button" className="absolute right-5 top-5 inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm font-medium text-[#5d776d] hover:bg-[#f0f5f2] hover:text-[#24453b]" onClick={() => setCreateDialogOpen(false)}>Close <X className="h-4 w-4" /></button>
-            </div>
-            <div className="space-y-5 px-6 py-3 sm:px-8">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <FieldLabel htmlFor="new-questionnaire-name">Questionnaire name</FieldLabel>
-                  <Input id="new-questionnaire-name" className={`${inputClassName} h-12`} value={createName} onChange={(event) => setCreateName(event.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <FieldLabel htmlFor="new-questionnaire-visa-type">Matter type</FieldLabel>
-                  <select id="new-questionnaire-visa-type" className={`${selectClassName} h-12`} value={createMatterType} onChange={(event) => changeCreateMatterType(event.target.value)}>
-                    {CRM_QUESTIONNAIRE_MATTER_TYPES.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <fieldset className="space-y-3">
-                <legend className="mb-3 text-sm font-semibold text-[#24453b]">How would you like to start?</legend>
-                <label className={`block cursor-pointer rounded-xl border p-4 transition ${createMode === "copy" ? "border-[#79ae97] bg-[#f0f7f3] ring-1 ring-[#79ae97]/25" : "border-[#dce6e1] bg-white hover:bg-[#f8fbf9]"}`}>
-                  <span className="flex items-start gap-3">
-                    <input type="radio" name="create-mode" className="mt-1 h-4 w-4 accent-[#1f6654]" checked={createMode === "copy"} disabled={!createSourceEntries.length} onChange={() => setCreateMode("copy")} />
-                    <span className="min-w-0 flex-1">
-                      <span className="font-semibold text-[#24453b]">Copy an existing questionnaire</span>
-                      <span className="ml-2 rounded border border-[#bee2cf] bg-[#edf9f2] px-2 py-1 text-[10px] font-semibold text-[#2d6a55]">Recommended</span>
-                      <span className="mt-1 block text-xs leading-5 text-[#71857d]">Keep its sections and questions, then make your changes.</span>
-                    </span>
-                  </span>
-                  {createMode === "copy" ? (
-                    <select className={`${selectClassName} mt-4 h-11`} value={createSourceKey} onChange={(event) => changeCreateSource(event.target.value)}>
-                      {createSourceEntries.map((entry) => {
-                        const counts = definitionCounts(entry.definition);
-                        const label = getDefinitionMatterTypeOption(entry.definition)?.label || entry.definition.title;
-                        return <option key={entry.key} value={entry.key}>{label} · {counts.pageCount} sections</option>;
-                      })}
-                    </select>
-                  ) : null}
-                </label>
-                <label className={`block cursor-pointer rounded-xl border p-4 transition ${createMode === "blank" ? "border-[#79ae97] bg-[#f0f7f3] ring-1 ring-[#79ae97]/25" : "border-[#dce6e1] bg-white hover:bg-[#f8fbf9]"}`}>
-                  <span className="flex items-start gap-3">
-                    <input type="radio" name="create-mode" className="mt-1 h-4 w-4 accent-[#1f6654]" checked={createMode === "blank"} onChange={() => setCreateMode("blank")} />
-                    <span>
-                      <span className="font-semibold text-[#24453b]">Start with a blank questionnaire</span>
-                      <span className="mt-1 block text-xs leading-5 text-[#71857d]">Add your own sections and questions.</span>
-                    </span>
-                  </span>
-                </label>
-              </fieldset>
-              <div className="flex items-center gap-3 rounded-lg bg-[#f3f6f4] px-4 py-3 text-xs text-[#647a72]"><LockKeyhole className="h-4 w-4" />This starts as a private draft. Clients will not see it until you make it live.</div>
-            </div>
-            <div className="flex flex-col-reverse gap-2 border-t border-[#e3eae6] px-6 py-5 sm:flex-row sm:justify-end sm:px-8">
-              <Button type="button" variant="outline" className="border-[#d1ddd7] bg-white text-[#38564b]" onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
-              <Button type="button" className="bg-[#4F726B] text-white hover:bg-[#3d625a]" disabled={isLoadingDefinition || (createMode === "copy" && !createSourceKey)} onClick={createQuestionnaireFromDialog}>
-                {isLoadingDefinition ? <Loader2 className="animate-spin" /> : <Plus />}
-                Create questionnaire
-              </Button>
-            </div>
-          </section>
-          </div>
-        ) : null}
+        {createQuestionnaireDialog}
       </div>
     );
   }
@@ -3661,6 +3647,7 @@ export default function AdminQuestionnaireBuilder({
   if ((!embeddedInMatter && adminView === "editor") || (embeddedInMatter && editorLayout === BUILDER_LAYOUTS.PROPOSED)) {
     return (
       <div className="space-y-6">
+        {createQuestionnaireDialog}
         <header className="flex flex-col gap-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Button
@@ -3673,7 +3660,10 @@ export default function AdminQuestionnaireBuilder({
               <ArrowLeft className="h-4 w-4" />
               {embeddedInMatter ? "Visa questionnaires" : "All questionnaires"}
             </Button>
-            <BuilderLayoutToggle value={editorLayout} onChange={changeEditorLayout} />
+            <div className="flex flex-wrap items-center gap-2">
+              <BuilderLayoutToggle value={editorLayout} onChange={changeEditorLayout} />
+              {embeddedInMatter ? <Button type="button" className="bg-[#4F726B] text-white" disabled={isBusy} onClick={openCreateQuestionnaireDialog}><Plus />Add questionnaire</Button> : null}
+            </div>
           </div>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
@@ -4323,6 +4313,7 @@ export default function AdminQuestionnaireBuilder({
 
   return (
     <div className="space-y-6">
+      {createQuestionnaireDialog}
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#70877e]">
@@ -4351,7 +4342,7 @@ export default function AdminQuestionnaireBuilder({
             <RefreshCw className={isLoading ? "animate-spin" : ""} />
             Refresh
           </Button>
-          <Button type="button" className="bg-[#4F726B] text-white" disabled={isSaving || isDeleting} onClick={createDefinition}>
+          <Button type="button" className="bg-[#4F726B] text-white" disabled={isBusy} onClick={openCreateQuestionnaireDialog}>
             <Plus />
             Add questionnaire
           </Button>
@@ -4416,6 +4407,7 @@ export default function AdminQuestionnaireBuilder({
                 <button
                   key={`${entry.audienceKey}:${item.id}`}
                   type="button"
+                  aria-label={`Open questionnaire ${item.title || item.id}`}
                   disabled={isBusy}
                   onClick={() => {
                     if (selected) return;
@@ -4484,7 +4476,7 @@ export default function AdminQuestionnaireBuilder({
               </div>
             </section>
           ) : (
-            <EmptyPane onCreate={createDefinition} />
+            <EmptyPane onCreate={openCreateQuestionnaireDialog} />
           )
         ) : (
           <fieldset

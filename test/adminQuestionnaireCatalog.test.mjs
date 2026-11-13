@@ -4,6 +4,7 @@ import { createRequire, Module } from "node:module";
 import path from "node:path";
 import { test } from "node:test";
 import * as React from "react";
+import * as questionnaireDrafts from "../src/lib/questionnaireDrafts.js";
 
 const require = createRequire(import.meta.url);
 const { loadBindings, transform } = require("next/dist/build/swc");
@@ -160,6 +161,7 @@ async function loadComponent(relativePath) {
     if (specifier === "@/lib/questionnaireLegacyProtection") {
       return { hydrateLegacyQuestionnaireDefinition: (definition) => definition };
     }
+    if (specifier === "@/lib/questionnaireDrafts") return questionnaireDrafts;
     if (specifier === "@/lib/questionnairePageGroups") {
       return {
         getQuestionnairePageGroupKey: () => "shared",
@@ -370,7 +372,7 @@ test("admin library hides starter templates for saved audiences and never labels
   assert.equal(text(harness.tree).includes("Skills in Demand Visa (482)Built-in starter template"), true);
 });
 
-test("new questionnaire copies only active saved questionnaires", async (t) => {
+test("new questionnaire offers live, draft and backup questionnaires as copy sources", async (t) => {
   const activeDefinitions = [
     makeDefinition({
       id: "saved-482",
@@ -402,6 +404,13 @@ test("new questionnaire copies only active saved questionnaires", async (t) => {
     visaContexts: ["186"],
     status: "draft",
   });
+  const backup = makeDefinition({
+    id: "backup-482",
+    title: "Skills in Demand Visa (482) — previous",
+    visaType: "temporary-work",
+    visaContexts: ["482"],
+    status: "archived",
+  });
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
   globalThis.window = {
@@ -411,7 +420,7 @@ test("new questionnaire copies only active saved questionnaires", async (t) => {
   };
   globalThis.fetch = async (url, options = {}) => {
     if (url === "/api/questionnaire-definitions" && !options.method) {
-      return jsonResponse({ definitions: [...activeDefinitions, workingCopy] });
+      return jsonResponse({ definitions: [...activeDefinitions, workingCopy, backup] });
     }
     assert.fail(`Unexpected request: ${options.method || "GET"} ${url}`);
   };
@@ -454,25 +463,30 @@ test("new questionnaire copies only active saved questionnaires", async (t) => {
 
   assert.deepEqual(
     new Set(copyOptions.map((option) => option.props.value)),
-    new Set(activeDefinitions.map((definition) => `saved:${definition.id}`)),
+    new Set([...activeDefinitions, workingCopy, backup].map((definition) => `saved:${definition.id}`)),
   );
-  assert.equal(copyOptions.length, 4);
+  assert.equal(copyOptions.length, 6);
   assert.equal(copySelect.props.value, "saved:saved-partner", "Partner 309 should reuse the Partner 820 source");
-  assert.deepEqual(copyOptions.map((option) => text(option)), [
-    "Employer Nomination Visa (Subclass 186) · 1 sections",
-    "Partner Visa (Subclass 820) · 1 sections",
-    "Protection Visa (Subclass 866) · 1 sections",
-    "Skills in Demand (Subclass 482) · 1 sections",
-  ]);
+  assert.ok(copyOptions.some((option) => text(option) === "Skills in Demand Visa (482) — previous · 1 section · Backup · Different visa family"));
+  assert.ok(copyOptions.some((option) => text(option) === "Employer Nomination Visa (186) — working copy · 1 section · Draft · Different visa family"));
+  assert.equal(copyOptions.find((option) => option.props.value === "saved:saved-482").props.disabled, true);
+  assert.equal(copyOptions.find((option) => option.props.value === "saved:saved-partner").props.disabled, false);
   const questionnaireName = harness.nodes().find((node) =>
     node.type === "input" && node.props.id === "new-questionnaire-name"
   );
   assert.equal(questionnaireName.props.value, "Partner Visa (Subclass 309) — working copy");
-  assert.equal(
-    copyOptions.some((option) => option.props.value === `saved:${workingCopy.id}`),
-    false,
-    "the unpublished working copy must remain saved without becoming a copy source",
-  );
+  const selectById = (id) => {
+    const node = harness.nodes().find((candidate) => candidate.type === "select" && candidate.props.id === id);
+    assert.ok(node, `Expected ${id} select`);
+    return node;
+  };
+  matterTypeSelect.props.onChange({ target: { value: "186" } });
+  harness.render();
+  assert.equal(selectById("new-questionnaire-source").props.value, "saved:saved-186");
+  selectById("new-questionnaire-source").props.onChange({ target: { value: "saved:saved-482" } });
+  harness.render();
+  assert.equal(selectById("new-questionnaire-visa-type").props.value, "186");
+  assert.equal(selectById("new-questionnaire-source").props.value, "saved:saved-482");
   assert.equal(
     copyOptions.some((option) => String(option.props.value || "").startsWith("builtIn:")),
     false,
@@ -534,33 +548,27 @@ test("embedded library replaces starter rows with the newest saved questionnaire
   harness.render();
   await settle(harness);
 
-  const rowTitles = harness.nodes()
-    .filter((node) => node.type === "h2")
-    .map((node) => text(node));
-  assert.deepEqual(rowTitles, [
-    "Skills in Demand Visa (482)",
-    customDefinition.title,
-    "Partner Visa (Subclass 820)",
-    "Employer Nomination Visa (186)",
-    "Protection Visa (Subclass 866)",
-  ]);
-  assert.equal(rowTitles.filter((title) => title === "Skills in Demand Visa (482)").length, 1);
-  assert.equal(rowTitles.filter((title) => title === "Partner Visa (Subclass 820)").length, 1);
+  const questionnaireButtons = harness.nodes().filter((node) =>
+    node.type === "button" && String(node.props["aria-label"] || "").startsWith("Open questionnaire ")
+  );
+  assert.deepEqual(new Set(questionnaireButtons.map((node) => node.props["aria-label"])), new Set([
+    "Open questionnaire Skills in Demand Visa (482)",
+    "Open questionnaire Partner Visa (Subclass 820)",
+    "Open questionnaire Employer Nomination Visa (186)",
+    "Open questionnaire Protection Visa (Subclass 866)",
+  ]));
+  assert.equal(questionnaireButtons.filter((node) => node.props["aria-label"] === "Open questionnaire Skills in Demand Visa (482)").length, 1);
+  assert.equal(questionnaireButtons.some((node) => node.props["aria-label"]?.includes(customDefinition.title)), false);
   assert.deepEqual(
     calls.filter(({ url }) => url.startsWith("/api/questionnaire-definitions/")).map(({ url }) => url),
     [],
     "loading the catalogue should not fetch a questionnaire body",
   );
 
-  const saved482Row = harness.nodes().find((node) =>
-    node.type === "article" && text(node).includes(saved482.title)
+  const saved482Button = questionnaireButtons.find((node) =>
+    node.props["aria-label"] === "Open questionnaire Skills in Demand Visa (482)"
   );
-  assert.ok(saved482Row, "the newest saved 482 questionnaire should be listed");
-  const editButton = [...walk(saved482Row)].find((node) =>
-    node.type === "button" && text(node).includes("Edit")
-  );
-  assert.ok(editButton, "the saved questionnaire should remain editable");
-  const clickResult = editButton.props.onClick();
+  const clickResult = saved482Button.props.onClick();
   if (clickResult && typeof clickResult.then === "function") await clickResult;
   await settle(harness);
 
