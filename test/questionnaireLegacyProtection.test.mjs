@@ -5,7 +5,7 @@ import {
   QUESTIONNAIRE_LEGACY_CATALOG_VERSION,
   questionnaireBuiltInTemplates,
 } from "../src/lib/questionnaireBuiltIns.js";
-import { getQuestionnaireDefinitionIssues } from "../src/lib/questionnaireDefinitions.js";
+import { getQuestionnaireDefinitionIssues, normalizeQuestionnaireDefinition } from "../src/lib/questionnaireDefinitions.js";
 import {
   getLegacyQuestionnairePublishIssues,
   hydrateLegacyQuestionnaireDefinition,
@@ -348,4 +348,55 @@ test("catalog migration advances native dynamic pages even when every legacy pag
   const migrated = migration.definition.pages.find((page) => page.id === character.id);
   assert.equal(migrated.metadata.legacyCatalogVersion, QUESTIONNAIRE_LEGACY_CATALOG_VERSION);
   assert.ok(migration.report.preserved.some((entry) => entry.includes("preserved dynamic structure")));
+});
+
+test("copied legacy questionnaires discard obsolete date parts and invalid nested fields before saving", () => {
+  const source = structuredClone(questionnaireBuiltInTemplates.find((candidate) => candidate.visaContexts?.includes("482")));
+  source.status = "draft";
+  const otherNames = source.pages.find((page) => page.route.endsWith("/main-applicant/other"));
+  otherNames.title = "Previous names, edited";
+  otherNames.questions.push({
+    id: "admin-added-name-note",
+    answerKey: "admin_added_name_note",
+    label: "Additional name note",
+    type: "text",
+  });
+
+  function addObsoleteDateFields(questions) {
+    const obsolete = [];
+    for (const question of questions) {
+      if (question.type === "dateParts") {
+        for (const part of ["day", "month", "year"]) {
+          const answerKey = question.parts?.[part] || `${question.answerKey}_${part}`;
+          obsolete.push({ id: `${question.id}-obsolete-${part}`, answerKey, label: part, type: "text" });
+        }
+      }
+      if (Array.isArray(question.followUps)) addObsoleteDateFields(question.followUps);
+      if (Array.isArray(question.metadata?.fields)) addObsoleteDateFields(question.metadata.fields);
+    }
+    questions.push(...obsolete);
+  }
+
+  for (const page of source.pages) {
+    if (page.metadata?.renderer === "legacy") addObsoleteDateFields(page.questions);
+  }
+  const travelHistory = source.pages.find((page) => page.route.endsWith("/all-applicants/travel-history"));
+  travelHistory.questions[1].metadata.fields[0].metadata = {
+    fields: [{ id: "obsolete-nested", answerKey: "obsolete_nested", label: "Obsolete", type: "text" }],
+  };
+  assert.ok(getQuestionnaireDefinitionIssues(source).length > 10);
+  const original = structuredClone(source);
+
+  for (const catalogVersion of [QUESTIONNAIRE_LEGACY_CATALOG_VERSION, 3]) {
+    const copy = structuredClone(source);
+    for (const page of copy.pages) page.metadata.legacyCatalogVersion = catalogVersion;
+    const repaired = hydrateLegacyQuestionnaireDefinition(copy);
+    assert.deepEqual(getQuestionnaireDefinitionIssues(repaired), []);
+    assert.equal(normalizeQuestionnaireDefinition(repaired).status, "draft");
+    const repairedOtherNames = repaired.pages.find((page) => page.id === otherNames.id);
+    assert.equal(repairedOtherNames.title, "Previous names, edited");
+    assert.ok(repairedOtherNames.questions.some((question) => question.id === "admin-added-name-note"));
+    assert.deepEqual(hydrateLegacyQuestionnaireDefinition(repaired), repaired);
+  }
+  assert.deepEqual(source, original, "repair must not mutate the copied questionnaire in memory");
 });

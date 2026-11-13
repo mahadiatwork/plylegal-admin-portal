@@ -317,6 +317,71 @@ function hydrateLegacyPage(page, baseline, report) {
   };
 }
 
+const DATE_PART_NAMES = ['day', 'month', 'year'];
+
+// Older saved pages can contain standalone date fields alongside their newer
+// dateParts question. Only remove those shadows on matching built-in legacy pages.
+function datePartStorageKeys(questions, keys = new Set()) {
+  for (const question of questions || []) {
+    if (question?.type === 'dateParts' && question.answerKey) {
+      for (const part of DATE_PART_NAMES) {
+        keys.add(question.parts?.[part] || `${question.answerKey}_${part}`);
+      }
+    }
+    datePartStorageKeys(question?.followUps, keys);
+  }
+  return keys;
+}
+
+function repairLegacyQuestionArtifacts(questions, baselineQuestions, report, path, scopedPartKeys = null) {
+  if (!Array.isArray(questions)) return { questions, changed: false };
+
+  const partKeys = scopedPartKeys || datePartStorageKeys(questions);
+  const baselineById = new Map((baselineQuestions || []).map(question => [question.id, question]));
+  const repaired = [];
+  let changed = false;
+
+  for (const question of questions) {
+    const baseline = baselineById.get(question?.id);
+    if (!baseline && partKeys.has(question?.answerKey)) {
+      report.conflicts.push(`${path}: removed obsolete date field ${question.answerKey}`);
+      changed = true;
+      continue;
+    }
+
+    let next = question;
+    if (baseline && question?.type !== 'repeater' && question?.metadata?.fields !== undefined) {
+      const metadata = { ...question.metadata };
+      delete metadata.fields;
+      next = { ...next, metadata };
+      report.conflicts.push(`${path}: removed unsupported nested fields from ${question.id}`);
+      changed = true;
+    }
+
+    if (Array.isArray(next?.followUps)) {
+      const followUps = repairLegacyQuestionArtifacts(
+        next.followUps, baseline?.followUps, report, `${path}.${question.id}.followUps`, partKeys,
+      );
+      if (followUps.changed) {
+        next = { ...next, followUps: followUps.questions };
+        changed = true;
+      }
+    }
+    if (next?.type === 'repeater' && Array.isArray(next.metadata?.fields)) {
+      const fields = repairLegacyQuestionArtifacts(
+        next.metadata.fields, baseline?.metadata?.fields, report, `${path}.${question.id}.fields`,
+      );
+      if (fields.changed) {
+        next = { ...next, metadata: { ...next.metadata, fields: fields.questions } };
+        changed = true;
+      }
+    }
+    repaired.push(next);
+  }
+
+  return { questions: changed ? repaired : questions, changed };
+}
+
 /**
  * Hydrate saved built-in snapshots created before the current legacy catalog.
  *
@@ -330,41 +395,41 @@ export function migrateLegacyQuestionnaireDefinition(definition) {
   const report = { added: [], preserved: [], conflicts: [], unresolved: [] };
   if (!definition || !Array.isArray(definition.pages)) return { definition, report };
 
-  const needsMigration = definition.pages.some(page =>
-    page?.metadata?.legacyCatalogVersion !== QUESTIONNAIRE_LEGACY_CATALOG_VERSION
-      && builtInPagesByRoute.has(`${definitionContextKey(definition)}:${page.route}`)
-  );
-  if (!needsMigration) return { definition, report };
-
   let changed = false;
   const pages = definition.pages.map(page => {
     const baseline = builtInPagesByRoute.get(`${definitionContextKey(definition)}:${page.route}`);
-    if (
-      !baseline
-      || page.metadata?.legacyCatalogVersion === QUESTIONNAIRE_LEGACY_CATALOG_VERSION
-    ) {
-      return page;
-    }
+    if (!baseline) return page;
 
-    if (page.metadata?.renderer === 'legacy' && baseline.metadata?.renderer === 'legacy') {
+    let next = page;
+    if (page.metadata?.legacyCatalogVersion !== QUESTIONNAIRE_LEGACY_CATALOG_VERSION) {
       changed = true;
-      return hydrateLegacyPage(page, baseline, report);
+      if (page.metadata?.renderer === 'legacy' && baseline.metadata?.renderer === 'legacy') {
+        next = hydrateLegacyPage(page, baseline, report);
+      } else {
+        const requirements = baseline.metadata?.renderer === 'legacy'
+          ? upgradeQuestionRequirements(page.questions, questionsById(baseline.questions))
+          : { changed: false, questions: page.questions };
+        report.preserved.push(`${page.id}: preserved dynamic structure while advancing the catalog baseline`);
+        next = {
+          ...page,
+          questions: requirements.questions,
+          metadata: {
+            ...page.metadata,
+            legacyCatalogVersion: QUESTIONNAIRE_LEGACY_CATALOG_VERSION,
+            legacyCatalogBaseline: catalogBaselineSnapshot(baseline),
+          },
+        };
+      }
     }
 
-    const requirements = baseline.metadata?.renderer === 'legacy'
-      ? upgradeQuestionRequirements(page.questions, questionsById(baseline.questions))
-      : { changed: false, questions: page.questions };
-    changed = true;
-    report.preserved.push(`${page.id}: preserved dynamic structure while advancing the catalog baseline`);
-    return {
-      ...page,
-      questions: requirements.questions,
-      metadata: {
-        ...page.metadata,
-        legacyCatalogVersion: QUESTIONNAIRE_LEGACY_CATALOG_VERSION,
-        legacyCatalogBaseline: catalogBaselineSnapshot(baseline),
-      },
-    };
+    if (next.metadata?.renderer === 'legacy' && baseline.metadata?.renderer === 'legacy') {
+      const repaired = repairLegacyQuestionArtifacts(next.questions, baseline.questions, report, next.id);
+      if (repaired.changed) {
+        next = { ...next, questions: repaired.questions };
+        changed = true;
+      }
+    }
+    return next;
   });
 
   return { definition: changed ? { ...definition, pages } : definition, report };
