@@ -23,7 +23,9 @@ const questionnaire = {
   non_migrating_members: [{ id: "parent", relationship: "parent", passport: { family_name: "Family", given_names: "Other" }, citizenship: { has_other: "no", countries: [] } }],
 };
 
-for (const audience of [{ visaType: "temporary-work", visaContext: "482", total: 33 }, { visaType: "temporary-work", visaContext: "186", total: 35 }, { visaType: "partner", total: 50 }, { visaType: "protection", total: 36 }]) {
+// Totals include the Other Family step: it is part of every questionnaire and the Client
+// Portal counts it towards progress too (temporary-work route list; getTargetVisaPages).
+for (const audience of [{ visaType: "temporary-work", visaContext: "482", total: 34 }, { visaType: "temporary-work", visaContext: "186", total: 36 }, { visaType: "partner", total: 51 }, { visaType: "protection", total: 37 }]) {
   test(`${audience.visaContext || audience.visaType} bundled catalog preserves every person's real Details/Custody and scoped completion`, () => {
     const definition = getBuiltInQuestionnaireDefinition(audience);
     const groups = buildQuestionnaireAnswerGroups(definition, questionnaire);
@@ -38,6 +40,7 @@ for (const audience of [{ visaType: "temporary-work", visaContext: "482", total:
     assert.equal(bySection(groups, "child-a", "custody").data.primary_custody_details, "Court order");
     assert.equal(bySection(groups, "child-b", "custody").data.under_18, "no");
     assert.ok(groups.find((group) => group.key === "nonMigrating:parent"));
+    assert.ok(groups.flatMap((group) => group.items || []).some((item) => item.page.route === `/intake/${audience.visaType}/non-migrating`), "Other Family counts as a section");
     if (audience.visaType !== "temporary-work") {
       const relationship = bySection(groups, "child-a", "details").page.questions.find((question) => question.answerKey === "relationship_to_spouse");
       assert.equal(relationship.label, "This person is Sam Spouse's:");

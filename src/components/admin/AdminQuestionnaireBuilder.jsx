@@ -289,9 +289,14 @@ function conditionIncludesValue(condition, value) {
     : condition?.value === value;
 }
 
+/** Individual rules, including those inside "anyOf" groups. */
+function conditionLeaves(conditions) {
+  return (conditions || []).flatMap((condition) => condition?.op === "anyOf" && Array.isArray(condition.value) ? condition.value : [condition]);
+}
+
 function findChoiceDependents(questions, answerKey, value, matches = []) {
   (questions || []).forEach((question) => {
-    if ((question.visibleIf || []).some(
+    if (conditionLeaves(question.visibleIf).some(
       (condition) => condition.field === answerKey && conditionIncludesValue(condition, value)
     )) {
       matches.push(question.label || "another question");
@@ -306,7 +311,7 @@ function findQuestionDependents(questions, answerKey, excludedQuestionId, matche
   (questions || []).forEach((question) => {
     if (
       question.id !== excludedQuestionId &&
-      (question.visibleIf || []).some((condition) => condition.field === answerKey)
+      conditionLeaves(question.visibleIf).some((condition) => condition?.field === answerKey)
     ) {
       matches.push(question.label || "another question");
     }
@@ -325,6 +330,21 @@ function promotePageForStructure(page) {
       renderer: "dynamic",
     },
   };
+}
+
+/** "anyOf" display rules (shown when any nested rule matches) are edited in Advanced JSON. */
+function AnyOfConditionNotice({ condition }) {
+  const rules = (condition?.value || []).map((nested) => {
+    const value = Array.isArray(nested?.value) ? nested.value.join(", ") : nested?.value;
+    return `${nested?.field || "?"} ${nested?.op || ""}${value === undefined ? "" : ` ${value}`}`;
+  });
+  return (
+    <div className="rounded-lg border border-[#d6e4dd] bg-[#f4f8f6] px-4 py-3 text-sm text-[#38564b]" data-testid="any-of-condition">
+      <p className="font-semibold">Shown when any of these rules match</p>
+      <ul className="mt-1 list-disc pl-5">{rules.map((rule) => <li key={rule}>{rule}</li>)}</ul>
+      <p className="mt-2 text-xs text-[#60786f]">Edit these rules in Advanced JSON.</p>
+    </div>
+  );
 }
 
 function builtInLegacyStructureIsLocked(page) {
@@ -1198,6 +1218,13 @@ function InlinePresentationEditor({ presentation = {}, onChange, structureLocked
 
   return (
     <div className="space-y-4">
+      <div className="space-y-2">
+        <FieldLabel htmlFor="presentation-layout">List style</FieldLabel>
+        <select id="presentation-layout" className={selectClassName} value={presentation.layout || "table"} disabled={structureLocked} onChange={(event) => update("layout", event.target.value)}>
+          <option value="table">Table with pop-up form</option>
+          <option value="inline">Inline cards</option>
+        </select>
+      </div>
       <div className="grid gap-3 md:grid-cols-2">
         <div className="space-y-2">
           <FieldLabel htmlFor="presentation-add-label">Add button</FieldLabel>
@@ -1748,7 +1775,7 @@ function FriendlyConditionEditor({ question, idBase, sourceQuestions, onUpdate }
         />
         Show this question conditionally
       </label>
-      {firstCondition ? (
+      {firstCondition?.op === "anyOf" ? <AnyOfConditionNotice condition={firstCondition} /> : firstCondition ? (
         <div className="grid gap-3 md:grid-cols-3">
           <div className="space-y-2">
             <FieldLabel htmlFor={`${idBase}-condition-question`}>After this question</FieldLabel>
@@ -4075,6 +4102,11 @@ export default function AdminQuestionnaireBuilder({
                           <p className="font-semibold">{definition.visaType === "protection" ? "Protection Visa" : definition.visaType === "partner" ? "Partner Visa" : `${definition.visaContext || "Temporary Work"} Visa`} pages use the original client form</p>
                           <p className="mt-1">{builtInLegacyStructureIsLocked(activePage) ? "Wording and option-label edits are safe. Answer types, required settings, stored choices, conditions, and repeater structure are locked until dynamic-renderer parity is certified." : "Wording edits are safe, but changing the answer type, required setting, choices, conditions or repeater structure will switch this page to the dynamic renderer."}</p>
                         </div>
+                      ) : activePage?.metadata?.dynamicParity === "certified" ? (
+                        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900" data-testid="dynamic-certified-notice">
+                          <p className="font-semibold">This page is fully managed by the questionnaire</p>
+                          <p className="mt-1">Questions, order, answer types, required settings, choices, conditions and repeating lists can all be changed. Changes reach the Client Portal after Make live. Removing a question hides it from clients; answers already saved are kept.</p>
+                        </div>
                       ) : null}
 
                       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,.85fr)]">
@@ -4119,6 +4151,19 @@ export default function AdminQuestionnaireBuilder({
                               <FieldLabel htmlFor="question-placeholder">Placeholder</FieldLabel>
                               <Input id="question-placeholder" className={inputClassName} value={activeQuestion.placeholder || ""} onChange={(event) => updateQuestionField("placeholder", event.target.value)} />
                             </div>
+                            <div className="space-y-2">
+                              <FieldLabel htmlFor="question-width">Width</FieldLabel>
+                              <select
+                                id="question-width"
+                                className={selectClassName}
+                                value={activeQuestion.metadata?.width === "half" ? "half" : "full"}
+                                disabled={isBusy || builtInLegacyStructureIsLocked(activePage)}
+                                onChange={(event) => updateQuestionField("metadata", { ...activeQuestion.metadata, width: event.target.value })}
+                              >
+                                <option value="full">Full width</option>
+                                <option value="half">Half width (pairs with the next half-width question)</option>
+                              </select>
+                            </div>
                           </div>
 
                           <label className="flex items-start gap-3 border-t border-[#e6ece9] pt-5 text-sm text-[#38564b]">
@@ -4140,7 +4185,7 @@ export default function AdminQuestionnaireBuilder({
                               <input type="checkbox" className="h-4 w-4 accent-[#1f6654]" checked={Boolean(firstCondition)} disabled={isBusy || (!firstCondition && conditionSourceQuestions.length === 0)} onChange={(event) => toggleCondition(event.target.checked)} />
                               Only after a certain answer
                             </label>
-                            {firstCondition ? (
+                            {firstCondition?.op === "anyOf" ? <AnyOfConditionNotice condition={firstCondition} /> : firstCondition ? (
                               <div className="rounded-xl border border-[#b9d9c8] bg-[#f0f7f3] p-4">
                                 <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#356352]"><ChevronRight className="h-4 w-4" />Show this question when</p>
                                 <div className="grid gap-3 md:grid-cols-3">
@@ -5071,7 +5116,7 @@ export default function AdminQuestionnaireBuilder({
                                       />
                                       Show this question conditionally
                                     </label>
-                                    {firstCondition ? embeddedInMatter ? (
+                                    {firstCondition?.op === "anyOf" ? <AnyOfConditionNotice condition={firstCondition} /> : firstCondition ? embeddedInMatter ? (
                                       <div className="grid gap-3 md:grid-cols-3">
                                         <div className="space-y-2">
                                           <FieldLabel htmlFor="condition-question">After this question</FieldLabel>

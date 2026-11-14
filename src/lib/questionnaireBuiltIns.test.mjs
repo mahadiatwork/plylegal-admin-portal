@@ -178,7 +178,8 @@ test('reviewed nested client choices retain their exact stored values and editab
     'temporary-work-all-applicants-countries-of-residence-residence_records-applicant_name',
   );
   assert.equal(residenceApplicant.type, 'select');
-  assert.equal(residenceApplicant.optionsSource, 'applicants');
+  // Legacy residence records store the applicant's profile id, so the choice is id-valued.
+  assert.equal(residenceApplicant.optionsSource, 'applicantIds');
   assert.equal(residenceApplicant.options, undefined);
 
   const previousSponsorshipSubclass = findTemplateQuestion(
@@ -254,7 +255,7 @@ test('dynamic date lists avoid false static choices and reviewed future ranges r
 });
 
 test('legacy wording edits include nested row labels while live answer structure stays locked', () => {
-  const source = normalizeQuestionnaireDefinition(questionnaireBuiltInTemplates[0]);
+  const source = normalizeQuestionnaireDefinition(questionnaireBuiltInTemplates.find(definition => definition.id === 'built-in-temporary-work-186'));
   const edited = structuredClone(source);
   const page = edited.pages.find(page => page.route.endsWith('/main-applicant/other'));
   page.questions[0].label = 'Updated question wording';
@@ -284,7 +285,7 @@ test('schema backed records reject unsafe nested keys before persistence', () =>
 });
 
 test('copy edits cannot give the same ambiguous static label conflicting wording', () => {
-  const template = structuredClone(questionnaireBuiltInTemplates[0]);
+  const template = structuredClone(questionnaireBuiltInTemplates.find(definition => definition.id === 'built-in-temporary-work-186'));
   const page = template.pages.find(page => page.route.endsWith('/main-applicant/contact-details'));
   const seen = new Map();
   let duplicate;

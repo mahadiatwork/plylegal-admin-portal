@@ -401,7 +401,7 @@ function repairLegacyQuestionArtifacts(questions, baselineQuestions, report, pat
  * to the dynamic renderer in the same save.
  */
 export function migrateLegacyQuestionnaireDefinition(definition) {
-  const report = { added: [], preserved: [], conflicts: [], unresolved: [] };
+  const report = { added: [], preserved: [], conflicts: [], unresolved: [], promoted: [] };
   if (!definition || !Array.isArray(definition.pages)) return { definition, report };
 
   let changed = false;
@@ -410,7 +410,16 @@ export function migrateLegacyQuestionnaireDefinition(definition) {
     if (!baseline) return page;
 
     let next = page;
-    if (page.metadata?.legacyCatalogVersion !== QUESTIONNAIRE_LEGACY_CATALOG_VERSION) {
+    if (page.metadata?.renderer === 'legacy' && baseline.metadata?.dynamicParity === 'certified') {
+      // The shipped page is certified for the dynamic renderer (at any catalog version, e.g. a
+      // legacy page copied in from another visa). Adopt the certified structure, keep
+      // administrator-edited wording, and drop the legacy renderer so structure is editable.
+      changed = true;
+      const hydrated = hydrateLegacyPage(page, baseline, report);
+      const { renderer, ...metadata } = hydrated.metadata;
+      next = { ...hydrated, metadata };
+      report.promoted.push(`${page.id}: promoted to the dynamic renderer`);
+    } else if (page.metadata?.legacyCatalogVersion !== QUESTIONNAIRE_LEGACY_CATALOG_VERSION) {
       changed = true;
       if (page.metadata?.renderer === 'legacy' && baseline.metadata?.renderer === 'legacy') {
         next = hydrateLegacyPage(page, baseline, report);

@@ -74,3 +74,25 @@ Supported question types are `text`, `textarea`, `radio`, `select`, `checkbox`, 
 The editor allows the owner to change questionnaire structure, wording, options and rules in a Test copy before publishing. Built-in client pages continue to protect their existing answer keys, fields and validation so saved answers remain readable; their supported wording and option labels can be edited directly. Adding a previously absent help text or placeholder converts that page to the dynamic renderer so the new copy is actually displayed.
 
 Definitions override registered client page slots; they do not create new URLs or own the client navigation. **Add page** is available only when the selected visa flow has an unused registered page route. Removing a managed built-in page restores that built-in client page rather than removing the step from the journey.
+
+## Promoted (certified) built-in pages — full builder control
+
+Built-in pages start on the legacy renderer (`metadata.renderer: "legacy"`): the client shows
+its hand-written page and only the wording is editable. A page is **promoted** once its route
+is listed in a certified-routes list (for temporary work: `TEMPORARY_WORK_CERTIFIED_ROUTES` in
+`src/lib/questionnaireBuiltInTemporaryWorkDynamic.js`) after the Client Portal parity suite
+proves it renders and saves identically (`plylegal-client-portal/e2e/questionnaire-dynamic-parity.spec.js`).
+
+- The built-in catalog marks promoted pages `metadata.dynamicParity: "certified"` without a renderer.
+- Saved definitions are migrated on load/save (`migrateLegacyQuestionnaireDefinition`): a legacy
+  page whose baseline is certified adopts the certified structure, keeps administrator-edited
+  wording, and becomes fully editable. Make live to publish it.
+- Everything is then editable: add/remove/reorder questions, types, required, options,
+  conditions (including `anyOf` groups), repeating lists (table + pop-up or inline cards),
+  popup sections (`metadata.group` on fields), half-width pairs (`metadata.width`).
+- Removing a question hides it from clients; stored answers are preserved.
+- Behaviour that lived in page code is expressed as data via parity rules
+  (`src/lib/questionnaireDynamicParity.js`): profile prefill, defaults, date formats, storage
+  adapters (`metadata.answerLayout`), option sources (`applicantIds`).
+
+See the workspace `AGENTS.md` for the certification procedure.

@@ -77,7 +77,7 @@ function ReadOnlyQuestion({ question: providedQuestion, values, applicantOptions
   const label = mappedLabel === providedQuestion.metadata?.originalLabel ? providedQuestion.label : mappedLabel;
   const question = label ? { ...providedQuestion, label } : providedQuestion;
   const value = getValue(values, question.answerKey);
-  const options = question.optionsSource === "applicants" ? applicantOptions
+  const options = ["applicants", "applicantIds"].includes(question.optionsSource) ? applicantOptions
     : question.options?.length ? question.options
       : question.type === "yesNo" ? [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] : [];
   let field;
@@ -235,9 +235,10 @@ export default function ClientQuestionnaireReview({ questionnaire = {}, definiti
   const activeIndex = Math.max(0, items.findIndex(({ item }) => item.key === selectedKey));
   const active = items[activeIndex];
   const progress = calculateQuestionnaireAnswerProgress(groups, completion);
-  const applicantOptions = (questionnaire.profiles || []).map((profile) => {
+  const applicantOptions = (questionnaire.profiles || []).flatMap((profile) => {
     const name = [profile.given_names, profile.family_name].filter(Boolean).join(" ") || "Unnamed Applicant";
-    return { value: name, label: name };
+    // "applicants" stores names; "applicantIds" stores profile ids — label both with the name.
+    return [{ value: name, label: name }, ...(profile.id ? [{ value: String(profile.id), label: name }] : [])];
   });
   const select = (key) => { setSelectedKey(key); setSidebarOpen(false); };
   const toggle = (key) => setCollapsedGroups((previous) => {

@@ -86,7 +86,7 @@ function addDefinedAnswers(answers, questions, values, applicantOptions, prefix 
         else addSavedAnswers(answers, row, rowLabel);
       });
     } else if (hasAnswer(value)) {
-      const options = question.optionsSource === "applicants" ? applicantOptions : question.options || [];
+      const options = ["applicants", "applicantIds"].includes(question.optionsSource) ? applicantOptions : question.options || [];
       if (value && typeof value === "object" && !Array.isArray(value)) addSavedAnswers(answers, value, fullLabel);
       else answers.push({ question: fullLabel, answer: displayValue(value, options, question.type === "yesNo") });
     }
@@ -141,9 +141,10 @@ function reviewPageTitle(item) {
 
 export function buildQuestionnairePrintSections(questionnaire = {}, definition) {
   if (definition?.pages?.length) {
-    const applicantOptions = (questionnaire.profiles || []).map((profile) => {
+    const applicantOptions = (questionnaire.profiles || []).flatMap((profile) => {
       const name = [profile.given_names, profile.family_name].filter(Boolean).join(" ") || "Unnamed Applicant";
-      return { value: name, label: name };
+      // "applicants" stores names; "applicantIds" stores profile ids — label both with the name.
+      return [{ value: name, label: name }, ...(profile.id ? [{ value: String(profile.id), label: name }] : [])];
     });
     const answerGroups = buildQuestionnaireAnswerGroups(definition, questionnaire);
     const sharedKeys = new Map();

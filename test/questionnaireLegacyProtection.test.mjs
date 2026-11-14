@@ -12,9 +12,12 @@ import {
   migrateLegacyQuestionnaireDefinition,
 } from "../src/lib/questionnaireLegacyProtection.js";
 
+// 482 content pages are certified for the dynamic renderer, so legacy-protection behaviour
+// is exercised with the 186 catalog (same shipped client pages, still on the legacy renderer).
+const LEGACY_TEMPORARY_WORK = questionnaireBuiltInTemplates.find((candidate) => candidate.id === "built-in-temporary-work-186");
+
 function legacyPageWithChoices() {
-  const page = questionnaireBuiltInTemplates
-    .flatMap((definition) => definition.pages)
+  const page = LEGACY_TEMPORARY_WORK.pages
     .find((candidate) =>
       candidate.metadata?.renderer === "legacy" &&
       candidate.questions.some((question) => Array.isArray(question.options) && question.options.length)
@@ -28,7 +31,7 @@ function activeDefinition(page) {
     id: "questionnaire-under-test",
     title: "Questionnaire under test",
     visaType: "temporary-work",
-    visaContexts: ["482"],
+    visaContexts: ["186"],
     version: "1.0.0",
     status: "active",
     schemaVersion: 1,
@@ -78,7 +81,7 @@ test("legacy protection rejects candidate-declared promotion without server cert
 });
 
 test("a promoted built-in page with edited choices and a display rule remains structurally valid but unpublished", () => {
-  const definition = structuredClone(questionnaireBuiltInTemplates[0]);
+  const definition = structuredClone(LEGACY_TEMPORARY_WORK);
   const page = definition.pages.find((candidate) =>
     candidate.route.endsWith("/main-applicant/details")
   );
@@ -110,7 +113,7 @@ test("legacy pages continue to allow visible wording and choice-label edits", ()
 });
 
 test("wording updates to a live questionnaire do not revalidate unchanged published structure", () => {
-  const current = structuredClone(questionnaireBuiltInTemplates.find((candidate) => candidate.visaContexts?.includes("482")));
+  const current = structuredClone(questionnaireBuiltInTemplates.find((candidate) => candidate.visaContexts?.includes("186")));
   const details = current.pages.find((page) => page.route.endsWith("/main-applicant/details"));
   const otherNames = current.pages.find((page) => page.route.endsWith("/main-applicant/other"));
   const employment = current.pages.find((page) => page.route.endsWith("/main-applicant/employment"));
@@ -171,7 +174,7 @@ function questionById(page, id) {
 }
 
 test("pre-migration saved snapshots receive current requirements but cannot self-certify promotion", () => {
-  const definition = structuredClone(questionnaireBuiltInTemplates[0]);
+  const definition = structuredClone(LEGACY_TEMPORARY_WORK);
   const requiredPages = definition.pages.filter((page) => firstRequiredQuestion(page));
   const migratedPageIds = new Set(
     definition.pages
@@ -211,7 +214,7 @@ test("pre-migration saved snapshots receive current requirements but cannot self
 });
 
 test("required-contract compatibility does not permit unrelated legacy structure changes", () => {
-  const definition = structuredClone(questionnaireBuiltInTemplates[0]);
+  const definition = structuredClone(LEGACY_TEMPORARY_WORK);
   const page = definition.pages.find((candidate) => firstRequiredQuestion(candidate));
   const originalAnswerKey = page.questions[0].answerKey;
   delete page.metadata.legacyCatalogVersion;
@@ -226,7 +229,7 @@ test("required-contract compatibility does not permit unrelated legacy structure
 });
 
 test("current snapshots cannot use the compatibility path to remove a requirement", () => {
-  const definition = structuredClone(questionnaireBuiltInTemplates[0]);
+  const definition = structuredClone(LEGACY_TEMPORARY_WORK);
   const page = definition.pages.find((candidate) => firstRequiredQuestion(candidate));
   const required = firstRequiredQuestion(page);
   const requiredId = required.id;
@@ -240,7 +243,7 @@ test("current snapshots cannot use the compatibility path to remove a requiremen
 });
 
 test("old saved legacy pages gain current choices while retaining visible copy edits", () => {
-  const definition = structuredClone(questionnaireBuiltInTemplates[0]);
+  const definition = structuredClone(LEGACY_TEMPORARY_WORK);
   const page = definition.pages.find((candidate) =>
     candidate.route.endsWith("/main-applicant/details")
   );
@@ -293,7 +296,7 @@ test("old saved legacy pages gain current choices while retaining visible copy e
 });
 
 test("version-3 migration advances untouched copy without losing presentation edits or promoted pages", () => {
-  const definition = structuredClone(questionnaireBuiltInTemplates.find((candidate) => candidate.id === "built-in-temporary-work-482"));
+  const definition = structuredClone(questionnaireBuiltInTemplates.find((candidate) => candidate.id === "built-in-temporary-work-186"));
   definition.pages.forEach((page) => { page.metadata.legacyCatalogVersion = 3; });
   const health = definition.pages.find((page) => page.route.endsWith("/all-applicants/health"));
   const hospital = questionById(health, "temporary-work-all-applicants-health-hospital_details");
@@ -329,7 +332,7 @@ test("version-3 migration advances untouched copy without losing presentation ed
 });
 
 test("catalog migration preserves unknown nodes and recorded deletions with an idempotent report", () => {
-  const definition = structuredClone(questionnaireBuiltInTemplates[0]);
+  const definition = structuredClone(LEGACY_TEMPORARY_WORK);
   definition.status = "draft";
   definition.revision = 37;
   definition.pages.forEach((page) => { page.metadata.legacyCatalogVersion = QUESTIONNAIRE_LEGACY_CATALOG_VERSION; });
@@ -372,11 +375,11 @@ test("catalog migration preserves unknown nodes and recorded deletions with an i
 
   const repeated = migrateLegacyQuestionnaireDefinition(migration.definition);
   assert.strictEqual(repeated.definition, migration.definition);
-  assert.deepEqual(repeated.report, { added: [], preserved: [], conflicts: [], unresolved: [] });
+  assert.deepEqual(repeated.report, { added: [], preserved: [], conflicts: [], unresolved: [], promoted: [] });
 });
 
 test("catalog migration advances native dynamic pages even when every legacy page is current", () => {
-  const definition = structuredClone(questionnaireBuiltInTemplates[0]);
+  const definition = structuredClone(LEGACY_TEMPORARY_WORK);
   definition.pages.forEach((page) => { page.metadata.legacyCatalogVersion = QUESTIONNAIRE_LEGACY_CATALOG_VERSION; });
   const character = definition.pages.find((page) => page.metadata?.renderer !== "legacy");
   character.metadata.legacyCatalogVersion = QUESTIONNAIRE_LEGACY_CATALOG_VERSION - 1;
@@ -388,7 +391,7 @@ test("catalog migration advances native dynamic pages even when every legacy pag
 });
 
 test("copied legacy questionnaires discard obsolete date parts and invalid nested fields before saving", () => {
-  const source = structuredClone(questionnaireBuiltInTemplates.find((candidate) => candidate.visaContexts?.includes("482")));
+  const source = structuredClone(questionnaireBuiltInTemplates.find((candidate) => candidate.visaContexts?.includes("186")));
   source.status = "draft";
   const otherNames = source.pages.find((page) => page.route.endsWith("/main-applicant/other"));
   otherNames.title = "Previous names, edited";

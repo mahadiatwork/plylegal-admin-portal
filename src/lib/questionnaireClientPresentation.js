@@ -240,6 +240,10 @@ function conditionValueLabel(sourceQuestion, value) {
 export function describeClientCondition(conditions = [], entries = []) {
   const condition = conditions[0];
   if (!condition) return "Shown conditionally";
+  if (condition.op === "anyOf") {
+    const parts = (condition.value || []).map((nested) => describeClientCondition([nested], entries).replace(/^Shown /, ""));
+    return parts.length ? `Shown ${parts.join(", or ")}` : "Shown conditionally";
+  }
   const source = entries.find((entry) => sourceAnswerKeys(entry).has(condition.field));
   const sourceQuestion = source?.questions?.find((question) => question.answerKey === condition.field);
   const sourceLabel = source?.label || humanizeAnswerKey(condition.field);

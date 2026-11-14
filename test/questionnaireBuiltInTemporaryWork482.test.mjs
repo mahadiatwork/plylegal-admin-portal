@@ -67,8 +67,13 @@ describe("Skills in Demand Visa (Subclass 482) built-in parity", () => {
     assert.ok(definition, "482 definition should exist");
     assert.strictEqual(definition.pages.length, 29);
     assert.deepStrictEqual(definition.pages.map((page) => page.route), EXPECTED_482_ROUTES);
-    assert.strictEqual(definition.pages.filter((page) => page.metadata?.renderer === "legacy").length, 28);
-    assert.strictEqual(definition.pages.filter((page) => page.metadata?.renderer !== "legacy").length, 1);
+    // 25 content pages are certified for the dynamic renderer (+ Character, always dynamic);
+    // the three workflow pages (start, profile, non-migrating index) stay legacy.
+    assert.deepStrictEqual(
+      definition.pages.filter((page) => page.metadata?.renderer === "legacy").map((page) => page.route.split("/").pop()),
+      ["start", "profile", "non-migrating"],
+    );
+    assert.strictEqual(definition.pages.filter((page) => page.metadata?.dynamicParity === "certified").length, 25);
     assert.deepStrictEqual(getQuestionnaireDefinitionIssues(definition), []);
   });
 
@@ -201,7 +206,9 @@ describe("Skills in Demand Visa (Subclass 482) built-in parity", () => {
     assert.ok(entries);
     assert.deepStrictEqual(entries.metadata.fields.map((field) => field.answerKey), ["applicantId", "grantNumber"]);
     assert.strictEqual(findQuestion(entries.metadata.fields, "history"), null);
-    assert.strictEqual(findQuestion(entries.metadata.fields, "applicantId")?.optionsSource, "applicants");
+    // The live page stores profile ids (not names), so the dynamic renderer must too.
+    assert.strictEqual(findQuestion(entries.metadata.fields, "applicantId")?.optionsSource, "applicantIds");
+    assert.strictEqual(entries.metadata.presentation.layout, "inline");
     assert.strictEqual(entries.metadata.presentation.addLabel, "Add Applicant Visa Record");
   });
 
@@ -231,7 +238,8 @@ describe("Skills in Demand Visa (Subclass 482) built-in parity", () => {
       toFields: ["date_to_day", "date_to_month", "date_to_year"],
     });
     assert.deepStrictEqual(records.metadata.presentation.columns.map((column) => column.label), ["Applicant", "Country", "From", "To"]);
-    assert.strictEqual(findQuestion(records.metadata.fields, "applicant_name")?.optionsSource, "applicants");
+    // Stored as profile ids by the live page (dynamic parity).
+    assert.strictEqual(findQuestion(records.metadata.fields, "applicant_name")?.optionsSource, "applicantIds");
   });
 
   it("shares main Education and Language popup contracts with the 186 spouse fixtures", () => {
@@ -250,7 +258,8 @@ describe("Skills in Demand Visa (Subclass 482) built-in parity", () => {
     const records = findQuestion(travel.questions, "travel_history");
     const applicants = findQuestion(records.metadata.fields, "applicant_ids");
     assert.strictEqual(applicants.type, "select");
-    assert.strictEqual(applicants.optionsSource, "applicants");
+    // An array of profile ids, as the live multi-select stores it.
+    assert.strictEqual(applicants.optionsSource, "applicantIds");
     assert.strictEqual(applicants.metadata.collection, "multi-select-array");
     assert.deepStrictEqual(records.metadata.presentation.columns.map((column) => column.label), ["Applicant(s)", "Country", "Arrival Date", "Departure Date", "Reason for Travel"]);
 

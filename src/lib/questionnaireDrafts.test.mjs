@@ -3,7 +3,7 @@ import test from "node:test";
 import { createQuestionnaireDraft, createQuestionnaireDraftForMatterType } from "./questionnaireDrafts.js";
 import { normalizeQuestionnaireDefinition } from "./questionnaireDefinitions.js";
 import { questionnaireBuiltInTemplates } from "./questionnaireBuiltIns.js";
-import { getLegacyQuestionnairePublishIssues } from "./questionnaireLegacyProtection.js";
+import { getLegacyQuestionnairePublishIssues, hydrateLegacyQuestionnaireDefinition } from "./questionnaireLegacyProtection.js";
 import { temporaryWork482Definition } from "./questionnaireStarterTemplates.js";
 import { getRegisteredQuestionnaireRoutes } from "./routes.js";
 
@@ -60,8 +60,18 @@ test("copying between 482 and 186 keeps compatible questions and uses target-spe
     assert.equal(draft.status, "draft");
     assert.deepEqual(draft.visaContexts, [to]);
     assert.equal(draft.pages.length, expectedPages);
-    assert.deepEqual(draft.pages.find((page) => page.route.endsWith("/main-applicant/details")),
-      source.pages.find((page) => page.route.endsWith("/main-applicant/details")));
+    const copiedDetails = draft.pages.find((page) => page.route.endsWith("/main-applicant/details"));
+    if (to === "186") {
+      // A certified 482 page cannot publish into 186 (not certified yet): the 186 page is used.
+      assert.deepEqual(copiedDetails, questionnaireBuiltInTemplates.find((item) => item.id === "built-in-temporary-work-186")
+        .pages.find((page) => page.route.endsWith("/main-applicant/details")));
+    } else {
+      // A legacy 186 page copied into 482 keeps its wording and is promoted on load.
+      assert.deepEqual(copiedDetails, source.pages.find((page) => page.route.endsWith("/main-applicant/details")));
+      const promoted = hydrateLegacyQuestionnaireDefinition(draft).pages.find((page) => page.route.endsWith("/main-applicant/details"));
+      assert.equal(promoted.metadata.renderer, undefined);
+      assert.equal(promoted.metadata.dynamicParity, "certified");
+    }
     assert.deepEqual(getLegacyQuestionnairePublishIssues({ ...draft, status: "active" }), []);
     assert.deepEqual(source, sourceSnapshot, "copying must leave the source questionnaire untouched");
   }

@@ -12,8 +12,10 @@ import { applyQuestionnaireBuiltInTemporaryWork186Enrichment, finalizeTemporaryW
 import { applyTemporaryWorkRepeaterPresentationFallback } from './questionnaireBuiltInTemporaryWorkEnrichment.js';
 import { applyQuestionnaireBuiltInPartnerEnrichment, finalizePartnerEnrichment, applyPartnerRepeaterPresentationFallback } from './questionnaireBuiltInPartnerEnrichment.js';
 import { getQuestionnaireWorkflowPages } from './questionnaireWorkflowPages.js';
+import { applyDynamicParity } from './questionnaireDynamicParity.js';
+import { TEMPORARY_WORK_CERTIFIED_ROUTES, TEMPORARY_WORK_PARITY_RULES } from './questionnaireBuiltInTemporaryWorkDynamic.js';
 
-export const QUESTIONNAIRE_LEGACY_CATALOG_VERSION = 6;
+export const QUESTIONNAIRE_LEGACY_CATALOG_VERSION = 7;
 
 const TEMPORARY_WORK_SHARED_ROUTE_ORDER = [
   '/intake/temporary-work/start',
@@ -130,6 +132,12 @@ function builtInDefinition(visaType, visaContext, title) {
     if (/\/(?:main-applicant|spouse-partner|children\/[^/]+)\/details$/.test(page.route)) page.metadata.titleIncludesPerson = true;
     page.questions.forEach(preserveDisplayBaseline);
   });
+  if (visaType === 'temporary-work') {
+    pages = applyDynamicParity(pages, {
+      rulesByRoute: TEMPORARY_WORK_PARITY_RULES,
+      certifiedRoutes: TEMPORARY_WORK_CERTIFIED_ROUTES[visaContext] || [],
+    });
+  }
   return {
     id: `built-in-${visaType}${visaContext ? `-${visaContext}` : ''}`,
     title,

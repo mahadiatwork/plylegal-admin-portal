@@ -265,6 +265,7 @@ export function isQuestionVisible(question, values = {}) {
   return conditions.every((condition) => {
     const value = values?.[condition.field];
     switch (condition.op) {
+      case "anyOf": return Array.isArray(condition.value) && condition.value.some((nested) => isQuestionVisible({ visibleIf: [nested] }, values));
       case "equals": return value === condition.value;
       case "notEquals": return value !== condition.value;
       case "in": return Array.isArray(condition.value) && condition.value.includes(value);

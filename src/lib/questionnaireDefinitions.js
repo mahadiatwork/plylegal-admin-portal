@@ -23,9 +23,11 @@ export const QUESTIONNAIRE_CONDITION_OPERATORS = [
   "notIn",
   "exists",
   "notExists",
+  "anyOf",
 ];
 export const QUESTIONNAIRE_OPTION_SOURCES = [
   "applicants",
+  "applicantIds",
   "countries",
   "daysOfMonth",
   "months",
@@ -167,6 +169,8 @@ const PRESENTATION_FIELDS = new Set([
   "actions",
   "rowFormatter",
   "sections",
+  "layout",
+  "hideLabel",
 ]);
 const PRESENTATION_COLUMN_FIELDS = new Set(["key", "label", "format"]);
 const PRESENTATION_SECTION_FIELDS = new Set(["heading", "description"]);
@@ -315,6 +319,17 @@ function validateConditions(conditions, path, issues) {
       return;
     }
     pushUnknownFields(condition, CONDITION_FIELDS, conditionPath, issues);
+    if (condition.op === "anyOf") {
+      // A group that is true when any nested condition matches. One level only.
+      if (!Array.isArray(condition.value) || condition.value.length === 0) {
+        issues.push(`${conditionPath}.value must be a non-empty array of conditions for anyOf`);
+      } else if (condition.value.some((nested) => nested?.op === "anyOf")) {
+        issues.push(`${conditionPath}.value cannot contain another anyOf group`);
+      } else {
+        validateConditions(condition.value, `${conditionPath}.value`, issues);
+      }
+      return;
+    }
     validateDataKey(condition.field, `${conditionPath}.field`, issues, { required: true });
     if (!QUESTIONNAIRE_CONDITION_OPERATORS.includes(condition.op)) {
       issues.push(`${conditionPath}.op is unsupported`);
@@ -358,6 +373,12 @@ function validatePresentationMetadata(presentation, path, issues) {
   validateString(presentation.addDialogTitle, `${path}.addDialogTitle`, issues, { max: MAX_SHORT_TEXT_LENGTH });
   validateString(presentation.editDialogTitle, `${path}.editDialogTitle`, issues, { max: MAX_SHORT_TEXT_LENGTH });
   validateString(presentation.dialogSubtitle, `${path}.dialogSubtitle`, issues, { max: MAX_LONG_TEXT_LENGTH });
+  if (presentation.hideLabel !== undefined && typeof presentation.hideLabel !== "boolean") {
+    issues.push(`${path}.hideLabel must be a boolean`);
+  }
+  if (presentation.layout !== undefined && !["table", "inline"].includes(presentation.layout)) {
+    issues.push(`${path}.layout must be "table" or "inline"`);
+  }
   if (presentation.rowFormatter !== undefined && !QUESTIONNAIRE_ROW_FORMATTERS.includes(presentation.rowFormatter)) {
     issues.push(`${path}.rowFormatter "${String(presentation.rowFormatter)}" is unsupported`);
   }
@@ -756,9 +777,13 @@ function validatePageConditionReferences(questions, pagePath, issues) {
   entries.forEach((target) => {
     if (!Array.isArray(target.question.visibleIf)) return;
 
-    target.question.visibleIf.forEach((condition, conditionIndex) => {
+    target.question.visibleIf.flatMap((condition, conditionIndex) => {
+      const path = `${target.path}.visibleIf[${conditionIndex}]`;
+      return isPlainObject(condition) && condition.op === "anyOf" && Array.isArray(condition.value)
+        ? condition.value.map((nested, nestedIndex) => ({ condition: nested, conditionPath: `${path}.value[${nestedIndex}]` }))
+        : [{ condition, conditionPath: path }];
+    }).forEach(({ condition, conditionPath }) => {
       if (!isPlainObject(condition) || typeof condition.field !== "string") return;
-      const conditionPath = `${target.path}.visibleIf[${conditionIndex}]`;
       const sourceKey = condition.field.trim();
       if (!sourceKey) return;
 
@@ -1177,11 +1202,13 @@ function canonicalQuestion(question) {
   if (question.monthOptions) normalized.monthOptions = question.monthOptions.map(canonicalOption);
   if (question.optionsSource) normalized.optionsSource = question.optionsSource;
   if (question.visibleIf) {
-    normalized.visibleIf = question.visibleIf.map((condition) => {
+    const canonicalCondition = (condition) => {
+      if (condition.op === "anyOf") return { op: "anyOf", value: condition.value.map(canonicalCondition) };
       const output = { field: condition.field.trim(), op: condition.op };
       if (hasOwn(condition, "value")) output.value = cloneJsonValue(condition.value);
       return output;
-    });
+    };
+    normalized.visibleIf = question.visibleIf.map(canonicalCondition);
   }
   if (question.parts) {
     normalized.parts = {
