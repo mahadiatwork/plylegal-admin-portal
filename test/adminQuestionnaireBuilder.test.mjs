@@ -7,6 +7,7 @@ import * as React from "react";
 import * as crmFieldCatalog from "../src/lib/crmFieldCatalog.js";
 import * as questionnaireClientPresentation from "../src/lib/questionnaireClientPresentation.js";
 import * as questionnaireConditionalBranches from "../src/lib/questionnaireConditionalBranches.js";
+import * as questionnaireQuestionDeletion from "../src/lib/questionnaireQuestionDeletion.js";
 import * as questionnaireContentItems from "../src/lib/questionnaireContentItems.js";
 import * as questionnaireDrafts from "../src/lib/questionnaireDrafts.js";
 import * as questionnaireCrmContract from "../src/lib/questionnaireCrmContract.js";
@@ -128,6 +129,7 @@ async function loadComponent(relativePath) {
     }
     if (specifier === "@/lib/questionnaireClientPresentation") return questionnaireClientPresentation;
     if (specifier === "@/lib/questionnaireConditionalBranches") return questionnaireConditionalBranches;
+    if (specifier === "@/lib/questionnaireQuestionDeletion") return questionnaireQuestionDeletion;
     if (specifier === "@/lib/questionnaireContentItems") return questionnaireContentItems;
     if (specifier === "@/lib/questionnaireDrafts") return questionnaireDrafts;
     if (specifier === "@/lib/crmFieldCatalog") return crmFieldCatalog;
@@ -229,6 +231,26 @@ function followUpTreeItem(harness, label) {
       React.isValidElement(child) && child.props?.["aria-label"] === `Edit “${label}”`),
     `Expected ${label} in the follow-up dialog`,
   );
+}
+
+/** The open "Delete question" confirmation, or undefined. */
+function deleteDialog(harness) {
+  return harness.nodes().find((node) => node.props?.["data-testid"] === "delete-question-dialog");
+}
+
+/** A button inside the delete confirmation (its own "Delete …" / "Cancel" / "OK"). */
+function deleteDialogButton(harness, pattern) {
+  const dialog = deleteDialog(harness);
+  assert.ok(dialog, "Expected the delete confirmation to be open");
+  const button = [...walk(dialog)].find((node) => node.type === "button" && pattern.test(text(node)));
+  assert.ok(button, `Expected a ${pattern} button in the delete confirmation`);
+  return button;
+}
+
+/** Confirm the open delete confirmation. */
+function confirmDeletion(harness) {
+  deleteDialogButton(harness, /^Delete /).props.onClick();
+  harness.render();
 }
 
 async function flushEffects(harness) {
@@ -740,6 +762,7 @@ test("a copied test can add and delete registered pages and questions while keep
 
   harness.control("Delete question").props.onClick();
   harness.render();
+  confirmDeletion(harness);
   assert.equal(text(harness.tree).includes("New question"), false);
   assert.ok(text(harness.tree).includes("No questions on this page."));
 
@@ -787,6 +810,7 @@ test("a live questionnaire can add pages, add questions, edit them, and delete t
   assert.equal(harness.control("Delete question").props.disabled, false);
   harness.control("Delete question").props.onClick();
   harness.render();
+  confirmDeletion(harness);
   assert.equal(text(harness.tree).includes("Updated Custom Question"), false);
 
   // 5. Delete page
@@ -841,7 +865,17 @@ test("a draft source question cannot be deleted while another question depends o
   harness.control("Delete question").props.onClick();
   harness.render();
 
-  assert.ok(text(harness.tree).includes("controls Original question text?"));
+  // “Original question text?” is its follow-up (it would go too), but a popup field of another
+  // question also reads the answer, so deletion is blocked with an explanation and nothing changes.
+  const blocked = text(deleteDialog(harness));
+  assert.match(blocked, /“Eligibility source” can’t be deleted yet/);
+  assert.match(blocked, /controls when this appears:Record field text/);
+  assert.match(blocked, /Nothing has been changed/);
+  assert.throws(() => deleteDialogButton(harness, /^Delete /), "a blocked deletion offers no Delete button");
+  deleteDialogButton(harness, /^OK$/).props.onClick();
+  harness.render();
+  assert.equal(deleteDialog(harness), undefined);
+  assert.ok(text(harness.tree).includes("Original question text?"));
   assert.ok(
     harness.nodes().some((node) =>
       node.type === "button" && text(node).includes("Eligibility source")
@@ -1568,6 +1602,7 @@ test("the proposed inline editor can delete a newly added question", async (t) =
   assert.match(deleteControl.props.className, /text-red-600/);
   deleteControl.props.onClick();
   harness.render();
+  confirmDeletion(harness);
 
   assert.equal(
     harness.nodes().some((node) => node.props?.["data-testid"] === "inline-question-editor"),
@@ -1820,13 +1855,17 @@ test("the proposed layout summarises follow-ups and edits them in one dialog", a
   fieldType.props.onChange({ target: { value: "textarea" } });
   harness.render();
 
-  // A field that reveals others cannot be deleted from under them.
+  // Deleting a field that reveals others names the follow-ups that would go with it; Cancel keeps all.
   harness.control("Edit “Do you have identity documents for this name?”").props.onClick();
   harness.render();
   harness.button("Delete field").props.onClick();
   harness.render();
-  const dialogAlert = harness.find((node) => node.props?.role === "alert");
-  assert.match(text(dialogAlert), /shows Evidence Type, Why not\?/);
+  assert.match(text(deleteDialog(harness)), /Delete the popup field “Do you have identity documents for this name\?”\?/);
+  assert.match(text(deleteDialog(harness)), /follow-up questions are deleted too:Evidence TypeWhy not\?/);
+  deleteDialogButton(harness, /^Cancel$/).props.onClick();
+  harness.render();
+  assert.equal(deleteDialog(harness), undefined);
+  assert.match(text(followUpTreeItem(harness, "Do you have identity documents for this name?")), /If “Yes”Evidence Type/);
 
   harness.button("Done").props.onClick();
   harness.render();
@@ -1871,4 +1910,188 @@ test("a choice question without follow-ups offers to add one from the canvas", a
   assert.equal(page.questions.at(-2).answerKey, "other_spelling", "the follow-up is placed right after its trigger");
   assert.equal(added.label, "New follow-up question");
   assert.deepEqual(added.visibleIf, [{ field: "other_spelling", op: "equals", value: "yes" }]);
+});
+
+// ── Deleting questions ────────────────────────────────────────────────────────────────────
+
+async function openDefinitionInEditor(t, definition) {
+  const mounted = await mountBuilder(t, { definition, embeddedInMatter: false });
+  const listText = text(mounted.harness.tree);
+  await chooseRowAction(mounted.harness, /^(Edit|Use template)$/);
+  mounted.harness.render();
+  return { ...mounted, listText };
+}
+
+const pageQuestionKeys = (page) => page.questions.map((question) => question.answerKey);
+
+test("a question card's trash action confirms, deletes, marks the builder dirty and saves", async (t) => {
+  const { harness, calls, storedDefinitions, listText } = await openDefinitionInEditor(t, otherPersonalDetailsDefinition());
+  assert.match(listText, /8 questions/);
+  assert.equal(harness.button("Save changes").props.disabled, true, "nothing to save yet");
+
+  harness.control("Delete Is your name spelt differently anywhere?").props.onClick();
+  harness.render();
+  const dialog = deleteDialog(harness);
+  assert.equal(dialog.props.role, "alertdialog");
+  assert.match(text(dialog), /Delete the question “Is your name spelt differently anywhere\?”\?/);
+  assert.match(text(dialog), /It will disappear from this questionnaire for future clients\./);
+  assert.match(text(dialog), /Answers clients have already saved will not be deleted\./);
+  assert.doesNotMatch(text(dialog), /follow-up/);
+
+  confirmDeletion(harness);
+  assert.equal(deleteDialog(harness), undefined);
+  assert.equal(harness.maybeControl("Edit Is your name spelt differently anywhere?"), undefined);
+  assert.equal(harness.button("Save changes").props.disabled, false, "the deletion is an unsaved change");
+  assert.equal(calls.some(({ options }) => options.method === "PUT"), false, "deleting does not save by itself");
+
+  await harness.button("Save changes").props.onClick();
+  const page = savedQuestionnairePage(calls);
+  assert.deepEqual(pageQuestionKeys(page), ["has_other_names", "other_names", "use_chinese_code", "chinese_code"]);
+  // Everything else keeps its stable keys.
+  const original = otherPersonalDetailsDefinition().pages[0];
+  for (const key of ["id", "route", "sectionKey", "completionKey"]) assert.equal(page[key], original[key]);
+  assert.deepEqual(page.questions, original.questions.slice(0, 4));
+
+  // Reloading the saved definition shows the question gone and the smaller count.
+  const reloaded = await openDefinitionInEditor(t, storedDefinitions[0]);
+  assert.match(reloaded.listText, /7 questions/);
+  assert.equal(reloaded.harness.maybeControl("Edit Is your name spelt differently anywhere?"), undefined);
+  assert.ok(reloaded.harness.maybeControl("Edit Do you use a Chinese Commercial Code?"));
+});
+
+test("cancelling a question deletion leaves the definition unchanged", async (t) => {
+  const { harness, calls } = await openDefinitionInEditor(t, otherPersonalDetailsDefinition());
+
+  harness.control("Delete Do you use a Chinese Commercial Code?").props.onClick();
+  harness.render();
+  deleteDialogButton(harness, /^Cancel$/).props.onClick();
+  harness.render();
+
+  assert.equal(deleteDialog(harness), undefined);
+  assert.ok(harness.maybeControl("Edit Do you use a Chinese Commercial Code?"));
+  assert.equal(harness.button("Save changes").props.disabled, true, "cancelling is not a change");
+  assert.equal(calls.some(({ options }) => options.method === "PUT"), false);
+});
+
+test("deleting a trigger removes its follow-ups; deleting a follow-up keeps its trigger", async (t) => {
+  const { harness, calls } = await openDefinitionInEditor(t, otherPersonalDetailsDefinition());
+
+  // A follow-up chosen in the follow-up dialog goes on its own; the dialog returns to its trigger.
+  harness.control("Edit Have you ever had another name?").props.onClick();
+  harness.render();
+  harness.control("Edit “Other Names”").props.onClick();
+  harness.render();
+  harness.button("Delete question").props.onClick();
+  harness.render();
+  assert.match(text(deleteDialog(harness)), /Delete the follow-up question “Other Names”\?/);
+  confirmDeletion(harness);
+  assert.ok(harness.nodes().some((node) => node.props?.["data-testid"] === "follow-up-dialog"), "the follow-up dialog stays open");
+  assert.equal(harness.maybeControl("Edit “Other Names”"), undefined);
+  harness.button("Done").props.onClick();
+  harness.render();
+
+  // A trigger takes the follow-ups its answers reveal with it, and the confirmation names them.
+  harness.control("Delete Do you use a Chinese Commercial Code?").props.onClick();
+  harness.render();
+  assert.match(text(deleteDialog(harness)), /follow-up question is deleted too:Chinese Commercial Code/);
+  confirmDeletion(harness);
+
+  await harness.button("Save changes").props.onClick();
+  assert.deepEqual(pageQuestionKeys(savedQuestionnairePage(calls)), ["has_other_names", "other_spelling"]);
+});
+
+test("a display rule elsewhere blocks deletion, while table columns and prefill are cleaned up with a warning", async (t) => {
+  const definition = otherPersonalDetailsDefinition();
+  const page = definition.pages[0];
+  // Not a follow-up of has_other_names (its first rule reads use_chinese_code), but it still reads it.
+  page.questions[4].visibleIf = [
+    { field: "use_chinese_code", op: "equals", value: "yes" },
+    { field: "has_other_names", op: "equals", value: "yes" },
+  ];
+  page.metadata.prefill = [{ answerKey: "chinese_code", value: "0000", mode: "whenEmpty" }];
+  page.questions[1].metadata.presentation = { columns: [
+    { key: "family_name", label: "Family Name" },
+    { key: "evidence_type", label: "Evidence" },
+  ] };
+  // Another page reads the Chinese code answer through an "any of these" rule.
+  definition.pages.push({
+    id: "spouse-extra", title: "Spouse extra", route: "/intake/temporary-work/spouse-partner/extra",
+    sectionKey: "temporary_work_spouse_extra", completionKey: "temporary-work/spouse-partner/extra",
+    scope: "profile", order: 20, introBlocks: [], metadata: { dynamicParity: "certified" },
+    questions: [{
+      id: "code_reason", answerKey: "code_reason", label: "Why do you use the code?", type: "text", required: false,
+      visibleIf: [{ op: "anyOf", value: [{ field: "use_chinese_code", op: "equals", value: "yes" }] }],
+    }],
+  });
+  const { harness, calls } = await openDefinitionInEditor(t, definition);
+
+  harness.control("Delete Have you ever had another name?").props.onClick();
+  harness.render();
+  assert.match(text(deleteDialog(harness)), /“Have you ever had another name\?” can’t be deleted yet.*controls when this appears:Is your name spelt differently anywhere\?/);
+  deleteDialogButton(harness, /^OK$/).props.onClick();
+  harness.render();
+
+  harness.control("Delete Do you use a Chinese Commercial Code?").props.onClick();
+  harness.render();
+  // “Is your name spelt…” is its follow-up (first rule) and would go with it; the other page's rule blocks.
+  assert.match(text(deleteDialog(harness)), /controls when this appears:Why do you use the code\? \(Spouse extra\)/);
+  deleteDialogButton(harness, /^OK$/).props.onClick();
+  harness.render();
+  assert.equal(harness.button("Save changes").props.disabled, true, "blocked deletions change nothing");
+
+  // The follow-up itself only has a prefill rule pointing at it: removed, and the dialog says so.
+  harness.control("Edit Do you use a Chinese Commercial Code?").props.onClick();
+  harness.render();
+  harness.control("Edit “Chinese Commercial Code”").props.onClick();
+  harness.render();
+  harness.button("Delete question").props.onClick();
+  harness.render();
+  assert.match(text(harness.find((node) => node.props?.["data-testid"] === "delete-question-cleanups")), /Automatic prefill of the “chinese_code” answer/);
+  confirmDeletion(harness);
+
+  // A popup field shown as a table column: the column goes with it.
+  harness.button("Done").props.onClick();
+  harness.render();
+  harness.control("Edit Have you ever had another name?").props.onClick();
+  harness.render();
+  harness.control("Edit “Other Names”").props.onClick();
+  harness.render();
+  harness.control("Edit “Evidence Type”").props.onClick();
+  harness.render();
+  harness.button("Delete field").props.onClick();
+  harness.render();
+  assert.match(text(deleteDialog(harness)), /Delete the follow-up field “Evidence Type”\?/);
+  assert.match(text(deleteDialog(harness)), /The “Evidence” column in the Other Names table/);
+  confirmDeletion(harness);
+
+  await harness.button("Save changes").props.onClick();
+  const saved = savedQuestionnairePage(calls);
+  assert.deepEqual(pageQuestionKeys(saved), ["has_other_names", "other_names", "use_chinese_code", "other_spelling"]);
+  assert.deepEqual(saved.metadata.prefill, []);
+  const record = saved.questions[1];
+  assert.deepEqual(record.metadata.fields.map((field) => field.answerKey), ["family_name", "has_evidence"]);
+  assert.deepEqual(record.metadata.presentation.columns, [{ key: "family_name", label: "Family Name" }]);
+});
+
+test("legacy locked pages offer no question deletion", async (t) => {
+  const definition = otherPersonalDetailsDefinition();
+  definition.pages[0].metadata = { renderer: "legacy", builtInPageId: "spouse-other", profileRole: "spouse" };
+  const { harness, calls } = await openDefinitionInEditor(t, definition);
+
+  assert.equal(
+    harness.nodes().some((node) => node.type === "button" && /^Delete /.test(node.props["aria-label"] || "")),
+    false,
+    "question cards on a locked page have no trash action",
+  );
+  harness.control("Edit Is your name spelt differently anywhere?").props.onClick();
+  harness.render();
+  assert.equal(harness.control("Delete question").props.disabled, true);
+
+  harness.control("Edit Do you use a Chinese Commercial Code?").props.onClick();
+  harness.render();
+  harness.control("Edit “Chinese Commercial Code”").props.onClick();
+  harness.render();
+  assert.equal(harness.button("Delete question").props.disabled, true);
+  assert.equal(deleteDialog(harness), undefined);
+  assert.equal(calls.some(({ options }) => options.method === "PUT"), false);
 });

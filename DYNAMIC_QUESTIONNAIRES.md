@@ -134,3 +134,15 @@ show it (one answer saves `equals`, several save `in`; any further rules are kep
 answer, change a popup field's answer type, and delete. New follow-ups are inserted directly after the
 questions their trigger already reveals. The tree is built by `src/lib/questionnaireConditionalBranches.js`.
 Locked legacy pages open the same dialog for wording only. The classic layout is unchanged.
+
+## Deleting questions
+
+On pages whose structure is editable (dynamic or certified), each question card has a trash button next to
+its pencil, and the question editor and follow-up dialog have **Delete**. A confirmation names the question
+and explains that it disappears for future clients while answers clients have already saved are kept (the
+client never deletes stored keys a page no longer manages, `preserveUnmanagedAnswers`). The question goes
+together with its follow-ups, which the confirmation lists. If any other display rule (on this page, a popup
+field or another page, including `anyOf` groups) reads its answer, deletion is blocked and the confirmation
+names those items. Page `metadata.prefill` rules and repeater table columns for the removed answers are
+removed, and the confirmation lists them. Legacy locked pages offer no deletion. Logic:
+`src/lib/questionnaireQuestionDeletion.js`.

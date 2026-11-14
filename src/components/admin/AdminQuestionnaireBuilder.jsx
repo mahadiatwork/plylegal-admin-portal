@@ -83,6 +83,14 @@ import {
   rootNodeOf,
   ruleAnswerValues,
 } from "@/lib/questionnaireConditionalBranches";
+import {
+  columnsFor,
+  planQuestionDeletion,
+  prefillRulesFor,
+  removeFieldsFromRepeater,
+  removeQuestionsFromPage,
+  singleQuestionNode,
+} from "@/lib/questionnaireQuestionDeletion";
 
 const QUESTION_TYPES = [
   ["text", "Short text"],
@@ -329,20 +337,6 @@ function findChoiceDependents(questions, answerKey, value, matches = []) {
     }
     findChoiceDependents(question.followUps, answerKey, value, matches);
     findChoiceDependents(question.metadata?.fields, answerKey, value, matches);
-  });
-  return [...new Set(matches)];
-}
-
-function findQuestionDependents(questions, answerKey, excludedQuestionId, matches = []) {
-  (questions || []).forEach((question) => {
-    if (
-      question.id !== excludedQuestionId &&
-      conditionLeaves(question.visibleIf).some((condition) => condition?.field === answerKey)
-    ) {
-      matches.push(question.label || "another question");
-    }
-    findQuestionDependents(question.followUps, answerKey, excludedQuestionId, matches);
-    findQuestionDependents(question.metadata?.fields, answerKey, excludedQuestionId, matches);
   });
   return [...new Set(matches)];
 }
@@ -1496,6 +1490,7 @@ function InlinePresentationEditor({ presentation = {}, onChange, structureLocked
 }
 
 function ProposedInlineQuestionEditor({
+  deleteLocked = false,
   disabled,
   inDialog = false,
   legacy,
@@ -1531,8 +1526,8 @@ function ProposedInlineQuestionEditor({
               size="icon"
               className="text-red-600 hover:bg-red-50 hover:text-red-700"
               aria-label="Delete question"
-              title="Delete question"
-              disabled={disabled}
+              title={deleteLocked ? "This page keeps its original questions, so they can’t be deleted" : "Delete question"}
+              disabled={disabled || deleteLocked}
               onClick={onDeleteQuestion}
             >
               <Trash2 className="h-4 w-4" />
@@ -1682,6 +1677,7 @@ function PortalBuilderQuestion({
   onCloseEditor,
   onDeleteNestedOption,
   onDeleteQuestion,
+  onDeleteEntry = null,
   onDeleteOption,
   onEdit,
   onOpenFollowUps,
@@ -1714,20 +1710,37 @@ function PortalBuilderQuestion({
   const entryQuestions = getEntryQuestions(entry);
   const isEditing = Boolean(activeQuestion && entryQuestions.some((question) => question.id === activeQuestion.id));
   const primaryQuestion = entry.questions?.[0];
+  // Structural edits (and so deletion) are only allowed on dynamic/certified pages.
+  const canDelete = Boolean(onDeleteEntry) && !structureLocked && Boolean(primaryQuestion);
 
   return (
     <article className="group/question space-y-3 border-b border-[#dce5e1] pb-6 last:border-0 last:pb-0" data-testid="portal-builder-question">
       <div className="relative rounded-xl border border-transparent transition hover:border-[#dce6e1] hover:bg-[#fbfcfb]">
-        <button
-          type="button"
-          aria-label={`Edit ${entry.label}`}
-          className="absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#d2dfd8] bg-white text-[#45685d] opacity-100 shadow-sm transition hover:border-[#8eb2a3] hover:bg-[#eef7f2] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]/30 sm:opacity-0 sm:group-hover/question:opacity-100"
-          onClick={() => onEdit(primaryQuestion)}
-        >
-          <Pencil className="h-4 w-4" />
-        </button>
-        {entry.showGroup ? <h3 data-testid="portal-group-heading" className="border-b border-[#dce5e1] pb-2 pt-2 pr-12 text-lg font-semibold text-[#17372e]">{entry.group}</h3> : null}
-        <div className="px-0.5 pt-3 pr-12">
+        <div className="absolute right-3 top-3 flex items-center gap-1.5">
+          {canDelete ? (
+            <button
+              type="button"
+              aria-label={`Delete ${entry.label}`}
+              title="Delete question"
+              disabled={disabled}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#ecd3d3] bg-white text-red-600 opacity-100 shadow-sm transition hover:border-red-300 hover:bg-red-50 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 disabled:pointer-events-none disabled:opacity-50 sm:opacity-0 sm:group-hover/question:opacity-100"
+              onClick={() => onDeleteEntry(primaryQuestion)}
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            aria-label={`Edit ${entry.label}`}
+            title="Edit question"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#d2dfd8] bg-white text-[#45685d] opacity-100 shadow-sm transition hover:border-[#8eb2a3] hover:bg-[#eef7f2] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]/30 sm:opacity-0 sm:group-hover/question:opacity-100"
+            onClick={() => onEdit(primaryQuestion)}
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
+        </div>
+        {entry.showGroup ? <h3 data-testid="portal-group-heading" className={`border-b border-[#dce5e1] pb-2 pt-2 ${canDelete ? "pr-24" : "pr-12"} text-lg font-semibold text-[#17372e]`}>{entry.group}</h3> : null}
+        <div className={`px-0.5 pt-3 ${canDelete ? "pr-24" : "pr-12"}`}>
           <p className="text-sm font-medium leading-none text-[#17372e]">{entry.label}{entry.required ? <span className="ml-1 text-red-600">*</span> : null}</p>
           {primaryQuestion?.description ? <p className="mt-2 text-sm font-normal text-gray-600">{primaryQuestion.description}</p> : null}
         </div>
@@ -1754,6 +1767,7 @@ function PortalBuilderQuestion({
             onChangeType={onChangeQuestionType}
             onClose={onCloseEditor}
             onDeleteNestedOption={onDeleteNestedOption}
+            deleteLocked={structureLocked}
             onDeleteQuestion={onDeleteQuestion}
             onDeleteOption={onDeleteOption}
             onOpenFollowUps={canAddFollowUps ? () => onOpenFollowUps(activeQuestion.id) : undefined}
@@ -2677,6 +2691,84 @@ function FollowUpQuestionsDialog({
   );
 }
 
+/**
+ * Confirmation before a question (with its follow-ups) leaves the definition, or the reason it
+ * cannot yet. Stateless: the request is built by requestQuestionDeletion in the builder.
+ */
+function DeleteQuestionDialog({ request, disabled, onCancel, onConfirm }) {
+  const blocked = request.blockers.length > 0;
+  const quoted = `“${request.label}”`;
+  const list = (items) => (
+    <ul className="mt-1.5 list-disc space-y-0.5 pl-5">
+      {items.map((item) => <li key={item} className="[overflow-wrap:anywhere]">{item}</li>)}
+    </ul>
+  );
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-[#18352d]/45 p-4 backdrop-blur-[1px]"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}
+    >
+      <section
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="delete-question-title"
+        aria-describedby="delete-question-description"
+        data-testid="delete-question-dialog"
+        className="w-full max-w-lg rounded-2xl border border-[#d6e4dd] bg-white p-5 shadow-xl sm:p-6"
+      >
+        <div className="flex items-start gap-3">
+          <span className={`mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${blocked ? "bg-amber-50 text-amber-700" : "bg-red-50 text-red-600"}`}>
+            {blocked ? <CircleAlert className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 id="delete-question-title" className="text-base font-semibold text-[#17372e] [overflow-wrap:anywhere]">
+              {blocked ? `${quoted} can’t be deleted yet` : `Delete the ${request.noun} ${quoted}?`}
+            </h2>
+            <div id="delete-question-description" className="mt-2 space-y-3 text-sm leading-relaxed text-[#38564b]">
+              {blocked ? (
+                <>
+                  <div>
+                    <p>{quoted} controls when {request.blockers.length === 1 ? "this appears" : "these appear"}:</p>
+                    {list(request.blockers)}
+                  </div>
+                  <p>Change {request.blockers.length === 1 ? "its display rule" : "their display rules"} or delete {request.blockers.length === 1 ? "it" : "them"} first. Nothing has been changed.</p>
+                </>
+              ) : (
+                <>
+                  <p>It will disappear from this questionnaire for future clients.</p>
+                  {request.collectsAnswers ? <p>Answers clients have already saved will not be deleted.</p> : null}
+                  {request.followUpLabels.length ? (
+                    <div>
+                      <p className="font-medium text-[#24453b]">Its follow-up {request.followUpLabels.length === 1 ? "question is" : "questions are"} deleted too:</p>
+                      {list(request.followUpLabels)}
+                    </div>
+                  ) : null}
+                  {request.cleanups.length ? (
+                    <div data-testid="delete-question-cleanups" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
+                      <p className="font-medium">This also removes:</p>
+                      {list(request.cleanups)}
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          {blocked ? (
+            <Button type="button" className="bg-[#4F726B] text-white hover:bg-[#3d625a]" onClick={onCancel}>OK</Button>
+          ) : (
+            <>
+              <Button type="button" variant="outline" className="border-[#cfddd6] bg-white text-[#38564b]" onClick={onCancel}>Cancel</Button>
+              <Button type="button" className="bg-red-600 text-white hover:bg-red-700" disabled={disabled} onClick={onConfirm}><Trash2 />Delete {request.noun}</Button>
+            </>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function EmptyPane({ onCreate }) {
   return (
     <section className="flex min-h-[560px] flex-col items-center justify-center rounded-2xl border border-dashed border-[#cbdad3] bg-white/70 px-6 text-center">
@@ -2774,6 +2866,8 @@ export default function AdminQuestionnaireBuilder({
   // Open follow-up dialog: the page and trigger it belongs to, plus the selected record field
   // (when a record popup field is selected, activeQuestionId is its record question).
   const [followUpDialog, setFollowUpDialog] = useState(null);
+  // Pending "Delete question" confirmation (see requestQuestionDeletion).
+  const [deleteRequest, setDeleteRequest] = useState(null);
   const adminContentRef = useRef(null);
   const selectionRequestId = useRef(0);
   const listRequestId = useRef(0);
@@ -3714,23 +3808,95 @@ export default function AdminQuestionnaireBuilder({
       setError("");
       return;
     }
-    if (!window.confirm(`Delete the question “${activeQuestion.label}”?`)) return;
-    const dependents = findQuestionDependents(
-      activePage.questions,
-      activeQuestion.answerKey,
-      activeQuestion.id
-    );
-    if (dependents.length) {
-      setError(
-        `“${activeQuestion.label}” controls ${dependents.join(", ")}. Change ${dependents.length === 1 ? "that question's" : "those questions'"} display rule before deleting it.`
-      );
+    requestQuestionDeletion({ questionId: activeQuestion.id });
+  }
+
+  /**
+   * Asks before deleting a page question (level "page") or a popup field of the selected
+   * repeater (level "record"). The question goes together with its follow-ups; a display
+   * rule elsewhere that reads its answer blocks the deletion instead. Saved client answers
+   * are untouched (the client keeps stored keys a page no longer manages).
+   */
+  function requestQuestionDeletion({ level = "page", questionId }) {
+    if (!activePage) return;
+    if (builtInLegacyStructureIsLocked(activePage)) {
+      setError(STRUCTURE_LOCKED_MESSAGE);
       return;
     }
-    const remaining = activePage.questions.filter((question) => question.id !== activeQuestion.id);
-    updateActivePage((page) => ({ ...promotePageForStructure(page), questions: remaining }));
-    setActiveQuestionId(remaining[0]?.id || "");
-    setQuestionEditorOpen(false);
+    const repeater = level === "record" ? activeQuestion : null;
+    if (level === "record" && repeater?.type !== "repeater") return;
+    const items = level === "record" ? repeater.metadata?.fields || [] : activePage.questions;
+    const target = items.find((item) => item.id === questionId);
+    if (!target) return;
+    const forest = level === "record" ? followUpRecord?.forest : pageForest;
+    const forestNode = forest ? nodeForQuestion(forest, questionId) : null;
+    const node = forestNode || singleQuestionNode(target);
+    const otherScopes = level === "record"
+      ? []
+      : definition.pages
+        .filter((page) => page.id !== activePage.id)
+        .map((page) => ({ label: page.title, items: page.questions || [] }));
+    const plan = planQuestionDeletion({ items, node, otherScopes });
+    const parent = forestNode?.parentId ? forest.nodeById.get(forestNode.parentId) : null;
+    const cleanups = level === "record"
+      ? columnsFor(repeater, plan.removedKeys).map((column) =>
+        `The “${column.label || column.key}” column in the ${repeater.label || "list"} table`)
+      : prefillRulesFor(activePage, plan.removedKeys).map((rule) =>
+        `Automatic prefill of the “${rule.answerKey}” answer`);
     setError("");
+    setDeleteRequest({
+      ...plan,
+      level,
+      pageId: activePage.id,
+      repeaterId: repeater?.id || "",
+      questionId,
+      parentQuestionId: parent?.entry.questions[0]?.id || "",
+      label: node.entry.label || target.label || "Untitled question",
+      noun: level === "record"
+        ? parent ? "follow-up field" : "popup field"
+        : isQuestionnaireDisplayItem(target) ? followUpNoun(node.entry, "page") : parent ? "follow-up question" : "question",
+      collectsAnswers: plan.removedKeys.length > 0,
+      cleanups,
+    });
+  }
+
+  function cancelQuestionDeletion() {
+    setDeleteRequest(null);
+  }
+
+  function confirmQuestionDeletion() {
+    const request = deleteRequest;
+    setDeleteRequest(null);
+    if (!request || request.blockers.length) return;
+    const page = definition.pages.find((candidate) => candidate.id === request.pageId);
+    if (!page || builtInLegacyStructureIsLocked(page)) return;
+    setDefinition((current) => ({
+      ...current,
+      pages: current.pages.map((candidate) => {
+        if (candidate.id !== request.pageId) return candidate;
+        const editable = promotePageForStructure(candidate);
+        if (request.level !== "record") return removeQuestionsFromPage(editable, request);
+        return {
+          ...editable,
+          questions: editable.questions.map((question) =>
+            question.id === request.repeaterId ? removeFieldsFromRepeater(question, request) : question),
+        };
+      }),
+    }));
+    setError("");
+    if (request.level === "record") {
+      if (followUpDialog) selectFollowUp(request.repeaterId, request.parentQuestionId);
+      return;
+    }
+    const removed = new Set(request.removedIds);
+    const remaining = page.questions.filter((question) => !removed.has(question.id));
+    if (followUpDialog && !removed.has(followUpDialog.rootId) && request.parentQuestionId) {
+      selectFollowUp(request.parentQuestionId);
+      return;
+    }
+    setFollowUpDialog(null);
+    setQuestionEditorOpen(false);
+    setActiveQuestionId(remaining[0]?.id || "");
   }
 
   function moveQuestion(direction) {
@@ -4009,32 +4175,8 @@ export default function AdminQuestionnaireBuilder({
   }
 
   function deleteFollowUp({ level, node }) {
-    if (followUpStructureIsLocked()) return;
-    const items = level === "record" ? activeQuestion?.metadata?.fields || [] : activePage.questions;
-    const ids = new Set(node.entry.questions.map((question) => question.id));
-    const remaining = items.filter((item) => !ids.has(item.id));
-    const dependents = [...new Set(node.entry.questions.flatMap((question) =>
-      question.answerKey ? findQuestionDependents(remaining, question.answerKey, "") : []))];
-    if (dependents.length) {
-      setError(`“${node.entry.label}” shows ${dependents.join(", ")}. Delete ${dependents.length === 1 ? "that follow-up" : "those follow-ups"} or change when ${dependents.length === 1 ? "it appears" : "they appear"} first.`);
-      return;
-    }
-    const noun = followUpNoun(node.entry, level);
-    if (!window.confirm(`Delete the ${noun} “${node.entry.label}”?`)) return;
-    const parent = node.parentId ? followUpForest(level)?.nodeById.get(node.parentId) : null;
-    if (level === "record") {
-      updateRecordFieldsStructure(() => remaining);
-      selectFollowUp(activeQuestion.id, parent?.entry.questions[0]?.id || "");
-    } else {
-      updatePageQuestionsStructure(() => remaining);
-      if (parent) {
-        selectFollowUp(parent.entry.questions[0].id);
-      } else {
-        setFollowUpDialog(null);
-        setActiveQuestionId(remaining[0]?.id || "");
-      }
-    }
-    setError("");
+    const questionId = node?.entry.questions[0]?.id;
+    if (questionId) requestQuestionDeletion({ level, questionId });
   }
 
   function changeRecordFieldType(fieldId, type) {
@@ -4376,13 +4518,24 @@ export default function AdminQuestionnaireBuilder({
   const followUpStructureLocked = builtInLegacyStructureIsLocked(activePage);
 
   useEffect(() => {
-    if (!followUpDialog || typeof document === "undefined") return undefined;
+    if ((!followUpDialog && !deleteRequest) || typeof document === "undefined") return undefined;
+    // Escape closes the topmost dialog: the delete confirmation sits above the follow-up dialog.
     const closeOnEscape = (event) => {
-      if (event.key === "Escape") setFollowUpDialog(null);
+      if (event.key !== "Escape") return;
+      if (deleteRequest) setDeleteRequest(null);
+      else setFollowUpDialog(null);
     };
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [followUpDialog]);
+  }, [followUpDialog, deleteRequest]);
+  const deleteQuestionDialog = deleteRequest ? (
+    <DeleteQuestionDialog
+      request={deleteRequest}
+      disabled={isBusy}
+      onCancel={cancelQuestionDeletion}
+      onConfirm={confirmQuestionDeletion}
+    />
+  ) : null;
 
   const followUpEditor = !followUpRoot ? null : followUpField ? (
     <EmbeddedNestedQuestionEditor
@@ -4657,6 +4810,7 @@ export default function AdminQuestionnaireBuilder({
         </p>
 
         {createQuestionnaireDialog}
+        {deleteQuestionDialog}
       </div>
     );
   }
@@ -4665,6 +4819,7 @@ export default function AdminQuestionnaireBuilder({
     return (
       <div className="space-y-6">
         {createQuestionnaireDialog}
+        {deleteQuestionDialog}
         {editorLayout === BUILDER_LAYOUTS.PROPOSED ? followUpDialogElement : null}
         <header className="flex flex-col gap-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -5012,6 +5167,7 @@ export default function AdminQuestionnaireBuilder({
                                     onChangeQuestionType={changeQuestionType}
                                     onCloseEditor={() => setQuestionEditorOpen(false)}
                                     onDeleteNestedOption={deleteNestedOption}
+                                    onDeleteEntry={(question) => requestQuestionDeletion({ questionId: question.id })}
                                     onDeleteQuestion={deleteQuestion}
                                     onDeleteOption={deleteOption}
                                     onEdit={editCanvasQuestion}
@@ -5366,6 +5522,7 @@ export default function AdminQuestionnaireBuilder({
   return (
     <div className="space-y-6">
       {createQuestionnaireDialog}
+      {deleteQuestionDialog}
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           {embeddedInMatter ? <Button type="button" variant="outline" size="sm" className="mb-5 border-[#c7d8d0] bg-white text-[#38564b]" onClick={returnToQuestionnaireLibrary}><ArrowLeft className="h-4 w-4" />Visa questionnaires</Button> : null}
