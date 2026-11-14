@@ -2,6 +2,7 @@ import {
   QUESTIONNAIRE_LEGACY_CATALOG_VERSION,
   questionnaireBuiltInTemplates,
 } from './questionnaireBuiltIns.js';
+import { convertPageGroupHeadings } from './questionnaireContentItems.js';
 
 function definitionContextKey(definition) {
   const context = definition?.visaContext
@@ -406,6 +407,20 @@ export function migrateLegacyQuestionnaireDefinition(definition) {
 
   let changed = false;
   const pages = definition.pages.map(page => {
+    const next = migrateBuiltInPage(page);
+    // Pages the builder fully controls express headings as content items, not
+    // metadata.group repeated on each question.
+    const converted = convertPageGroupHeadings(next);
+    if (converted !== next) {
+      changed = true;
+      report.preserved.push(`${page.id}: converted section headings to heading items`);
+    }
+    return converted;
+  });
+
+  return { definition: changed ? { ...definition, pages } : definition, report };
+
+  function migrateBuiltInPage(page) {
     const baseline = builtInPagesByRoute.get(`${definitionContextKey(definition)}:${page.route}`);
     if (!baseline) return page;
 
@@ -448,9 +463,7 @@ export function migrateLegacyQuestionnaireDefinition(definition) {
       }
     }
     return next;
-  });
-
-  return { definition: changed ? { ...definition, pages } : definition, report };
+  }
 }
 
 export function hydrateLegacyQuestionnaireDefinition(definition) {

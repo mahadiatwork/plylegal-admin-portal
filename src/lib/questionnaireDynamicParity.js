@@ -27,6 +27,8 @@
  *   hidden        → [answerKey] values kept in storage but not shown (metadata.storageOnly)
  */
 
+import { convertPageGroupHeadings } from "./questionnaireContentItems.js";
+
 function cloneJson(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 }
@@ -147,13 +149,16 @@ export function applyPageParityRules(page, rules = {}) {
   return { ...page, questions, metadata };
 }
 
-/** Promote certified routes to the dynamic renderer. Uncertified pages stay legacy. */
+/**
+ * Promote certified routes to the dynamic renderer. Uncertified pages stay legacy.
+ * Promoted pages express section headings as heading items (see questionnaireContentItems.js).
+ */
 export function certifyDynamicPages(pages, certifiedRoutes = []) {
   const certified = new Set(certifiedRoutes);
   return pages.map((page) => {
     if (!certified.has(page.route) || page.metadata?.renderer !== "legacy") return page;
     const { renderer, ...metadata } = page.metadata;
-    return { ...page, metadata: { ...metadata, dynamicParity: "certified" } };
+    return convertPageGroupHeadings({ ...page, metadata: { ...metadata, dynamicParity: "certified" } });
   });
 }
 

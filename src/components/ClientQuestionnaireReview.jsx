@@ -10,6 +10,7 @@ import {
   isQuestionVisible,
 } from "@/lib/questionnaireAnswerModel";
 import { formatLabel } from "@/lib/questionnaireSections";
+import { isQuestionnaireDisplayItem } from "@/lib/questionnaireContentItems";
 import QuestionnairePdfLink from "@/components/QuestionnairePdfLink";
 
 const inputClass = "flex min-h-9 w-full rounded-md border-2 border-slate-200 bg-white px-3 py-2 text-sm text-slate-900";
@@ -118,7 +119,13 @@ function ReadOnlyQuestion({ question: providedQuestion, values, applicantOptions
 }
 
 function ReadOnlyQuestions({ questions, values, applicantOptions, legacy = false }) {
-  return <div className="space-y-6">{questions.map((question, index) => <div key={question.id} className="space-y-6">
+  return <div className="space-y-6">{questions.map((question, index) => isQuestionnaireDisplayItem(question) ? (
+    isQuestionVisible(question, values)
+      ? question.type === "heading"
+        ? <h2 key={question.id} className="border-b border-[#dde8e1] pb-2 text-lg font-medium">{question.label}</h2>
+        : <p key={question.id} className="whitespace-pre-line text-sm text-gray-600">{question.label}</p>
+      : null
+  ) : <div key={question.id} className="space-y-6">
     {question.metadata?.group && question.metadata.group !== questions[index - 1]?.metadata?.group && <h2 className="border-b border-[#dde8e1] pb-2 text-lg font-medium">{question.metadata.group}</h2>}
     <ReadOnlyQuestion question={question} values={values} applicantOptions={applicantOptions} legacy={legacy} />
   </div>)}</div>;

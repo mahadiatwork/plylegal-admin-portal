@@ -1,3 +1,4 @@
+import { isQuestionnaireDisplayItem } from "./questionnaireContentItems.js";
 const EMPLOYMENT_STORAGE_ONLY_BY_ROUTE = {
   "/intake/temporary-work/main-applicant/employment": [
     "still_working",
@@ -115,7 +116,7 @@ function createLogicalEntries(page, questions = [], definition = null, storageOn
     return true;
   });
   const labelCounts = new Map();
-  visibleQuestions.forEach((question) => {
+  visibleQuestions.filter((question) => !isQuestionnaireDisplayItem(question)).forEach((question) => {
     const label = String(question.label || "").trim().toLowerCase();
     if (label) labelCounts.set(label, (labelCounts.get(label) || 0) + 1);
   });
@@ -126,6 +127,19 @@ function createLogicalEntries(page, questions = [], definition = null, storageOn
 
   return visibleQuestions.flatMap((question) => {
     if (consumed.has(question.id)) return [];
+    if (isQuestionnaireDisplayItem(question)) {
+      consumed.add(question.id);
+      return [{
+        id: question.id,
+        kind: question.type,
+        label: question.label || "",
+        group: "",
+        questions: [question],
+        conditions: getQuestionConditions(page, question, definition),
+        required: false,
+        nestedEntries: [],
+      }];
+    }
     const match = String(question.answerKey || "").match(DATE_PART_PATTERN);
 
     if (match) {
@@ -165,6 +179,10 @@ function createLogicalEntries(page, questions = [], definition = null, storageOn
       nestedEntries: createLogicalEntries(page, nestedQuestions, definition, storageOnlyKeys),
     }];
   });
+}
+
+export function isDisplayEntry(entry) {
+  return entry?.kind === "heading" || entry?.kind === "paragraph";
 }
 
 function sourceAnswerKeys(entry) {
@@ -215,11 +233,18 @@ export function getClientQuestionnairePresentation(page, definition = null) {
     }
   });
 
+  // A legacy section heading (metadata.group) is shown once, above the first entry of
+  // each consecutive run — not repeated before every question in the run.
+  primaryEntries = primaryEntries.map((entry, index) => ({
+    ...entry,
+    showGroup: Boolean(entry.group) && entry.group !== primaryEntries[index - 1]?.group,
+  }));
+
   return {
     primaryEntries,
     orphanConditionalGroups,
     storageQuestions,
-    primaryCount: primaryEntries.length,
+    primaryCount: primaryEntries.filter((entry) => !isDisplayEntry(entry)).length,
     displayedQuestionIds: entries.flatMap((entry) => entry.questions.map((question) => question.id)),
     storageQuestionIds: storageQuestions.map((question) => question.id),
   };

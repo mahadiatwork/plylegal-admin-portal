@@ -5,6 +5,7 @@ import path from "node:path";
 import { test } from "node:test";
 import * as React from "react";
 import * as questionnaireDrafts from "../src/lib/questionnaireDrafts.js";
+import * as questionnaireContentItems from "../src/lib/questionnaireContentItems.js";
 
 const require = createRequire(import.meta.url);
 const { loadBindings, transform } = require("next/dist/build/swc");
@@ -187,9 +188,11 @@ async function loadComponent(relativePath) {
         normalizeCrmMapping: () => null,
       };
     }
+    if (specifier === "@/lib/questionnaireContentItems") return questionnaireContentItems;
     if (specifier === "@/lib/questionnaireClientPresentation") {
       return {
         describeClientCondition: () => "Shown conditionally",
+        isDisplayEntry: (entry) => entry?.kind === "heading" || entry?.kind === "paragraph",
         getClientQuestionnairePresentation: (page) => ({
           primaryEntries: (page?.questions || []).map((question) => ({
             id: question.id,
@@ -347,10 +350,20 @@ test("admin library hides starter templates for saved audiences and never labels
   );
   assert.ok(saved482Row, "the saved questionnaire should be listed");
   assert.ok(builtIn186Row, "the built-in template should be listed");
-  const savedDeleteButton = [...walk(saved482Row)].find((node) =>
+  // Row actions live in a "⋯" menu: open it, then look for Delete inside that row.
+  const rowAfterOpeningMenu = (title) => {
+    const toggle = harness.nodes().find((node) =>
+      node.type === "button" && String(node.props["aria-label"] || "") === `Actions for ${title}`
+    );
+    assert.ok(toggle, `${title} should have a row actions menu`);
+    toggle.props.onClick();
+    harness.render();
+    return harness.nodes().find((node) => node.type === "article" && text(node).includes(title));
+  };
+  const builtInDeleteButton = [...walk(rowAfterOpeningMenu("Employer Nomination Visa (186)"))].find((node) =>
     node.type === "button" && text(node) === "Delete"
   );
-  const builtInDeleteButton = [...walk(builtIn186Row)].find((node) =>
+  const savedDeleteButton = [...walk(rowAfterOpeningMenu(saved482.title))].find((node) =>
     node.type === "button" && text(node) === "Delete"
   );
   assert.ok(savedDeleteButton, "saved questionnaires should have a direct delete action");

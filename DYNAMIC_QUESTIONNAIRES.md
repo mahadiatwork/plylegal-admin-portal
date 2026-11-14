@@ -96,3 +96,18 @@ proves it renders and saves identically (`plylegal-client-portal/e2e/questionnai
   adapters (`metadata.answerLayout`), option sources (`applicantIds`).
 
 See the workspace `AGENTS.md` for the certification procedure.
+
+## Headings and explanatory text
+
+Use **Add content here** between questions to add a Question, a **Heading** or **Explanatory text**.
+Headings and text are stored as items in the page's `questions` array:
+
+```json
+{ "id": "details-family_name-heading", "type": "heading", "label": "Personal Information" }
+{ "id": "paragraph-12", "type": "paragraph", "label": "Enter names exactly as shown in your passport." }
+```
+
+They show to clients in exactly that position, may have a `visibleIf` rule, and never collect answers
+(no `answerKey`, `required`, `options` or validation; they are not counted as questions). Older dynamic
+pages that repeated `metadata.group` on each question are converted automatically when opened or saved;
+answer keys and stored answers are unchanged. Locked legacy pages keep their original structure.

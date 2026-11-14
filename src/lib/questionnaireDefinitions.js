@@ -1,4 +1,5 @@
 import { validateDefinitionCrmMappings } from "./questionnaireCrmContract.js";
+import { isQuestionnaireDisplayItem } from "./questionnaireContentItems.js";
 
 export const QUESTIONNAIRE_DEFINITIONS_COLLECTION = "questionnaireDefinitions";
 export const QUESTIONNAIRE_DEFINITION_REVISIONS_COLLECTION = "questionnaireDefinitionRevisions";
@@ -154,6 +155,8 @@ const QUESTION_FIELDS = new Set([
   "validation",
   "visaContexts",
 ]);
+// Headings and explanatory text: display only, no answer fields.
+const DISPLAY_ITEM_FIELDS = new Set(["id", "type", "label", "visibleIf", "metadata"]);
 const OPTION_FIELDS = new Set(["value", "label"]);
 const CONDITION_FIELDS = new Set(["field", "op", "value"]);
 const PART_FIELDS = new Set(["day", "month", "year"]);
@@ -515,9 +518,33 @@ function reserveScopedStorageKey(value, path, state, answerKeyScope, issues) {
   state.seenStorageKeysByScope.set(answerKeyScope, scopedStorageKeys);
 }
 
+/** Headings and explanatory text: no answerKey, never counted as questions. */
+function validateDisplayItem(item, path, state, issues) {
+  pushUnknownFields(item, DISPLAY_ITEM_FIELDS, path, issues);
+  validateString(item.id, `${path}.id`, issues, { required: true, max: MAX_ID_LENGTH, pattern: SAFE_NODE_ID });
+  if (typeof item.id === "string" && item.id.trim()) {
+    const id = item.id.trim();
+    if (state.seenQuestionIds.has(id)) issues.push(`${path}.id "${id}" is duplicated`);
+    state.seenQuestionIds.add(id);
+  }
+  validateString(item.label, `${path}.label`, issues, {
+    required: true,
+    max: item.type === "heading" ? MAX_SHORT_TEXT_LENGTH : MAX_LONG_TEXT_LENGTH,
+  });
+  validateConditions(item.visibleIf, `${path}.visibleIf`, issues);
+  if (hasOwn(item, "metadata")) {
+    if (!isPlainObject(item.metadata)) issues.push(`${path}.metadata must be an object`);
+    else validateJsonValue(item.metadata, `${path}.metadata`, issues);
+  }
+}
+
 function validateQuestion(question, path, state, answerKeyScope, issues, depth) {
   if (!isPlainObject(question)) {
     issues.push(`${path} must be an object`);
+    return;
+  }
+  if (isQuestionnaireDisplayItem(question)) {
+    validateDisplayItem(question, path, state, issues);
     return;
   }
   state.count += 1;
@@ -1186,6 +1213,12 @@ function canonicalOption(option) {
 }
 
 function canonicalQuestion(question) {
+  if (isQuestionnaireDisplayItem(question)) {
+    const item = { id: question.id.trim(), type: question.type, label: question.label.trim() };
+    if (question.visibleIf) item.visibleIf = cloneJsonValue(question.visibleIf);
+    if (question.metadata) item.metadata = cloneJsonValue(question.metadata);
+    return item;
+  }
   const normalized = {
     id: question.id.trim(),
     answerKey: question.answerKey.trim(),

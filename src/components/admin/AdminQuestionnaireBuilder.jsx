@@ -9,18 +9,23 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  CircleHelp,
   CircleAlert,
   Copy,
+  Ellipsis,
   Eye,
   FileText,
   FileJson,
   GripVertical,
+  Heading,
   Layers3,
   Loader2,
   LockKeyhole,
   Pencil,
+  Pilcrow,
   Plus,
   RefreshCw,
+  RotateCcw,
   Save,
   Search,
   Send,
@@ -62,6 +67,8 @@ import {
   describeClientCondition,
   getClientQuestionnairePresentation,
 } from "@/lib/questionnaireClientPresentation";
+import { isDisplayEntry } from "@/lib/questionnaireClientPresentation";
+import { isQuestionnaireDisplayItem, QUESTIONNAIRE_DISPLAY_TYPE_LABELS } from "@/lib/questionnaireContentItems";
 
 const QUESTION_TYPES = [
   ["text", "Short text"],
@@ -145,6 +152,11 @@ function uniqueId(existingIds, base) {
 }
 
 function normalizeQuestion(question = {}, index = 0) {
+  if (isQuestionnaireDisplayItem(question)) {
+    // Headings and explanatory text never get answer fields (answerKey, required, options).
+    const { answerKey: _answerKey, required: _required, options: _options, followUps: _followUps, ...item } = question;
+    return { ...item, id: String(question.id || `${question.type}-${index + 1}`), label: String(question.label || "") };
+  }
   const id = String(question.id || question.answerKey || `question-${index + 1}`);
   return {
     ...question,
@@ -615,7 +627,7 @@ function prepareDefinition(definition) {
 
 function countQuestions(questions = []) {
   return questions.reduce(
-    (total, question) => total + 1 + countQuestions(question?.followUps || []) + countQuestions(question?.metadata?.fields || []),
+    (total, question) => total + (isQuestionnaireDisplayItem(question) ? 0 : 1) + countQuestions(question?.followUps || []) + countQuestions(question?.metadata?.fields || []),
     0
   );
 }
@@ -688,6 +700,66 @@ function makeNewDefinition() {
     revision: 0,
     pages: [],
   });
+}
+
+/** "⋯" actions for one questionnaire in the library list (Edit, Make live, Delete). */
+// Stateless: the builder owns which row's menu is open (and closes it on outside click / Escape).
+function QuestionnaireRowMenu({ entry, open, disabled, onToggle, onClose, onEdit, onEditClassic, onMakeLive, onDelete }) {
+  const item = entry.definition;
+  const saved = entry.source === "saved";
+  const title = item.title || item.id;
+
+  const run = (action) => () => {
+    onClose();
+    return action();
+  };
+  const itemClassName = "flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-[#24453b] hover:bg-[#f0f7f3] focus:bg-[#f0f7f3] focus:outline-none";
+
+  return (
+    <div className="relative" data-questionnaire-row-menu="">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="text-[#4d6b60] hover:bg-[#e8f4ee] hover:text-[#17372e]"
+        aria-label={`Actions for ${title}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={onToggle}
+        data-testid={`questionnaire-actions-${item.id}`}
+      >
+        <Ellipsis className="h-5 w-5" />
+      </Button>
+      {open ? (
+        <div role="menu" aria-label={`Actions for ${title}`} className="absolute right-0 top-full z-30 mt-1 w-56 overflow-hidden rounded-lg border border-[#dbe7e1] bg-white py-1 shadow-lg">
+          <button type="button" role="menuitem" className={itemClassName} onClick={run(onEdit)}>
+            <Pencil className="h-4 w-4 text-[#4F726B]" />
+            {saved ? "Edit" : "Use template"}
+          </button>
+          <button type="button" role="menuitem" className={itemClassName} onClick={run(onEditClassic)}>
+            <Layers3 className="h-4 w-4 text-[#4F726B]" />
+            {saved ? "Edit in classic layout" : "Use template (classic layout)"}
+          </button>
+          {saved && item.status !== "active" ? (
+            <button type="button" role="menuitem" className={itemClassName} onClick={run(onMakeLive)}>
+              {item.status === "archived" ? <RotateCcw className="h-4 w-4 text-[#4F726B]" /> : <Send className="h-4 w-4 text-[#4F726B]" />}
+              {item.status === "archived" ? "Restore & make live" : "Make live"}
+            </button>
+          ) : null}
+          {saved ? (
+            <>
+              <div className="my-1 border-t border-[#e8eeeb]" />
+              <button type="button" role="menuitem" className={`${itemClassName} text-red-600 hover:bg-red-50 focus:bg-red-50`} onClick={run(onDelete)}>
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </button>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function StatusBadge({ status }) {
@@ -1191,19 +1263,106 @@ function PortalAnswerPreview({ entry }) {
   return <div data-testid="portal-text-input-preview" className={`mt-2 flex h-11 items-center rounded-md px-3 py-2 text-base text-[#779087] md:text-sm ${answerClassName}`}>{question.placeholder || "Enter your answer"}</div>;
 }
 
-function QuestionInsertControl({ label, onInsert }) {
+const CONTENT_INSERT_CHOICES = [
+  { kind: "question", label: "Question", Icon: CircleHelp },
+  { kind: "heading", label: "Heading", Icon: Heading },
+  { kind: "paragraph", label: "Explanatory text", Icon: Pilcrow },
+];
+
+/**
+ * "Add content here": inserts a question, heading or explanatory text at this position.
+ * Stateless — the builder owns which insert menu is open.
+ */
+function ContentInsertControl({ label, open, disabled, onToggle, onChoose }) {
   return (
-    <div className="group/insert relative flex h-10 items-center justify-center" data-testid="question-insert-control">
+    <div className="group/insert relative flex h-10 items-center justify-center" data-testid="question-insert-control" data-questionnaire-insert-menu="">
       <span className="absolute inset-x-0 top-1/2 h-px bg-[#dce6e1] opacity-40 transition group-hover/insert:opacity-100 group-focus-within/insert:opacity-100" />
       <button
         type="button"
         aria-label={label}
-        className="relative z-10 inline-flex h-8 items-center gap-1.5 rounded-full border border-[#96b5a8] bg-white px-3 text-xs font-semibold text-[#315f50] opacity-40 shadow-sm transition hover:bg-[#eef7f2] hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]/30 group-hover/insert:opacity-100"
-        onClick={onInsert}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+        className={`relative z-10 inline-flex h-8 items-center gap-1.5 rounded-full border border-[#96b5a8] bg-white px-3 text-xs font-semibold text-[#315f50] shadow-sm transition hover:bg-[#eef7f2] hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]/30 group-hover/insert:opacity-100 ${open ? "opacity-100" : "opacity-40"}`}
+        onClick={onToggle}
       >
-        <Plus className="h-3.5 w-3.5" />Add question here
+        <Plus className="h-3.5 w-3.5" />Add content here
       </button>
+      {open ? (
+        <div role="menu" aria-label={label} className="absolute left-1/2 top-full z-30 mt-1 w-56 -translate-x-1/2 overflow-hidden rounded-lg border border-[#dbe7e1] bg-white py-1 shadow-lg">
+          {CONTENT_INSERT_CHOICES.map(({ kind, label: choiceLabel, Icon }) => (
+            <button
+              key={kind}
+              type="button"
+              role="menuitem"
+              className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-[#24453b] hover:bg-[#f0f7f3] focus:bg-[#f0f7f3] focus:outline-none"
+              onClick={() => onChoose(kind)}
+            >
+              <Icon className="h-4 w-4 text-[#4F726B]" />
+              {choiceLabel}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+/** Edit, reorder or remove a heading / explanatory text item. */
+function ContentItemEditor({ item, disabled, locked = false, canMoveUp, canMoveDown, onChange, onMove, onDelete, onClose }) {
+  const kindLabel = QUESTIONNAIRE_DISPLAY_TYPE_LABELS[item.type] || "Content";
+  const inputId = `content-item-${item.id}`;
+  return (
+    <div className="mt-3 space-y-3 rounded-lg border border-[#d6e4dd] bg-[#f7faf8] p-4" data-testid="content-item-editor">
+      <FieldLabel htmlFor={inputId}>{item.type === "heading" ? "Heading text" : "Explanatory text"}</FieldLabel>
+      {item.type === "heading" ? (
+        <Input id={inputId} className={inputClassName} value={item.label || ""} disabled={disabled} onChange={(event) => onChange("label", event.target.value)} />
+      ) : (
+        <Textarea id={inputId} rows={4} className="border-[#d7e4de] bg-white" value={item.label || ""} disabled={disabled} onChange={(event) => onChange("label", event.target.value)} />
+      )}
+      <p className="text-xs text-[#71857d]">{kindLabel} is shown to clients in this position. It does not collect an answer.</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" variant="outline" size="sm" className="border-[#d2dfd8] bg-white text-[#38564b]" disabled={disabled || locked || !canMoveUp} onClick={() => onMove(-1)}><ArrowUp />Move earlier</Button>
+        <Button type="button" variant="outline" size="sm" className="border-[#d2dfd8] bg-white text-[#38564b]" disabled={disabled || locked || !canMoveDown} onClick={() => onMove(1)}><ArrowDown />Move later</Button>
+        <Button type="button" variant="ghost" size="sm" className="text-red-600 hover:bg-red-50" disabled={disabled || locked} onClick={onDelete}><Trash2 />Remove {kindLabel.toLowerCase()}</Button>
+        {onClose ? <Button type="button" size="sm" className="ml-auto bg-[#244D42] text-white hover:bg-[#183a31]" onClick={onClose}>Done</Button> : null}
+      </div>
+    </div>
+  );
+}
+
+/** A heading or explanatory text item in the client-style canvas. */
+function PortalBuilderContentItem({ entry, activeQuestion, disabled, legacy, canMoveUp, canMoveDown, onEdit, onChange, onMove, onDelete, onCloseEditor }) {
+  const item = entry.questions[0];
+  const isEditing = activeQuestion?.id === item.id;
+  const kindLabel = QUESTIONNAIRE_DISPLAY_TYPE_LABELS[item.type] || "Content";
+  return (
+    <article className="group/question relative rounded-xl border border-transparent pb-2 transition hover:border-[#dce6e1] hover:bg-[#fbfcfb]" data-testid="portal-builder-content-item">
+      <button
+        type="button"
+        aria-label={`Edit ${kindLabel.toLowerCase()} ${item.label}`}
+        className="absolute right-3 top-2 inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#d2dfd8] bg-white text-[#45685d] opacity-100 shadow-sm transition hover:border-[#8eb2a3] hover:bg-[#eef7f2] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]/30 sm:opacity-0 sm:group-hover/question:opacity-100"
+        onClick={() => onEdit(item)}
+      >
+        <Pencil className="h-4 w-4" />
+      </button>
+      {item.type === "heading"
+        ? <h3 data-testid="portal-content-heading" className="border-b border-[#dce5e1] pb-2 pt-2 pr-12 text-lg font-semibold text-[#17372e]">{item.label}</h3>
+        : <p data-testid="portal-content-text" className="whitespace-pre-line pt-2 pr-12 text-sm text-gray-600">{item.label}</p>}
+      {isEditing ? (
+        <ContentItemEditor
+          item={item}
+          disabled={disabled}
+          locked={legacy}
+          canMoveUp={canMoveUp}
+          canMoveDown={canMoveDown}
+          onChange={onChange}
+          onMove={onMove}
+          onDelete={onDelete}
+          onClose={onCloseEditor}
+        />
+      ) : null}
+    </article>
   );
 }
 
@@ -1485,7 +1644,28 @@ function PortalBuilderQuestion({
   onUpdateOption,
   options,
   showOptions,
+  onMoveQuestion,
+  canMoveUp = false,
+  canMoveDown = false,
+  structureLocked = false,
 }) {
+  if (isDisplayEntry(entry)) {
+    return (
+      <PortalBuilderContentItem
+        entry={entry}
+        activeQuestion={activeQuestion}
+        disabled={disabled}
+        legacy={structureLocked}
+        canMoveUp={canMoveUp}
+        canMoveDown={canMoveDown}
+        onEdit={onEdit}
+        onChange={onChangeQuestion}
+        onMove={onMoveQuestion}
+        onDelete={onDeleteQuestion}
+        onCloseEditor={onCloseEditor}
+      />
+    );
+  }
   const entryQuestions = getEntryQuestions(entry);
   const isEditing = Boolean(activeQuestion && entryQuestions.some((question) => question.id === activeQuestion.id));
   const primaryQuestion = entry.questions?.[0];
@@ -1501,7 +1681,7 @@ function PortalBuilderQuestion({
         >
           <Pencil className="h-4 w-4" />
         </button>
-        {entry.group ? <h3 data-testid="portal-group-heading" className="border-b border-[#dce5e1] pb-2 pt-2 pr-12 text-lg font-semibold text-[#17372e]">{entry.group}</h3> : null}
+        {entry.showGroup ? <h3 data-testid="portal-group-heading" className="border-b border-[#dce5e1] pb-2 pt-2 pr-12 text-lg font-semibold text-[#17372e]">{entry.group}</h3> : null}
         <div className="px-0.5 pt-3 pr-12">
           <p className="text-sm font-medium leading-none text-[#17372e]">{entry.label}{entry.required ? <span className="ml-1 text-red-600">*</span> : null}</p>
           {primaryQuestion?.description ? <p className="mt-2 text-sm font-normal text-gray-600">{primaryQuestion.description}</p> : null}
@@ -1514,6 +1694,19 @@ function PortalBuilderQuestion({
             <div className="space-y-4">
               {group.entries.map((conditionalEntry) => {
                 const conditionalQuestion = conditionalEntry.questions?.[0];
+                if (isDisplayEntry(conditionalEntry)) {
+                  return (
+                    <div key={conditionalEntry.id} className="group/conditional relative rounded-lg bg-[#f7faf8] p-4">
+                      <button type="button" aria-label={`Edit ${conditionalEntry.label}`} className="absolute right-2 top-2 rounded-full p-2 text-[#45685d] opacity-100 hover:bg-white sm:opacity-0 sm:group-hover/conditional:opacity-100" onClick={() => onEdit(conditionalQuestion)}><Pencil className="h-4 w-4" /></button>
+                      {conditionalEntry.kind === "heading"
+                        ? <h4 className="pr-10 text-base font-semibold text-[#17372e]">{conditionalEntry.label}</h4>
+                        : <p className="whitespace-pre-line pr-10 text-sm text-gray-600">{conditionalEntry.label}</p>}
+                      {activeQuestion?.id === conditionalQuestion.id ? (
+                        <ContentItemEditor item={conditionalQuestion} disabled={disabled} locked={structureLocked} canMoveUp={canMoveUp} canMoveDown={canMoveDown} onChange={onChangeQuestion} onMove={onMoveQuestion} onDelete={onDeleteQuestion} onClose={onCloseEditor} />
+                      ) : null}
+                    </div>
+                  );
+                }
                 return (
                   <div key={conditionalEntry.id} className="group/conditional relative rounded-lg bg-[#f7faf8] p-4">
                     <button type="button" aria-label={`Edit ${conditionalEntry.label}`} className="absolute right-2 top-2 rounded-full p-2 text-[#45685d] opacity-100 hover:bg-white sm:opacity-0 sm:group-hover/conditional:opacity-100" onClick={() => onEdit(conditionalQuestion)}><Pencil className="h-4 w-4" /></button>
@@ -2133,6 +2326,8 @@ export default function AdminQuestionnaireBuilder({
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [openRowMenuKey, setOpenRowMenuKey] = useState("");
+  const [openInsertMenuKey, setOpenInsertMenuKey] = useState("");
   const [definitionSearch, setDefinitionSearch] = useState("");
   const [adminView, setAdminView] = useState(() =>
     embeddedInMatter && initialView !== "list" ? "editor" : "library"
@@ -2191,7 +2386,7 @@ export default function AdminQuestionnaireBuilder({
   );
   const conditionSourceQuestions = useMemo(
     () => pageQuestions.filter(
-      (question) => question.id !== activeQuestion?.id && question.answerKey
+      (question) => question.id !== activeQuestion?.id && question.answerKey && !isQuestionnaireDisplayItem(question)
     ),
     [activeQuestion?.id, pageQuestions]
   );
@@ -3034,10 +3229,51 @@ export default function AdminQuestionnaireBuilder({
     addQuestionAt(activePage?.questions?.length || 0);
   }
 
+  /** Insert a heading or explanatory text item (display only) at a position. */
+  function addContentItemAt(insertIndex, kind) {
+    if (!activePage) return;
+    if (builtInLegacyStructureIsLocked(activePage)) {
+      setError("This built-in page is locked to its original structure until dynamic-renderer parity is certified. You can still edit wording and option labels.");
+      return;
+    }
+    const existingIds = new Set();
+    definition.pages.forEach((page) => collectQuestionMachineKeys(page.questions, existingIds, new Set()));
+    const item = {
+      id: uniqueId(existingIds, `${kind}-${existingIds.size + 1}`),
+      type: kind,
+      label: kind === "heading" ? "New heading" : "Add explanatory text for clients.",
+    };
+    updateActivePage((page) => {
+      const editablePage = promotePageForStructure(page);
+      const questions = [...editablePage.questions];
+      questions.splice(Math.max(0, Math.min(insertIndex, questions.length)), 0, item);
+      return { ...editablePage, questions };
+    });
+    setActiveQuestionId(item.id);
+    setQuestionEditorOpen(true);
+  }
+
+  /** "Add content here": a question, heading or explanatory text at this position. */
+  function addContentAt(insertIndex, kind) {
+    setOpenInsertMenuKey("");
+    if (kind === "question") addQuestionAt(insertIndex, true);
+    else addContentItemAt(insertIndex, kind);
+  }
+
   function deleteQuestion() {
     if (!activeQuestion) return;
     if (builtInLegacyStructureIsLocked(activePage)) {
       setError("This built-in page is locked to its original answer structure until dynamic-renderer parity is certified. You can still edit wording and option labels.");
+      return;
+    }
+    if (isQuestionnaireDisplayItem(activeQuestion)) {
+      const kindLabel = (QUESTIONNAIRE_DISPLAY_TYPE_LABELS[activeQuestion.type] || "content").toLowerCase();
+      if (!window.confirm(`Remove the ${kindLabel} “${activeQuestion.label}”?`)) return;
+      const remainingItems = activePage.questions.filter((question) => question.id !== activeQuestion.id);
+      updateActivePage((page) => ({ ...promotePageForStructure(page), questions: remainingItems }));
+      setActiveQuestionId(remainingItems[0]?.id || "");
+      setQuestionEditorOpen(false);
+      setError("");
       return;
     }
     if (!window.confirm(`Delete the question “${activeQuestion.label}”?`)) return;
@@ -3368,6 +3604,56 @@ export default function AdminQuestionnaireBuilder({
     }
   }
 
+  /** Publish a draft, or restore a backup, from the library list. */
+  // Close the library row "⋯" menu and the "Add content here" menu on an outside click or Escape.
+  useEffect(() => {
+    if ((!openRowMenuKey && !openInsertMenuKey) || typeof document === "undefined") return undefined;
+    const closeOnOutsideClick = (event) => {
+      if (!event.target?.closest?.("[data-questionnaire-row-menu]")) setOpenRowMenuKey("");
+      if (!event.target?.closest?.("[data-questionnaire-insert-menu]")) setOpenInsertMenuKey("");
+    };
+    const closeOnEscape = (event) => {
+      if (event.key !== "Escape") return;
+      setOpenRowMenuKey("");
+      setOpenInsertMenuKey("");
+    };
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [openInsertMenuKey, openRowMenuKey]);
+
+  async function makeLibraryDefinitionLive(entry) {
+    if (entry?.source !== "saved" || !entry.definition?.id || entry.definition.status === "active") return;
+
+    const target = entry.definition;
+    const title = target.title || target.id;
+    const isBackup = target.status === "archived";
+    if (!window.confirm(
+      `${isBackup ? "Restore this backup and make it live" : "Make this questionnaire live"} for ${audienceLabel(target)}?\n\n` +
+      `Clients will see “${title}”. The questionnaire that is live now will be kept as a backup, so you can switch back at any time.`
+    )) return;
+
+    try {
+      setIsSaving(true);
+      setError("");
+      setNotice("");
+      // The server archives the current live questionnaire for this audience in the same transaction.
+      await apiRequest(`/api/questionnaire-definitions/${encodeURIComponent(target.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "active", revision: Number(target.revision ?? 0) }),
+      });
+      await loadList(selectedId);
+      setNotice(`“${title}” is now live. The previous live questionnaire was kept as a backup.`);
+    } catch (publishError) {
+      setError(publishError.message);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   async function deleteLibraryDefinition(entry) {
     if (entry?.source !== "saved" || !entry.definition?.id) return;
 
@@ -3591,7 +3877,7 @@ export default function AdminQuestionnaireBuilder({
         </div>
 
         <section className="rounded-lg border border-[#dbe7e1] bg-white shadow-sm">
-          <div className="hidden grid-cols-[minmax(0,1.45fr)_minmax(130px,.5fr)_minmax(110px,.4fr)_300px] gap-5 rounded-t-lg border-b border-[#dbe7e1] bg-[#fafcfb] px-6 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#72867e] md:grid">
+          <div className="hidden grid-cols-[minmax(0,1.45fr)_minmax(130px,.5fr)_minmax(110px,.4fr)_56px] gap-5 rounded-t-lg border-b border-[#dbe7e1] bg-[#fafcfb] px-6 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#72867e] md:grid">
             <span>Questionnaire</span>
             <span>Contents</span>
             <span>Status</span>
@@ -3609,7 +3895,7 @@ export default function AdminQuestionnaireBuilder({
             return (
               <article
                 key={entry.key}
-                className="grid gap-4 border-b border-[#e8eeeb] px-5 py-4 last:rounded-b-lg last:border-b-0 hover:bg-[#fafcfb]/60 transition-colors md:grid-cols-[minmax(0,1.45fr)_minmax(130px,.5fr)_minmax(110px,.4fr)_300px] md:items-center md:px-6"
+                className="grid gap-4 border-b border-[#e8eeeb] px-5 py-4 last:rounded-b-lg last:border-b-0 hover:bg-[#fafcfb]/60 transition-colors md:grid-cols-[minmax(0,1.45fr)_minmax(130px,.5fr)_minmax(110px,.4fr)_56px] md:items-center md:px-6"
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#e8f4ee] text-[#4F726B]">
@@ -3627,37 +3913,19 @@ export default function AdminQuestionnaireBuilder({
                   <p className="mt-0.5 text-xs text-[#71857d]">{counts.questionCount} questions</p>
                 </div>
                 <div><StatusBadge status={displayStatus} /></div>
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full border-[#cedbd5] bg-white text-[#31564a] hover:border-[#8ac6ad] hover:text-[#17372e] hover:bg-[#fafcfb] md:w-auto"
+                <div className="flex items-center justify-end">
+                  {(isSaving || isDeleting) ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-[#4F726B]" /> : null}
+                  <QuestionnaireRowMenu
+                    entry={entry}
+                    open={openRowMenuKey === entry.key}
+                    onToggle={() => setOpenRowMenuKey((current) => (current === entry.key ? "" : entry.key))}
+                    onClose={() => setOpenRowMenuKey("")}
                     disabled={isBusy}
-                    onClick={() => openAdminDefinition(entry, BUILDER_LAYOUTS.CURRENT)}
-                  >
-                    {entry.source === "builtIn" ? "Use template" : "Edit"}
-                  </Button>
-                  <Button
-                    type="button"
-                    className="w-full bg-[#244D42] text-white hover:bg-[#1C3E35] md:w-auto"
-                    disabled={isBusy}
-                    onClick={() => openAdminDefinition(entry, BUILDER_LAYOUTS.PROPOSED)}
-                  >
-                    <Eye className="h-4 w-4" />
-                    New layout
-                  </Button>
-                  {entry.source === "saved" ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                      disabled={isBusy}
-                      onClick={() => deleteLibraryDefinition(entry)}
-                    >
-                      {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                      Delete
-                    </Button>
-                  ) : null}
+                    onEdit={() => openAdminDefinition(entry, BUILDER_LAYOUTS.PROPOSED)}
+                    onEditClassic={() => openAdminDefinition(entry, BUILDER_LAYOUTS.CURRENT)}
+                    onMakeLive={() => makeLibraryDefinitionLive(entry)}
+                    onDelete={() => deleteLibraryDefinition(entry)}
+                  />
                 </div>
               </article>
             );
@@ -3717,7 +3985,7 @@ export default function AdminQuestionnaireBuilder({
                 <Button type="button" variant="outline" className="border-[#cfddd6] bg-white text-[#38564b]" disabled={isBusy} onClick={copyDefinitionAsTest}><Copy />Copy as test</Button>
                 <Button type="button" variant="outline" className="border-[#cfddd6] bg-white text-[#38564b]" disabled={isBusy || !isDirty || !savedDefinition} onClick={discardDefinitionChanges}>Cancel changes</Button>
                 <Button type="button" className="bg-[#4F726B] text-white hover:bg-[#3d625a]" disabled={isBusy || !isDirty} onClick={() => saveDefinition()}>{isSaving ? <Loader2 className="animate-spin" /> : <Save />}Save changes</Button>
-                {definition.status === "draft" ? <Button type="button" className="bg-[#173f35] text-white hover:bg-[#102f28]" disabled={isBusy} onClick={() => saveDefinition("active")}><Send />Make live</Button> : null}
+                {definition.status !== "active" ? <Button type="button" className="bg-[#173f35] text-white hover:bg-[#102f28]" disabled={isBusy} onClick={() => saveDefinition("active")}>{definition.status === "archived" ? <RotateCcw /> : <Send />}{definition.status === "archived" ? "Restore & make live" : "Make live"}</Button> : null}
               </div>
             ) : null}
           </div>
@@ -4002,7 +4270,7 @@ export default function AdminQuestionnaireBuilder({
                           </div>
 
                           <div className="mt-6 space-y-6 rounded-lg border border-[#dce5e1] p-6">
-                            <QuestionInsertControl label="Add question at the beginning of this section" onInsert={() => addQuestionAt(0, true)} />
+                            <ContentInsertControl label={"Add content at the beginning of this section"} open={openInsertMenuKey === "start"} disabled={isBusy} onToggle={() => setOpenInsertMenuKey((current) => (current === "start" ? "" : "start"))} onChoose={(kind) => addContentAt(0, kind)} />
                             {activePagePresentation.primaryEntries.map((entry) => (
                               <div key={entry.id}>
                                 <PortalBuilderQuestion
@@ -4023,8 +4291,12 @@ export default function AdminQuestionnaireBuilder({
                                   onUpdateOption={updateOption}
                                   options={activeQuestionOptions}
                                   showOptions={showOptions}
+                                  onMoveQuestion={moveQuestion}
+                                  canMoveUp={activeQuestionIndex > 0}
+                                  canMoveDown={activeQuestionIndex >= 0 && activeQuestionIndex < activePage.questions.length - 1}
+                                  structureLocked={builtInLegacyStructureIsLocked(activePage)}
                                 />
-                                <QuestionInsertControl label={`Add question after ${entry.label}`} onInsert={() => addQuestionAt(getEntryInsertIndex(entry, activePage.questions), true)} />
+                                <ContentInsertControl label={`Add content after ${entry.label}`} open={openInsertMenuKey === `after:${entry.id}`} disabled={isBusy} onToggle={() => setOpenInsertMenuKey((current) => (current === `after:${entry.id}` ? "" : `after:${entry.id}`))} onChoose={(kind) => addContentAt(getEntryInsertIndex(entry, activePage.questions), kind)} />
                               </div>
                             ))}
 
@@ -4048,8 +4320,12 @@ export default function AdminQuestionnaireBuilder({
                                   onUpdateOption={updateOption}
                                   options={activeQuestionOptions}
                                   showOptions={showOptions}
+                                  onMoveQuestion={moveQuestion}
+                                  canMoveUp={activeQuestionIndex > 0}
+                                  canMoveDown={activeQuestionIndex >= 0 && activeQuestionIndex < activePage.questions.length - 1}
+                                  structureLocked={builtInLegacyStructureIsLocked(activePage)}
                                 />
-                                <QuestionInsertControl label={`Add question after ${entry.label}`} onInsert={() => addQuestionAt(getEntryInsertIndex(entry, activePage.questions), true)} />
+                                <ContentInsertControl label={`Add content after ${entry.label}`} open={openInsertMenuKey === `after:${entry.id}`} disabled={isBusy} onToggle={() => setOpenInsertMenuKey((current) => (current === `after:${entry.id}` ? "" : `after:${entry.id}`))} onChoose={(kind) => addContentAt(getEntryInsertIndex(entry, activePage.questions), kind)} />
                               </div>
                             ))}
 
@@ -4085,6 +4361,27 @@ export default function AdminQuestionnaireBuilder({
                       <h2 className="mt-4 text-lg font-semibold text-[#17372e]">Add your first section</h2>
                       <p className="mt-2 max-w-md text-sm text-[#71857d]">Sections group related questions and preserve the existing Client Portal routes and answer storage.</p>
                       <Button type="button" className="mt-5 bg-[#1f6654] text-white hover:bg-[#174f42]" onClick={() => { addPage(); setSectionSettingsOpen(true); }}><Plus />Add section</Button>
+                    </section>
+                  ) : questionEditorOpen && activeQuestion && isQuestionnaireDisplayItem(activeQuestion) ? (
+                    <section className="space-y-5" data-testid="content-item-screen">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-xs text-[#6c8179]">{definition.title} <ChevronRight className="mx-1 inline h-3 w-3" /> {activePage.title}</p>
+                          <h2 className="mt-2 text-2xl font-semibold text-[#17372e]">Edit {(QUESTIONNAIRE_DISPLAY_TYPE_LABELS[activeQuestion.type] || "content").toLowerCase()}</h2>
+                        </div>
+                        <Button type="button" variant="outline" className="border-[#cfddd6] bg-white text-[#38564b]" onClick={() => setQuestionEditorOpen(false)}><ArrowLeft />Back to questions</Button>
+                      </div>
+                      <ContentItemEditor
+                        item={activeQuestion}
+                        disabled={isBusy}
+                        locked={builtInLegacyStructureIsLocked(activePage)}
+                        canMoveUp={activeQuestionIndex > 0}
+                        canMoveDown={activeQuestionIndex >= 0 && activeQuestionIndex < activePage.questions.length - 1}
+                        onChange={updateQuestionField}
+                        onMove={moveQuestion}
+                        onDelete={deleteQuestion}
+                        onClose={() => setQuestionEditorOpen(false)}
+                      />
                     </section>
                   ) : questionEditorOpen && activeQuestion ? (
                     <section className="space-y-5">
@@ -4586,15 +4883,15 @@ export default function AdminQuestionnaireBuilder({
                     <Copy />
                     Copy as test
                   </Button>
-                  {definition.status === "draft" ? (
+                  {definition.status !== "active" ? (
                     <Button
                       type="button"
                       className="bg-[#24453b] text-white hover:bg-[#17372e]"
                       disabled={isSaving || isDeleting}
                       onClick={() => saveDefinition("active")}
                     >
-                      <Send />
-                      Make live
+                      {definition.status === "archived" ? <RotateCcw /> : <Send />}
+                      {definition.status === "archived" ? "Restore & make live" : "Make live"}
                     </Button>
                   ) : null}
                   <Button
@@ -4929,6 +5226,21 @@ export default function AdminQuestionnaireBuilder({
                           {!activeQuestion ? (
                             <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-dashed border-[#cbdad3] px-6 text-center text-sm text-[#71857d]">
                               {embeddedInMatter ? "Select a question to edit its wording." : "Add or select a question to edit it."}
+                            </div>
+                          ) : isQuestionnaireDisplayItem(activeQuestion) ? (
+                            <div className="rounded-xl border border-[#e1e9e5] p-4 sm:p-5">
+                              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#70877e]">{QUESTIONNAIRE_DISPLAY_TYPE_LABELS[activeQuestion.type]}</p>
+                              <ContentItemEditor
+                        item={activeQuestion}
+                        disabled={isBusy}
+                        locked={builtInLegacyStructureIsLocked(activePage)}
+                        canMoveUp={activeQuestionIndex > 0}
+                        canMoveDown={activeQuestionIndex >= 0 && activeQuestionIndex < activePage.questions.length - 1}
+                        onChange={updateQuestionField}
+                        onMove={moveQuestion}
+                        onDelete={deleteQuestion}
+                        onClose={null}
+                      />
                             </div>
                           ) : (
                             <div className="space-y-5 rounded-xl border border-[#e1e9e5] p-4 sm:p-5">

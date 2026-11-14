@@ -355,8 +355,14 @@ describe("Skills in Demand Visa (Subclass 482) built-in parity", () => {
     assert.ok(findQuestion(identity.questions, "permanent_residency_rights"));
 
     const contact = definition.pages.find((page) => page.route.endsWith("/main-applicant/contact-details"));
-    assert.strictEqual(findQuestion(contact.questions, "emergency_contact_name").metadata.group, "Emergency Contact");
-    assert.strictEqual(findQuestion(contact.questions, "emergency_contact_phone").metadata.group, "Emergency Contact");
+    // Certified (dynamic) pages show a section heading once, as a heading item before its questions.
+    const nameIndex = contact.questions.findIndex((question) => question.answerKey === "emergency_contact_name");
+    assert.deepStrictEqual(
+      contact.questions.slice(nameIndex - 1, nameIndex + 2).map((item) => item.type === "heading" ? `heading:${item.label}` : item.answerKey),
+      ["heading:Emergency Contact", "emergency_contact_name", "emergency_contact_phone"],
+    );
+    assert.strictEqual(contact.questions.filter((item) => item.type === "heading" && item.label === "Emergency Contact").length, 1);
+    assert.strictEqual(findQuestion(contact.questions, "emergency_contact_name").metadata?.group, undefined);
 
     const education = definition.pages.find((page) => page.route.endsWith("/main-applicant/education"));
     assert.ok(findQuestion(findQuestion(education.questions, "education_history").metadata.fields, "certificate_number"));

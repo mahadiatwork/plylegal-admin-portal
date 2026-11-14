@@ -1,5 +1,6 @@
 import { buildQuestionnaireAnswerGroups, isQuestionVisible } from "./questionnaireAnswerModel.js";
 import { buildStructuredSections, formatLabel } from "./questionnaireSections.js";
+import { isQuestionnaireDisplayItem } from "./questionnaireContentItems.js";
 
 const INTERNAL_KEYS = new Set([
   "id", "profileId", "profile_id", "relationship", "createdAt", "updatedAt",
@@ -59,6 +60,8 @@ function addSavedAnswers(answers, values, prefix = "", hiddenKeys = new Set()) {
 
 function addDefinedAnswers(answers, questions, values, applicantOptions, prefix = "") {
   for (const question of questions || []) {
+    // Headings and explanatory text carry no answers.
+    if (isQuestionnaireDisplayItem(question)) continue;
     if (!isQuestionVisible(question, values)) continue;
     const labelRule = question.metadata?.labelByValue;
     const mappedLabel = labelRule?.labels?.[getValue(values, labelRule.field)];

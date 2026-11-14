@@ -6,6 +6,7 @@ import { test } from "node:test";
 import * as React from "react";
 import * as crmFieldCatalog from "../src/lib/crmFieldCatalog.js";
 import * as questionnaireClientPresentation from "../src/lib/questionnaireClientPresentation.js";
+import * as questionnaireContentItems from "../src/lib/questionnaireContentItems.js";
 import * as questionnaireDrafts from "../src/lib/questionnaireDrafts.js";
 import * as questionnaireCrmContract from "../src/lib/questionnaireCrmContract.js";
 import * as questionnairePageGroups from "../src/lib/questionnairePageGroups.js";
@@ -125,6 +126,7 @@ async function loadComponent(relativePath) {
       return { completeAdminQuestionnairePages: (definition) => definition };
     }
     if (specifier === "@/lib/questionnaireClientPresentation") return questionnaireClientPresentation;
+    if (specifier === "@/lib/questionnaireContentItems") return questionnaireContentItems;
     if (specifier === "@/lib/questionnaireDrafts") return questionnaireDrafts;
     if (specifier === "@/lib/crmFieldCatalog") return crmFieldCatalog;
     if (specifier === "@/lib/questionnaireCrmContract") return questionnaireCrmContract;
@@ -201,6 +203,21 @@ function createHarness(Component, props = {}) {
       );
     },
   };
+}
+
+/** "⋯" toggles on the questionnaire library rows. */
+function rowActionToggles(harness) {
+  return harness.nodes().filter((node) =>
+    node.type === "button" && String(node.props["aria-label"] || "").startsWith("Actions for "));
+}
+
+/** Open a library row's "⋯" menu and choose an action (first row by default). */
+async function chooseRowAction(harness, label, rowIndex = 0) {
+  const toggles = rowActionToggles(harness);
+  assert.ok(toggles[rowIndex], "Expected a questionnaire actions menu");
+  toggles[rowIndex].props.onClick();
+  harness.render();
+  await harness.buttonMatching(label).props.onClick();
 }
 
 async function flushEffects(harness) {
@@ -338,12 +355,13 @@ async function mountBuilder(t, {
   initialView = "editor",
   routes = [],
   confirm = () => true,
+  extraDefinitions = [],
 } = {}) {
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
   const calls = [];
   const replacedUrls = [];
-  const storedDefinitions = [definition];
+  const storedDefinitions = [definition, ...extraDefinitions];
   registeredQuestionnaireRoutes = routes;
   globalThis.window = {
     addEventListener() {},
@@ -389,6 +407,22 @@ async function mountBuilder(t, {
       assert.notEqual(index, -1, `Expected ${id} to exist before update`);
       storedDefinitions[index] = persisted;
       return jsonResponse({ definition: persisted });
+    }
+    if (url.startsWith("/api/questionnaire-definitions/") && options.method === "PATCH") {
+      // Mirrors the server: publishing archives the other live questionnaire for the audience.
+      const id = decodeURIComponent(url.slice("/api/questionnaire-definitions/".length));
+      const patch = JSON.parse(options.body);
+      const index = storedDefinitions.findIndex((candidate) => candidate.id === id);
+      assert.notEqual(index, -1, `Expected ${id} to exist before update`);
+      if (patch.status === "active") {
+        storedDefinitions.forEach((candidate, candidateIndex) => {
+          if (candidate.status === "active" && candidate.visaType === storedDefinitions[index].visaType) {
+            storedDefinitions[candidateIndex] = { ...candidate, status: "archived" };
+          }
+        });
+      }
+      storedDefinitions[index] = { ...storedDefinitions[index], ...patch, revision: Number(patch.revision || 0) + 1 };
+      return jsonResponse({ definition: storedDefinitions[index] });
     }
     assert.fail(`Unexpected request: ${options.method || "GET"} ${url}`);
   };
@@ -1115,7 +1149,7 @@ test("CRM synchronization panel writes metadata.crm without dropping other metad
   definition.status = "draft";
   const { harness, calls } = await mountBuilder(t, { definition, embeddedInMatter: false });
 
-  await harness.button("Edit").props.onClick();
+  await chooseRowAction(harness, /^(Edit in classic layout|Use template (classic layout))$/);
   harness.render();
   harness.control("Edit Original question text?").props.onClick();
   harness.render();
@@ -1153,7 +1187,7 @@ test("the proposed questionnaire layout can be presented without removing the cu
     routes: questionnaireRoutes,
   });
 
-  await harness.button("New layout").props.onClick();
+  await chooseRowAction(harness, /^(Edit|Use template)$/);
   harness.render();
 
   assert.equal(harness.button("Proposed layout").props["aria-pressed"], true);
@@ -1193,11 +1227,11 @@ test("the matter builder switches between its questionnaire list and the new lay
   harness.render();
 
   assert.equal(replacedUrls.at(-1), "/matter/app-123/questionnaire-builder?layout=proposed&view=list");
-  assert.ok(harness.button("New layout"));
+  assert.ok(rowActionToggles(harness).length, "Expected the questionnaire list with row actions");
   assert.equal(harness.maybeControl("embedded-questionnaire-page-group"), undefined);
   assert.equal(text(harness.tree).includes("Design preview."), false);
 
-  await harness.button("New layout").props.onClick();
+  await chooseRowAction(harness, /^(Edit|Use template)$/);
   harness.render();
   assert.equal(replacedUrls.at(-1), "/matter/app-123/questionnaire-builder?layout=proposed");
   assert.ok(text(harness.tree).includes("Design preview."));
@@ -1207,8 +1241,8 @@ test("the matter builder switches between its questionnaire list and the new lay
   harness.button("Visa questionnaires").props.onClick();
   harness.render();
   assert.equal(replacedUrls.at(-1), "/matter/app-123/questionnaire-builder?layout=current&view=list");
-  assert.ok(harness.button("New layout"));
-  await harness.button("Edit").props.onClick();
+  assert.ok(rowActionToggles(harness).length, "Expected the questionnaire list with row actions");
+  await chooseRowAction(harness, /^(Edit in classic layout|Use template (classic layout))$/);
   harness.render();
   assert.equal(replacedUrls.at(-1), "/matter/app-123/questionnaire-builder?layout=current");
   assert.ok(harness.control("embedded-questionnaire-page-group"));
@@ -1216,7 +1250,7 @@ test("the matter builder switches between its questionnaire list and the new lay
 
 test("a matter questionnaire list link opens the list directly", async (t) => {
   const { harness } = await mountBuilder(t, { initialLayout: "proposed", initialView: "list" });
-  assert.ok(harness.button("New layout"));
+  assert.ok(rowActionToggles(harness).length, "Expected the questionnaire list with row actions");
   assert.equal(text(harness.tree).includes("Design preview."), false);
 });
 
@@ -1296,7 +1330,7 @@ test("the proposed layout edits Getting Started and Included Applicants workflow
     ],
   });
 
-  await harness.button("New layout").props.onClick();
+  await chooseRowAction(harness, /^(Edit|Use template)$/);
   harness.render();
   harness.control("Edit section title and description").props.onClick();
   harness.render();
@@ -1361,7 +1395,7 @@ test("the proposed layout nests the composite Other Family page under Main Appli
   };
   const { harness } = await mountBuilder(t, { definition, embeddedInMatter: false });
 
-  await harness.button("New layout").props.onClick();
+  await chooseRowAction(harness, /^(Edit|Use template)$/);
   harness.render();
 
   const navigation = harness.find((node) => node.type === "nav" && node.props["aria-label"] === "Questionnaire sections");
@@ -1398,7 +1432,7 @@ test("the proposed layout supports pencil editing and inserts a question between
     embeddedInMatter: false,
   });
 
-  await harness.button("New layout").props.onClick();
+  await chooseRowAction(harness, /^(Edit|Use template)$/);
   harness.render();
 
   assert.ok(harness.find((node) => node.props?.["data-testid"] === "portal-style-builder"));
@@ -1415,9 +1449,12 @@ test("the proposed layout supports pencil editing and inserts a question between
   harness.render();
   assert.ok(harness.control("Edit Are you eligible?"), "Expected the portal preview to update immediately");
 
-  const insertControl = harness.control("Add question after Are you eligible?");
+  const insertControl = harness.control("Add content after Are you eligible?");
   assert.match(insertControl.props.className, /group-hover\/insert:opacity-100/);
+  assert.equal(text(insertControl), "Add content here");
   insertControl.props.onClick();
+  harness.render();
+  harness.button("Question").props.onClick();
   harness.render();
   assert.ok(harness.find((node) => node.props?.["data-testid"] === "inline-question-editor"));
 
@@ -1444,7 +1481,7 @@ test("the proposed layout exposes visible question and sidebar section creation 
     ],
   });
 
-  await harness.button("New layout").props.onClick();
+  await chooseRowAction(harness, /^(Edit|Use template)$/);
   harness.render();
 
   const proposedShell = harness.find((node) =>
@@ -1506,7 +1543,7 @@ test("the proposed inline editor can delete a newly added question", async (t) =
     embeddedInMatter: false,
   });
 
-  await harness.button("New layout").props.onClick();
+  await chooseRowAction(harness, /^(Edit|Use template)$/);
   harness.render();
   harness.button("Add question").props.onClick();
   harness.render();
@@ -1531,5 +1568,115 @@ test("the proposed inline editor can delete a newly added question", async (t) =
   assert.deepEqual(
     savedPage.questions.map((question) => question.label),
     ["Original question text?", "Eligibility source", "Record question"],
+  );
+});
+
+test("the questionnaire list row menu restores a backup and keeps the live version as a backup", async (t) => {
+  const live = { ...richDefinition(), id: "live-482", title: "Live 482", status: "active", revision: 3 };
+  const backup = { ...richDefinition(), id: "backup-482", title: "Backup 482", status: "archived", revision: 2 };
+  const confirmations = [];
+  const { harness, calls, storedDefinitions } = await mountBuilder(t, {
+    definition: live,
+    extraDefinitions: [backup],
+    initialLayout: "proposed",
+    initialView: "list",
+    confirm: (message) => { confirmations.push(message); return true; },
+  });
+
+  // The live questionnaire offers Edit and Delete, but not Make live.
+  harness.control("Actions for Live 482").props.onClick();
+  harness.render();
+  assert.ok(harness.buttonMatching(/^Edit$/));
+  assert.ok(harness.buttonMatching(/^Delete$/));
+  assert.equal(harness.nodes().some((node) => node.type === "button" && /make live/i.test(text(node))), false);
+
+  // Opening another row's menu closes the first; the backup can be restored.
+  harness.control("Actions for Backup 482").props.onClick();
+  harness.render();
+  await harness.buttonMatching(/^Restore & make live$/).props.onClick();
+  harness.render();
+
+  const patch = calls.find((call) => call.options.method === "PATCH");
+  assert.equal(patch.url, "/api/questionnaire-definitions/backup-482");
+  assert.deepEqual(JSON.parse(patch.options.body), { status: "active", revision: 2 });
+  assert.match(confirmations.at(-1), /Restore this backup/);
+  assert.equal(storedDefinitions.find((item) => item.id === "backup-482").status, "active");
+  assert.equal(storedDefinitions.find((item) => item.id === "live-482").status, "archived");
+  assert.ok(text(harness.tree).includes("is now live"));
+});
+
+test("a draft can be made live from the list row menu", async (t) => {
+  const draft = { ...richDefinition(), id: "draft-482", title: "Draft 482", status: "draft", revision: 4 };
+  const { harness, calls } = await mountBuilder(t, { definition: draft, initialLayout: "proposed", initialView: "list" });
+  harness.control("Actions for Draft 482").props.onClick();
+  harness.render();
+  await harness.buttonMatching(/^Make live$/).props.onClick();
+  const patch = calls.find((call) => call.options.method === "PATCH");
+  assert.deepEqual(JSON.parse(patch.options.body), { status: "active", revision: 4 });
+});
+
+test("Add content here inserts headings and explanatory text that save in client order", async (t) => {
+  const confirmations = [];
+  const { harness, calls } = await mountBuilder(t, {
+    definition: richDefinition(),
+    embeddedInMatter: false,
+    confirm: (message) => { confirmations.push(message); return true; },
+  });
+  await chooseRowAction(harness, /^(Edit|Use template)$/);
+  harness.render();
+
+  // Heading at the very start of the section.
+  harness.control("Add content at the beginning of this section").props.onClick();
+  harness.render();
+  assert.ok(harness.button("Heading") && harness.button("Explanatory text") && harness.button("Question"));
+  harness.button("Heading").props.onClick();
+  harness.render();
+  const headingEditor = harness.find((node) => node.props?.["data-testid"] === "content-item-editor");
+  assert.ok(headingEditor, "a new heading opens its editor");
+  const headingInput = harness.nodes().find((node) => node.type === "input" && String(node.props.id || "").startsWith("content-item-"));
+  headingInput.props.onChange({ target: { value: "Personal Information" } });
+  harness.render();
+  assert.ok(harness.nodes().some((node) => node.props?.["data-testid"] === "portal-content-heading" && text(node) === "Personal Information"));
+
+  // Explanatory text after "Eligibility source" (and the question it controls), then move it
+  // one place earlier and back again.
+  harness.control("Add content after Eligibility source").props.onClick();
+  harness.render();
+  harness.button("Explanatory text").props.onClick();
+  harness.render();
+  const textInput = harness.nodes().find((node) => node.type === "textarea" && String(node.props.id || "").startsWith("content-item-"));
+  textInput.props.onChange({ target: { value: "Enter names exactly as shown in your passport." } });
+  harness.render();
+  harness.buttonMatching(/Move earlier/).props.onClick();
+  harness.render();
+  harness.buttonMatching(/Move later/).props.onClick();
+  harness.render();
+
+  // A throw-away heading can be removed again.
+  harness.control("Add content after Record question").props.onClick();
+  harness.render();
+  harness.button("Heading").props.onClick();
+  harness.render();
+  harness.buttonMatching(/^Remove heading$/).props.onClick();
+  harness.render();
+  assert.match(confirmations.at(-1), /Remove the heading/);
+
+  await harness.button("Save changes").props.onClick();
+  const saveCall = calls.find(({ url, options }) => url === "/api/questionnaire-definitions/rich-questionnaire" && options.method === "PUT");
+  assert.ok(saveCall, "Expected the content items to be saved");
+  const saved = JSON.parse(saveCall.options.body).pages[0].questions;
+  assert.deepEqual(
+    saved.map((item) => (["heading", "paragraph"].includes(item.type) ? `${item.type}:${item.label}` : item.label)),
+    ["heading:Personal Information", "Original question text?", "Eligibility source", "paragraph:Enter names exactly as shown in your passport.", "Record question"],
+  );
+  for (const item of saved.filter((entry) => ["heading", "paragraph"].includes(entry.type))) {
+    assert.equal(item.answerKey, undefined, "display content never has an answerKey");
+    assert.equal(item.required, undefined);
+    assert.equal(item.options, undefined);
+  }
+  assert.deepEqual(
+    saved.filter((item) => item.answerKey).map((item) => item.answerKey),
+    ["answer_key_internal", "eligibility_internal", "records_internal"],
+    "existing answer keys are untouched",
   );
 });
