@@ -16,6 +16,7 @@ import {
   Eye,
   FileText,
   FileJson,
+  GitBranch,
   GripVertical,
   Heading,
   Layers3,
@@ -69,6 +70,19 @@ import {
 } from "@/lib/questionnaireClientPresentation";
 import { isDisplayEntry } from "@/lib/questionnaireClientPresentation";
 import { isQuestionnaireDisplayItem, QUESTIONNAIRE_DISPLAY_TYPE_LABELS } from "@/lib/questionnaireContentItems";
+import {
+  buildConditionalForest,
+  descendantNodes,
+  followUpInsertIndex,
+  getAnswerBranches,
+  indexAfter,
+  moveItemBlock,
+  nodeBranchPosition,
+  nodeForQuestion,
+  nodeQuestionIds,
+  rootNodeOf,
+  ruleAnswerValues,
+} from "@/lib/questionnaireConditionalBranches";
 
 const QUESTION_TYPES = [
   ["text", "Short text"],
@@ -702,7 +716,7 @@ function makeNewDefinition() {
   });
 }
 
-/** "⋯" actions for one questionnaire in the library list (Edit, Make live, Delete). */
+/** "⋯" actions for one questionnaire in the library list (Edit, Make active / Reactivate, Delete). */
 // Stateless: the builder owns which row's menu is open (and closes it on outside click / Escape).
 function QuestionnaireRowMenu({ entry, open, disabled, onToggle, onClose, onEdit, onEditClassic, onMakeLive, onDelete }) {
   const item = entry.definition;
@@ -744,7 +758,7 @@ function QuestionnaireRowMenu({ entry, open, disabled, onToggle, onClose, onEdit
           {saved && item.status !== "active" ? (
             <button type="button" role="menuitem" className={itemClassName} onClick={run(onMakeLive)}>
               {item.status === "archived" ? <RotateCcw className="h-4 w-4 text-[#4F726B]" /> : <Send className="h-4 w-4 text-[#4F726B]" />}
-              {item.status === "archived" ? "Restore & make live" : "Make live"}
+              {item.status === "archived" ? "Reactivate" : "Make active"}
             </button>
           ) : null}
           {saved ? (
@@ -762,14 +776,16 @@ function QuestionnaireRowMenu({ entry, open, disabled, onToggle, onClose, onEdit
   );
 }
 
+/**
+ * Questionnaire stages shown to administrators (stored statuses are unchanged):
+ *   active   → Active   — what clients see now
+ *   archived → Inactive — was active once, since replaced
+ *   draft    → Draft    — created but never made active
+ */
+const QUESTIONNAIRE_STAGE_LABELS = { active: "Active", archived: "Inactive", draft: "Draft", template: "Template" };
+
 function StatusBadge({ status }) {
-  const label = status === "active"
-    ? "Live"
-    : status === "draft"
-      ? "Not published"
-      : status === "template"
-        ? "Template"
-        : "Backup";
+  const label = QUESTIONNAIRE_STAGE_LABELS[status] || "Draft";
   return (
     <Badge variant="outline" className={STATUS_STYLES[status] || STATUS_STYLES.draft}>
       {label}
@@ -1309,7 +1325,7 @@ function ContentInsertControl({ label, open, disabled, onToggle, onChoose }) {
 }
 
 /** Edit, reorder or remove a heading / explanatory text item. */
-function ContentItemEditor({ item, disabled, locked = false, canMoveUp, canMoveDown, onChange, onMove, onDelete, onClose }) {
+function ContentItemEditor({ item, disabled, locked = false, canMoveUp, canMoveDown, onChange, onMove, onDelete, onClose, showActions = true }) {
   const kindLabel = QUESTIONNAIRE_DISPLAY_TYPE_LABELS[item.type] || "Content";
   const inputId = `content-item-${item.id}`;
   return (
@@ -1321,12 +1337,12 @@ function ContentItemEditor({ item, disabled, locked = false, canMoveUp, canMoveD
         <Textarea id={inputId} rows={4} className="border-[#d7e4de] bg-white" value={item.label || ""} disabled={disabled} onChange={(event) => onChange("label", event.target.value)} />
       )}
       <p className="text-xs text-[#71857d]">{kindLabel} is shown to clients in this position. It does not collect an answer.</p>
-      <div className="flex flex-wrap items-center gap-2">
+      {showActions ? <div className="flex flex-wrap items-center gap-2">
         <Button type="button" variant="outline" size="sm" className="border-[#d2dfd8] bg-white text-[#38564b]" disabled={disabled || locked || !canMoveUp} onClick={() => onMove(-1)}><ArrowUp />Move earlier</Button>
         <Button type="button" variant="outline" size="sm" className="border-[#d2dfd8] bg-white text-[#38564b]" disabled={disabled || locked || !canMoveDown} onClick={() => onMove(1)}><ArrowDown />Move later</Button>
         <Button type="button" variant="ghost" size="sm" className="text-red-600 hover:bg-red-50" disabled={disabled || locked} onClick={onDelete}><Trash2 />Remove {kindLabel.toLowerCase()}</Button>
         {onClose ? <Button type="button" size="sm" className="ml-auto bg-[#244D42] text-white hover:bg-[#183a31]" onClick={onClose}>Done</Button> : null}
-      </div>
+      </div> : null}
     </div>
   );
 }
@@ -1481,6 +1497,7 @@ function InlinePresentationEditor({ presentation = {}, onChange, structureLocked
 
 function ProposedInlineQuestionEditor({
   disabled,
+  inDialog = false,
   legacy,
   onAddOption,
   onChange,
@@ -1489,6 +1506,7 @@ function ProposedInlineQuestionEditor({
   onDeleteNestedOption,
   onDeleteQuestion,
   onDeleteOption,
+  onOpenFollowUps,
   onUpdateNestedQuestion,
   onUpdateOption,
   options,
@@ -1496,29 +1514,34 @@ function ProposedInlineQuestionEditor({
   showOptions,
 }) {
   return (
-    <div data-testid="inline-question-editor" className="mt-5 rounded-xl border border-[#bcd3c8] bg-[#f4f8f6] p-4 sm:p-5">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-[#24453b]">Edit question</p>
-          <p className="mt-1 text-xs text-[#71857d]">Changes update the builder preview immediately.</p>
+    <div
+      data-testid={inDialog ? "follow-up-question-editor" : "inline-question-editor"}
+      className={inDialog ? "" : "mt-5 rounded-xl border border-[#bcd3c8] bg-[#f4f8f6] p-4 sm:p-5"}
+    >
+      {inDialog ? null : (
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-[#24453b]">Edit question</p>
+            <p className="mt-1 text-xs text-[#71857d]">Changes update the builder preview immediately.</p>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="text-red-600 hover:bg-red-50 hover:text-red-700"
+              aria-label="Delete question"
+              title="Delete question"
+              disabled={disabled}
+              onClick={onDeleteQuestion}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+            <Button type="button" variant="ghost" size="sm" className="text-[#45685d]" onClick={onClose}><X className="h-4 w-4" />Close</Button>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="text-red-600 hover:bg-red-50 hover:text-red-700"
-            aria-label="Delete question"
-            title="Delete question"
-            disabled={disabled}
-            onClick={onDeleteQuestion}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-          <Button type="button" variant="ghost" size="sm" className="text-[#45685d]" onClick={onClose}><X className="h-4 w-4" />Close</Button>
-        </div>
-      </div>
-      <div className="mt-4 grid gap-4 md:grid-cols-2">
+      )}
+      <div className={`${inDialog ? "" : "mt-4 "}grid gap-4 md:grid-cols-2`}>
         <div className="space-y-2 md:col-span-2">
           <FieldLabel htmlFor={`inline-label-${question.id}`}>Question title</FieldLabel>
           <Textarea id={`inline-label-${question.id}`} rows={2} className="border-[#cddbd5] bg-white" value={question.label} onChange={(event) => onChange("label", event.target.value)} />
@@ -1556,10 +1579,29 @@ function ProposedInlineQuestionEditor({
               </div>
             ))}
           </div>
+          {question.type === "yesNo" ? (
+            <p className="mt-3 text-xs leading-5 text-[#71857d]">Yes / No questions always offer exactly these two answers. To offer more answers, change the answer field to Radio choices or Dropdown, then add choices.</p>
+          ) : null}
         </div>
       ) : null}
 
-      {question.type === "repeater" && Array.isArray(question.metadata?.fields) && question.metadata.fields.length > 0 ? (
+      {onOpenFollowUps && !inDialog && getTriggerChoices(question).length ? (
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#d9e5df] pt-4">
+          <div>
+            <p className="text-sm font-semibold text-[#24453b]">Follow-up questions</p>
+            <p className="mt-1 text-xs text-[#71857d]">Ask extra questions only after a particular answer, such as “Yes”.</p>
+          </div>
+          <Button type="button" variant="outline" size="sm" className="border-[#c8d9d1] bg-white text-[#38564b]" disabled={disabled} onClick={onOpenFollowUps}><GitBranch className="h-4 w-4" />Add follow-up questions</Button>
+        </div>
+      ) : null}
+
+      {inDialog && question.type === "repeater" ? (
+        <p className="mt-5 rounded-lg border border-[#dce6e1] bg-[#f6faf8] px-3 py-2 text-xs leading-5 text-[#60786f]">
+          The fields clients fill in for each record are listed under this question on the left. Choose one to edit it, or add a field there.
+        </p>
+      ) : null}
+
+      {!inDialog && question.type === "repeater" && Array.isArray(question.metadata?.fields) && question.metadata.fields.length > 0 ? (
         <div className="mt-5 border-t border-[#d9e5df] pt-4">
           <p className="text-sm font-semibold text-[#24453b]">Entry fields</p>
           <p className="mt-1 text-xs text-[#71857d]">Edit the wording shown inside each Add/Edit dialog.</p>
@@ -1628,9 +1670,11 @@ function ProposedInlineQuestionEditor({
 
 function PortalBuilderQuestion({
   activeQuestion,
-  allPrimaryEntries,
+  allEntries = [],
+  canAddFollowUps = false,
   disabled,
   entry,
+  followUpNode = null,
   legacy,
   onAddOption,
   onChangeQuestion,
@@ -1640,6 +1684,7 @@ function PortalBuilderQuestion({
   onDeleteQuestion,
   onDeleteOption,
   onEdit,
+  onOpenFollowUps,
   onUpdateNestedQuestion,
   onUpdateOption,
   options,
@@ -1688,37 +1733,17 @@ function PortalBuilderQuestion({
         </div>
         <div className="px-0.5"><PortalAnswerPreview entry={entry} /></div>
 
-        {entry.conditionalGroups.map((group) => (
-          <div key={group.id} className="mt-5 border-l-2 border-[#a8cdbb] pl-4">
-              <p className="mb-3 text-sm font-semibold text-[#356352]">{describeClientCondition(group.conditions, allPrimaryEntries)}</p>
-            <div className="space-y-4">
-              {group.entries.map((conditionalEntry) => {
-                const conditionalQuestion = conditionalEntry.questions?.[0];
-                if (isDisplayEntry(conditionalEntry)) {
-                  return (
-                    <div key={conditionalEntry.id} className="group/conditional relative rounded-lg bg-[#f7faf8] p-4">
-                      <button type="button" aria-label={`Edit ${conditionalEntry.label}`} className="absolute right-2 top-2 rounded-full p-2 text-[#45685d] opacity-100 hover:bg-white sm:opacity-0 sm:group-hover/conditional:opacity-100" onClick={() => onEdit(conditionalQuestion)}><Pencil className="h-4 w-4" /></button>
-                      {conditionalEntry.kind === "heading"
-                        ? <h4 className="pr-10 text-base font-semibold text-[#17372e]">{conditionalEntry.label}</h4>
-                        : <p className="whitespace-pre-line pr-10 text-sm text-gray-600">{conditionalEntry.label}</p>}
-                      {activeQuestion?.id === conditionalQuestion.id ? (
-                        <ContentItemEditor item={conditionalQuestion} disabled={disabled} locked={structureLocked} canMoveUp={canMoveUp} canMoveDown={canMoveDown} onChange={onChangeQuestion} onMove={onMoveQuestion} onDelete={onDeleteQuestion} onClose={onCloseEditor} />
-                      ) : null}
-                    </div>
-                  );
-                }
-                return (
-                  <div key={conditionalEntry.id} className="group/conditional relative rounded-lg bg-[#f7faf8] p-4">
-                    <button type="button" aria-label={`Edit ${conditionalEntry.label}`} className="absolute right-2 top-2 rounded-full p-2 text-[#45685d] opacity-100 hover:bg-white sm:opacity-0 sm:group-hover/conditional:opacity-100" onClick={() => onEdit(conditionalQuestion)}><Pencil className="h-4 w-4" /></button>
-                    <p className="pr-10 text-sm font-medium leading-none text-[#17372e]">{conditionalEntry.label}{conditionalEntry.required ? <span className="ml-1 text-red-600">*</span> : null}</p>
-                    {conditionalQuestion?.description ? <p className="mt-2 text-sm font-normal text-gray-600">{conditionalQuestion.description}</p> : null}
-                    <PortalAnswerPreview entry={conditionalEntry} />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+        {followUpNode?.branches.length ? (
+          <FollowUpSummary node={followUpNode} entries={allEntries} onOpen={onOpenFollowUps} />
+        ) : canAddFollowUps && entryCanTrigger(entry) && !isEditing ? (
+          <button
+            type="button"
+            className="mt-3 inline-flex items-center gap-1.5 rounded-md px-1 py-0.5 text-xs font-semibold text-[#2b5f4d] opacity-100 transition hover:underline focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]/30 sm:opacity-0 sm:group-hover/question:opacity-100"
+            onClick={() => onOpenFollowUps(primaryQuestion.id)}
+          >
+            <GitBranch className="h-3.5 w-3.5" />Add follow-up question
+          </button>
+        ) : null}
 
         {isEditing ? (
           <ProposedInlineQuestionEditor
@@ -1731,6 +1756,7 @@ function PortalBuilderQuestion({
             onDeleteNestedOption={onDeleteNestedOption}
             onDeleteQuestion={onDeleteQuestion}
             onDeleteOption={onDeleteOption}
+            onOpenFollowUps={canAddFollowUps ? () => onOpenFollowUps(activeQuestion.id) : undefined}
             onUpdateNestedQuestion={onUpdateNestedQuestion}
             onUpdateOption={onUpdateOption}
             options={options}
@@ -2076,6 +2102,10 @@ function EmbeddedNestedQuestionEditor({
   sourceQuestions,
   onUpdate,
   onDeleteOption,
+  onChangeType = null,
+  showCondition = true,
+  showNested = true,
+  plain = false,
 }) {
   const idBase = `${kind}-${question.id}`;
   const options = getQuestionOptions(question);
@@ -2104,12 +2134,14 @@ function EmbeddedNestedQuestionEditor({
 
   return (
     <div
-      className="space-y-4 rounded-lg border border-[#d9e6e0] bg-[#f8fbf9] p-4"
-      style={{ marginLeft: `${Math.min(depth, 3) * 10}px` }}
+      className={plain ? "space-y-4" : "space-y-4 rounded-lg border border-[#d9e6e0] bg-[#f8fbf9] p-4"}
+      style={plain ? undefined : { marginLeft: `${Math.min(depth, 3) * 10}px` }}
     >
-      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#70877e]">
-        {kind === "follow-up" ? "Follow-up question" : "Record field"}
-      </p>
+      {plain ? null : (
+        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#70877e]">
+          {kind === "follow-up" ? "Follow-up question" : "Record field"}
+        </p>
+      )}
       <div className="space-y-2">
         <FieldLabel htmlFor={`${idBase}-label`}>Question text</FieldLabel>
         <Textarea
@@ -2124,6 +2156,16 @@ function EmbeddedNestedQuestionEditor({
           )}
         />
       </div>
+      {onChangeType ? (
+        <div className="space-y-2">
+          <FieldLabel htmlFor={`${idBase}-type`}>Answer field</FieldLabel>
+          <select id={`${idBase}-type`} className={selectClassName} value={question.type} onChange={(event) => onChangeType(event.target.value)}>
+            {QUESTION_TYPES.filter(([value]) => value !== "repeater" || question.type === "repeater").map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </div>
+      ) : null}
       <div className="grid gap-3 md:grid-cols-2">
         <div className="space-y-2">
           <FieldLabel htmlFor={`${idBase}-description`}>Help text</FieldLabel>
@@ -2215,13 +2257,15 @@ function EmbeddedNestedQuestionEditor({
           </div>
         </div>
       ) : null}
-      <FriendlyConditionEditor
-        question={question}
-        idBase={idBase}
-        sourceQuestions={sourceQuestions}
-        onUpdate={onUpdate}
-      />
-      {question.followUps?.map((followUp) => (
+      {showCondition ? (
+        <FriendlyConditionEditor
+          question={question}
+          idBase={idBase}
+          sourceQuestions={sourceQuestions}
+          onUpdate={onUpdate}
+        />
+      ) : null}
+      {showNested && question.followUps?.map((followUp) => (
         <EmbeddedNestedQuestionEditor
           key={followUp.id}
           question={followUp}
@@ -2233,7 +2277,7 @@ function EmbeddedNestedQuestionEditor({
           onDeleteOption={onDeleteOption}
         />
       ))}
-      {question.metadata?.fields?.map((field) => (
+      {showNested && question.metadata?.fields?.map((field) => (
         <EmbeddedNestedQuestionEditor
           key={field.id}
           question={field}
@@ -2245,6 +2289,390 @@ function EmbeddedNestedQuestionEditor({
           onDeleteOption={onDeleteOption}
         />
       ))}
+    </div>
+  );
+}
+
+/*
+ * Follow-up questions (new layout).
+ * A follow-up is a question with a display rule on an earlier answer. The canvas shows a
+ * short summary under the question that reveals it; editing opens one large dialog with the
+ * trigger, a branch per answer and every follow-up (including fields inside a record popup).
+ */
+const FOLLOW_UP_TRIGGER_TYPES = new Set(["yesNo", "radio", "select", "checkbox"]);
+// Triggers with more choices than this list only the answers that already have follow-ups.
+const FOLLOW_UP_ALL_BRANCHES_LIMIT = 4;
+const STRUCTURE_LOCKED_MESSAGE = "This built-in page is locked to its original answer structure until dynamic-renderer parity is certified. You can still edit wording and option labels.";
+
+/** Answers a follow-up rule can name. Choices loaded at run time (optionsSource) cannot be listed. */
+function getTriggerChoices(question) {
+  if (!question || question.optionsSource || !FOLLOW_UP_TRIGGER_TYPES.has(question.type)) return [];
+  if (question.type === "checkbox") return [{ value: true, label: "Checked" }, { value: false, label: "Not checked" }];
+  return getQuestionOptions(question).map((option) => ({ value: option.value, label: option.label || String(option.value) }));
+}
+
+function entryCanTrigger(entry) {
+  return entry?.kind === "question" && entry.questions?.length === 1 && getTriggerChoices(entry.questions[0]).length > 0;
+}
+
+/** Answer type change for a record (popup) field; record fields cannot hold their own records. */
+function applyRecordFieldType(question, type) {
+  const metadata = { ...(question.metadata || {}) };
+  delete metadata.fields;
+  delete metadata.collection;
+  const next = { ...question, type };
+  if (Object.keys(metadata).length) next.metadata = metadata;
+  else delete next.metadata;
+  if (type === "yesNo") return { ...next, options: DEFAULT_YES_NO_OPTIONS.map((option) => ({ ...option })) };
+  if (["select", "radio"].includes(type)) {
+    const existing = getQuestionOptions(question);
+    return {
+      ...next,
+      options: existing.length ? existing : [{ value: "option_1", label: "Option 1" }, { value: "option_2", label: "Option 2" }],
+    };
+  }
+  return next;
+}
+
+function followUpBranchHeading(branch, choices, entries) {
+  if (branch.kind === "answer") return `If “${branch.label}”`;
+  const values = ruleAnswerValues(branch.conditions || []);
+  if (values) {
+    return `If ${values.map((value) => `“${choices.find((choice) => choice.value === value)?.label ?? String(value)}”`).join(" or ")}`;
+  }
+  return describeClientCondition(branch.conditions, entries)
+    .replace(/^Shown /, "")
+    .replace(/^./, (character) => character.toUpperCase());
+}
+
+function followUpNodeMeta(entry) {
+  if (isDisplayEntry(entry)) return QUESTIONNAIRE_DISPLAY_TYPE_LABELS[entry.kind] || "Content";
+  if (entry.kind === "date") return "Date";
+  if (entry.kind === "repeater") {
+    const count = entry.nestedEntries?.length || 0;
+    return `Record list · ${count} popup field${count === 1 ? "" : "s"}`;
+  }
+  return `${questionTypeLabel(entry.questions?.[0]?.type)}${entry.required ? " · Required" : ""}`;
+}
+
+function followUpNoun(entry, level) {
+  if (level === "record") return "field";
+  if (entry?.kind === "heading") return "heading";
+  if (entry?.kind === "paragraph") return "explanatory text";
+  return "question";
+}
+
+/** Canvas summary under a question that reveals others: which answer shows what. Stateless. */
+function FollowUpSummary({ node, entries, onOpen }) {
+  const followUps = descendantNodes(node);
+  if (!followUps.length) return null;
+  const choices = entryCanTrigger(node.entry) ? getTriggerChoices(node.entry.questions[0]) : [];
+  const branches = getAnswerBranches(node, choices).filter((branch) => branch.children.length);
+  return (
+    <div data-testid="follow-up-summary" className="mt-4 rounded-lg border border-[#d6e4dd] bg-[#f6faf8] px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-2 text-sm font-semibold text-[#24453b]">
+          <GitBranch className="h-4 w-4 text-[#4F726B]" />
+          {followUps.length} follow-up {followUps.length === 1 ? "question" : "questions"}
+        </p>
+        <Button type="button" variant="outline" size="sm" className="border-[#c8d9d1] bg-white text-[#38564b]" onClick={() => onOpen(node.entry.questions[0].id)}>
+          <Pencil className="h-3.5 w-3.5" />Edit follow-up questions
+        </Button>
+      </div>
+      <ul className="mt-2 space-y-1.5">
+        {branches.map((branch) => (
+          <li key={branch.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
+            <span className="font-medium text-[#356352]">{followUpBranchHeading(branch, choices, entries)}</span>
+            <span aria-hidden="true" className="text-[#8aa39a]">→</span>
+            {branch.children.map((child, index) => {
+              const nested = descendantNodes(child).length;
+              return (
+                <span key={child.entry.id} className="inline-flex items-baseline gap-1">
+                  <button
+                    type="button"
+                    aria-label={`Edit follow-up ${child.entry.label}`}
+                    className="rounded text-left text-[#24453b] underline decoration-[#a8cdbb] underline-offset-4 hover:decoration-[#244D42] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]/30"
+                    onClick={() => onOpen(child.entry.questions[0].id)}
+                  >
+                    {child.entry.label}
+                  </button>
+                  {nested ? <span className="text-xs text-[#71857d]">+{nested} more</span> : null}
+                  {index < branch.children.length - 1 ? <span aria-hidden="true" className="text-[#8aa39a]">·</span> : null}
+                </span>
+              );
+            })}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** "Show this question when the answer to … is [Yes] [No]". Stateless. */
+function FollowUpRuleControl({ idBase, noun, triggerLabel, choices, conditions, entries, disabled, onChange }) {
+  const selected = ruleAnswerValues(conditions.slice(0, 1)) || [];
+  const toggle = (value) => {
+    const isOn = selected.includes(value);
+    const next = choices
+      .map((choice) => choice.value)
+      .filter((candidate) => (candidate === value ? !isOn : selected.includes(candidate)));
+    if (next.length) onChange(next);
+  };
+  const help = !selected.length
+    ? `Current rule: ${describeClientCondition(conditions, entries).replace(/^Shown /, "shown ")}.${choices.length ? " Choose an answer to replace it." : " Edit this rule in Advanced JSON."}`
+    : selected.length > 1
+      ? `Clients see this ${noun} when they choose any of the selected answers.`
+      : `Select more answers to show this ${noun} for any of them.`;
+  return (
+    <div className="mt-4 rounded-xl border border-[#b9d9c8] bg-[#f0f7f3] p-4" data-testid="follow-up-rule">
+      <p className="text-sm font-semibold text-[#24453b]">Show this {noun} when the answer to “{triggerLabel}” is</p>
+      {choices.length ? (
+        <div role="group" aria-label={`Answers that show this ${noun}`} className="mt-3 flex flex-wrap gap-2">
+          {choices.map((choice, index) => {
+            const isOn = selected.includes(choice.value);
+            const locked = disabled || (isOn && selected.length === 1);
+            return (
+              <label
+                key={String(choice.value)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition focus-within:ring-2 focus-within:ring-[#4F726B]/30 ${isOn ? "border-[#244D42] bg-[#244D42] text-white" : "border-[#c8d9d1] bg-white text-[#38564b] hover:border-[#8eb2a3]"} ${locked ? "cursor-default" : "cursor-pointer"} ${disabled ? "opacity-60" : ""}`}
+              >
+                <input
+                  id={`${idBase}-answer-${index + 1}`}
+                  type="checkbox"
+                  className="sr-only"
+                  aria-label={`Show when the answer is ${choice.label}`}
+                  checked={isOn}
+                  disabled={locked}
+                  onChange={() => toggle(choice.value)}
+                />
+                {isOn ? <Check className="h-3.5 w-3.5" /> : null}
+                {choice.label}
+              </label>
+            );
+          })}
+        </div>
+      ) : null}
+      <p className="mt-3 text-xs leading-5 text-[#60786f]">
+        {help}
+        {conditions.length > 1 ? " Its other display rules are kept." : ""}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The follow-up dialog: the trigger and every follow-up it reveals on the left, the selected
+ * one on the right. Stateless — the builder owns the selection and does every edit; `editor`
+ * is the builder's editor for the selected question or record field.
+ */
+function FollowUpQuestionsDialog({
+  rootNode,
+  pageForest,
+  pageEntries,
+  selectedPageNode,
+  record,
+  selectedRecordNode,
+  locked,
+  disabled,
+  error,
+  editor,
+  onSelect,
+  onAdd,
+  onAddRecordField,
+  onSetRule,
+  onMove,
+  onDelete,
+  onClose,
+}) {
+  const activeNode = selectedRecordNode || selectedPageNode;
+  const level = selectedRecordNode ? "record" : "page";
+  const forest = level === "record" ? record.forest : pageForest;
+  const entries = level === "record" ? record.entries : pageEntries;
+  const position = activeNode ? nodeBranchPosition(forest, activeNode) : null;
+  const siblings = position ? position.siblings : level === "record" ? record.forest.roots : [];
+  const siblingIndex = activeNode ? siblings.indexOf(activeNode) : -1;
+  const noun = followUpNoun(activeNode?.entry, level);
+  const kindLabel = !activeNode
+    ? ""
+    : level === "record"
+      ? position ? "Popup follow-up field" : "Popup field"
+      : activeNode === rootNode ? "Question" : `Follow-up ${noun}`;
+  const ruleParent = position?.parent || null;
+  const ruleField = activeNode?.entry.conditions?.[0]?.field;
+  const ruleTrigger = ruleParent
+    ? ruleParent.entry.questions.find((question) => question.answerKey === ruleField) || ruleParent.entry.questions[0]
+    : null;
+
+  const isSelected = (node, nodeLevel) => (nodeLevel === "record"
+    ? node === selectedRecordNode
+    : node === selectedPageNode && !selectedRecordNode);
+  const select = (node, nodeLevel) => (nodeLevel === "record"
+    ? onSelect(selectedPageNode.entry.questions[0].id, node.entry.questions[0].id)
+    : onSelect(node.entry.questions[0].id, ""));
+
+  const addButtonClassName = "mt-1 inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-semibold text-[#2b5f4d] transition hover:bg-[#e3f0ea] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]/30 disabled:cursor-not-allowed disabled:opacity-50";
+
+  function renderBranches(node, nodeLevel, nodeEntries) {
+    const canTrigger = entryCanTrigger(node.entry);
+    const choices = canTrigger ? getTriggerChoices(node.entry.questions[0]) : [];
+    // Empty answers are offered for the dialog's own question and for whichever trigger is selected.
+    const offerEmpty = canTrigger && (node === rootNode || isSelected(node, nodeLevel));
+    if (!node.branches.length && !offerEmpty) return null;
+    const branches = getAnswerBranches(node, choices);
+    const listEveryAnswer = offerEmpty && choices.length <= FOLLOW_UP_ALL_BRANCHES_LIMIT;
+    const visible = branches.filter((branch) => branch.children.length || (branch.kind === "answer" && listEveryAnswer));
+    const otherAnswers = offerEmpty && !listEveryAnswer
+      ? branches.filter((branch) => branch.kind === "answer" && !branch.children.length)
+      : [];
+    const addNoun = nodeLevel === "record" ? "field" : "question";
+    return (
+      <div className="mt-1 space-y-2 pl-3">
+        {visible.map((branch) => (
+          <div key={branch.id} className="border-l-2 border-[#cfe2d8] pl-3" data-testid="follow-up-branch">
+            <p className="pt-1 text-xs font-semibold text-[#356352]">{followUpBranchHeading(branch, choices, nodeEntries)}</p>
+            {branch.children.length ? (
+              <ul className="mt-1 space-y-1">{branch.children.map((child) => renderNode(child, nodeLevel, nodeEntries))}</ul>
+            ) : null}
+            <button type="button" className={addButtonClassName} disabled={disabled || locked} onClick={() => onAdd({ level: nodeLevel, node, branch })}>
+              <Plus className="h-3.5 w-3.5" />
+              {branch.kind === "answer" ? `Add ${addNoun} for “${branch.label}”` : `Add ${addNoun} with this rule`}
+            </button>
+          </div>
+        ))}
+        {otherAnswers.length ? (
+          <select
+            aria-label={`Add a follow-up ${addNoun} for another answer`}
+            className={`${selectClassName} h-9 text-xs`}
+            value=""
+            disabled={disabled || locked}
+            onChange={(event) => {
+              const branch = otherAnswers[Number(event.target.value)];
+              if (branch) onAdd({ level: nodeLevel, node, branch });
+            }}
+          >
+            <option value="" disabled>Add a follow-up {addNoun} for the answer…</option>
+            {otherAnswers.map((branch, index) => <option key={branch.id} value={index}>{branch.label}</option>)}
+          </select>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderNode(node, nodeLevel, nodeEntries) {
+    const selected = isSelected(node, nodeLevel);
+    const followUpCount = descendantNodes(node).length;
+    const showRecordFields = nodeLevel === "page" && record && node === selectedPageNode;
+    return (
+      <li key={node.entry.id}>
+        <button
+          type="button"
+          aria-current={selected ? "true" : undefined}
+          aria-label={`Edit “${node.entry.label}”`}
+          className={`flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]/30 ${selected ? "border-[#244D42] bg-white shadow-sm ring-1 ring-[#244D42]" : "border-transparent hover:border-[#d2dfd8] hover:bg-white"}`}
+          onClick={() => select(node, nodeLevel)}
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium leading-snug text-[#17372e] [overflow-wrap:anywhere]">
+              {node.entry.label}{node.entry.required ? <span className="ml-1 text-red-600">*</span> : null}
+            </span>
+            <span className="mt-0.5 block text-xs text-[#71857d]">
+              {followUpNodeMeta(node.entry)}{followUpCount ? ` · ${followUpCount} follow-up${followUpCount === 1 ? "" : "s"}` : ""}
+            </span>
+          </span>
+          {selected ? <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-[#244D42]" /> : null}
+        </button>
+        {renderBranches(node, nodeLevel, nodeEntries)}
+        {showRecordFields ? (
+          <div className="ml-3 mt-2 rounded-lg border border-[#dce6e1] bg-white/70 p-2" data-testid="follow-up-record-fields">
+            <p className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#70877e]">Fields in the Add/Edit popup</p>
+            {record.forest.roots.length ? (
+              <ul className="space-y-1">{record.forest.roots.map((field) => renderNode(field, "record", record.entries))}</ul>
+            ) : (
+              <p className="px-1 py-2 text-xs text-[#8a9b95]">No fields yet.</p>
+            )}
+            <button type="button" className={addButtonClassName} disabled={disabled || locked} onClick={onAddRecordField}>
+              <Plus className="h-3.5 w-3.5" />Add field to the popup
+            </button>
+          </div>
+        ) : null}
+      </li>
+    );
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#18352d]/35 p-2 backdrop-blur-[1px] sm:p-4"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="follow-up-dialog-title"
+        aria-describedby="follow-up-dialog-description"
+        data-testid="follow-up-dialog"
+        className="flex h-[min(92vh,880px)] w-full max-w-[1180px] flex-col overflow-hidden rounded-2xl border border-[#dce6e1] bg-white text-[#17372e] shadow-2xl"
+      >
+        <header className="flex items-start justify-between gap-4 border-b border-[#e3eae6] px-5 py-4 sm:px-6">
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#5d776d]"><GitBranch className="h-4 w-4" />Question and follow-ups</p>
+            <h2 id="follow-up-dialog-title" className="mt-1 text-lg font-semibold leading-snug text-[#17372e] [overflow-wrap:anywhere] sm:text-xl">{rootNode.entry.label}</h2>
+            <p id="follow-up-dialog-description" className="mt-1 hidden text-sm text-[#6d8179] sm:block">Clients only see a follow-up after giving the answer it is listed under. Choose any item on the left to edit it.</p>
+          </div>
+          <button type="button" className="inline-flex shrink-0 items-center gap-2 rounded-md px-2 py-1 text-sm font-medium text-[#5d776d] hover:bg-[#f0f5f2] hover:text-[#24453b]" onClick={onClose}>Close <X className="h-4 w-4" /></button>
+        </header>
+        {locked ? (
+          <div className="border-b border-amber-200 bg-amber-50 px-5 py-2.5 text-sm text-amber-800 sm:px-6">
+            This page still uses the original client form. You can edit wording, but adding, removing or moving follow-ups and changing when they appear is locked until the page is certified for the dynamic form.
+          </div>
+        ) : null}
+        <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,2fr)_minmax(0,3fr)] lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)] lg:grid-rows-1">
+          <nav aria-label="Question and follow-ups" className="min-h-0 overflow-y-auto border-b border-[#e3eae6] bg-[#f8fbf9] p-3 lg:border-b-0 lg:border-r">
+            <ul className="space-y-1">{renderNode(rootNode, "page", pageEntries)}</ul>
+          </nav>
+          <div className="min-h-0 overflow-y-auto p-5 sm:p-6">
+            {error ? (
+              <div role="alert" className="mb-4 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" /><span className="whitespace-pre-wrap">{error}</span></div>
+            ) : null}
+            {activeNode ? (
+              <>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#70877e]">{kindLabel}</p>
+                {/* The dialog title already names its own question. */}
+                {activeNode !== rootNode ? (
+                  <h3 className="mt-1 text-lg font-semibold leading-snug text-[#17372e] [overflow-wrap:anywhere]">{activeNode.entry.label}</h3>
+                ) : null}
+                {ruleParent ? (
+                  <FollowUpRuleControl
+                    idBase={`follow-up-${activeNode.entry.id}`}
+                    noun={noun}
+                    triggerLabel={ruleParent.entry.label}
+                    choices={getTriggerChoices(ruleTrigger)}
+                    conditions={activeNode.entry.conditions}
+                    entries={entries}
+                    disabled={disabled || locked}
+                    onChange={(values) => onSetRule({ level, node: activeNode, values })}
+                  />
+                ) : null}
+                <div className="mt-5">{editor}</div>
+                <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-[#e6ece9] pt-4">
+                  {siblings.length > 1 ? (
+                    <>
+                      <Button type="button" variant="outline" size="sm" className="border-[#d2dfd8] bg-white text-[#38564b]" disabled={disabled || locked || siblingIndex <= 0} onClick={() => onMove({ level, node: activeNode, direction: -1 })}><ArrowUp />Move up</Button>
+                      <Button type="button" variant="outline" size="sm" className="border-[#d2dfd8] bg-white text-[#38564b]" disabled={disabled || locked || siblingIndex < 0 || siblingIndex >= siblings.length - 1} onClick={() => onMove({ level, node: activeNode, direction: 1 })}><ArrowDown />Move down</Button>
+                    </>
+                  ) : null}
+                  <Button type="button" variant="ghost" size="sm" className="ml-auto text-red-600 hover:bg-red-50 hover:text-red-700" disabled={disabled || locked} onClick={() => onDelete({ level, node: activeNode })}><Trash2 />Delete {noun}</Button>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-[#71857d]">Choose a question on the left to edit it.</p>
+            )}
+          </div>
+        </div>
+        <footer className="flex flex-col gap-3 border-t border-[#e3eae6] bg-[#fbfcfb] px-5 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <p className="text-xs text-[#71857d]">Changes go into your draft straight away. Use Save changes on the page to keep them.</p>
+          <Button type="button" className="bg-[#244D42] text-white hover:bg-[#183a31]" onClick={onClose}><Check />Done</Button>
+        </footer>
+      </section>
     </div>
   );
 }
@@ -2343,6 +2771,9 @@ export default function AdminQuestionnaireBuilder({
   const [createName, setCreateName] = useState("");
   const [createMatterType, setCreateMatterType] = useState("482");
   const [createSourceKey, setCreateSourceKey] = useState("");
+  // Open follow-up dialog: the page and trigger it belongs to, plus the selected record field
+  // (when a record popup field is selected, activeQuestionId is its record question).
+  const [followUpDialog, setFollowUpDialog] = useState(null);
   const adminContentRef = useRef(null);
   const selectionRequestId = useRef(0);
   const listRequestId = useRef(0);
@@ -2480,6 +2911,10 @@ export default function AdminQuestionnaireBuilder({
   const activePagePresentation = activePage
     ? pagePresentations.get(activePage.id) || getClientQuestionnairePresentation(activePage, definition)
     : null;
+  const pageForest = useMemo(
+    () => buildConditionalForest(activePagePresentation?.entries || []),
+    [activePagePresentation]
+  );
   const activePageGroupKey = activePage
     ? getQuestionnairePageGroupKey(activePage)
     : pageGroups[0]?.key || "";
@@ -2752,11 +3187,12 @@ export default function AdminQuestionnaireBuilder({
     setIsLoading(false);
     setIsLoadingDefinition(false);
     const definitionId = `questionnaire-${crypto.randomUUID()}`;
-    const sourceTitle = String(source.title || "Questionnaire").replace(/\s+— Test$/, "");
+    // Older copies were suffixed "— Test"; strip either suffix so copies of copies don't stack them.
+    const sourceTitle = String(source.title || "Questionnaire").replace(/\s+— (?:Test|Draft)$/, "");
     const nextDefinition = normalizeDefinition({
       ...clone(source),
       id: definitionId,
-      title: asTestCopy ? `${sourceTitle} — Test` : source.title,
+      title: asTestCopy ? `${sourceTitle} — Draft` : source.title,
       status: asTestCopy ? "draft" : source.status || "active",
       revision: 0,
     });
@@ -2771,10 +3207,10 @@ export default function AdminQuestionnaireBuilder({
     setIsCreating(true);
     setError("");
     setNotice(asTestCopy
-      ? "Test copy created. Saving it will not change the live questionnaire."
+      ? "Draft copy created. Saving it will not change the active questionnaire."
       : starter
         ? `${source.title} is ready to edit. Its existing forms and client answers are preserved while you make changes.`
-        : "A new test questionnaire is ready. Add pages and questions, then save it when you are finished.");
+        : "A new draft questionnaire is ready. Add pages and questions, then save it when you are finished.");
   }
 
   function copyDefinitionAsTest() {
@@ -3221,6 +3657,7 @@ export default function AdminQuestionnaireBuilder({
       questions.splice(safeInsertIndex, 0, question);
       return { ...editablePage, questions };
     });
+    setFollowUpDialog(null);
     setActiveQuestionId(question.id);
     if (openEditor) setQuestionEditorOpen(true);
   }
@@ -3249,6 +3686,7 @@ export default function AdminQuestionnaireBuilder({
       questions.splice(Math.max(0, Math.min(insertIndex, questions.length)), 0, item);
       return { ...editablePage, questions };
     });
+    setFollowUpDialog(null);
     setActiveQuestionId(item.id);
     setQuestionEditorOpen(true);
   }
@@ -3420,6 +3858,189 @@ export default function AdminQuestionnaireBuilder({
     });
   }
 
+  /* ---- Follow-up dialog (new layout) ---- */
+
+  /** Open the dialog for the trigger group containing this question, with it selected. */
+  function openFollowUpDialog(questionId, fieldId = "") {
+    const root = rootNodeOf(pageForest, nodeForQuestion(pageForest, questionId));
+    if (!activePage || !root) return;
+    setActiveQuestionId(questionId);
+    setQuestionEditorOpen(false);
+    setOpenInsertMenuKey("");
+    setError("");
+    setFollowUpDialog({ pageId: activePage.id, rootId: root.entry.id, fieldId });
+  }
+
+  function closeFollowUpDialog() {
+    setFollowUpDialog(null);
+    setError("");
+  }
+
+  /** Canvas pencil: questions with follow-ups (and follow-ups themselves) open the dialog. */
+  function editCanvasQuestion(question) {
+    const node = nodeForQuestion(pageForest, question.id);
+    if (node && (node.parentId || node.branches.length)) {
+      openFollowUpDialog(question.id);
+      return;
+    }
+    setFollowUpDialog(null);
+    setActiveQuestionId(question.id);
+    setQuestionEditorOpen(true);
+  }
+
+  function selectFollowUp(questionId, fieldId = "") {
+    setActiveQuestionId(questionId);
+    setFollowUpDialog((current) => (current ? { ...current, fieldId } : current));
+    setError("");
+  }
+
+  function followUpStructureIsLocked() {
+    if (!builtInLegacyStructureIsLocked(activePage)) return false;
+    setError(STRUCTURE_LOCKED_MESSAGE);
+    return true;
+  }
+
+  function updatePageQuestionsStructure(updater) {
+    if (followUpStructureIsLocked()) return;
+    updateActivePage((page) => {
+      const editablePage = promotePageForStructure(page);
+      return { ...editablePage, questions: updater(editablePage.questions) };
+    });
+  }
+
+  function updateRecordFieldsStructure(updater) {
+    if (activeQuestion?.type !== "repeater" || followUpStructureIsLocked()) return;
+    updateActiveQuestionStructure((question) => ({
+      ...question,
+      metadata: { ...question.metadata, fields: updater(question.metadata?.fields || []) },
+    }));
+  }
+
+  function followUpForest(level) {
+    return level === "record" ? followUpRecord?.forest : pageForest;
+  }
+
+  /** Adds a follow-up to one of a trigger's branches (an answer, or an existing rule). */
+  function addFollowUp({ level, node, branch }) {
+    if (followUpStructureIsLocked()) return;
+    const trigger = node.entry.questions[0];
+    const conditions = branch.kind === "answer"
+      ? [normalizeConditionForSource({ field: trigger.answerKey, op: "equals", value: branch.value }, trigger)]
+      : clone(branch.conditions);
+    if (level === "record") {
+      addRecordField({ node, branchChildren: branch.children, conditions });
+      return;
+    }
+    const existingIds = new Set();
+    const existingAnswerKeys = new Set();
+    definition.pages.forEach((page) =>
+      collectQuestionMachineKeys(page.questions, existingIds, existingAnswerKeys)
+    );
+    const id = uniqueId(existingIds, `question-${existingIds.size + 1}`);
+    const answerKey = uniqueId(existingAnswerKeys, id.replace(/-/g, "_")).replace(/-/g, "_");
+    const question = normalizeQuestion({
+      id,
+      answerKey,
+      label: "New follow-up question",
+      type: "text",
+      required: false,
+      visibleIf: conditions,
+    });
+    updatePageQuestionsStructure((questions) => {
+      const next = [...questions];
+      next.splice(followUpInsertIndex(next, node, branch.children), 0, question);
+      return next;
+    });
+    selectFollowUp(question.id);
+  }
+
+  /** Adds a field to the selected record's Add/Edit popup — at the end, or as a follow-up. */
+  function addRecordField({ node = null, branchChildren = [], conditions = null } = {}) {
+    if (activeQuestion?.type !== "repeater" || followUpStructureIsLocked()) return;
+    const existingIds = new Set();
+    definition.pages.forEach((page) => collectQuestionMachineKeys(page.questions, existingIds, new Set()));
+    // uniqueId compares slugs, so compare against the slug form of the record's answer keys.
+    const fieldAnswerSlugs = new Set((activeQuestion.metadata?.fields || []).map((field) => slugify(field.answerKey)));
+    const field = normalizeQuestion({
+      id: uniqueId(existingIds, `${activeQuestion.id}-field`),
+      answerKey: uniqueId(fieldAnswerSlugs, "new_field").replace(/-/g, "_"),
+      label: "New field",
+      type: "text",
+      required: false,
+      ...(conditions ? { visibleIf: conditions } : {}),
+    });
+    updateRecordFieldsStructure((fields) => {
+      const next = [...fields];
+      next.splice(node ? followUpInsertIndex(next, node, branchChildren) : next.length, 0, field);
+      return next;
+    });
+    selectFollowUp(activeQuestion.id, field.id);
+  }
+
+  /** Which answers of its trigger show this follow-up ("equals" for one, "is one of" for several). */
+  function setFollowUpRule({ level, node, values }) {
+    if (!values.length || followUpStructureIsLocked()) return;
+    const parent = followUpForest(level)?.nodeById.get(node.parentId);
+    const field = node.entry.conditions?.[0]?.field;
+    const trigger = parent?.entry.questions.find((question) => question.answerKey === field) || parent?.entry.questions[0];
+    if (!trigger || !field) return;
+    const rule = normalizeConditionForSource(
+      values.length > 1 ? { field, op: "in", value: values } : { field, op: "equals", value: values[0] },
+      trigger
+    );
+    // Split dates are one follow-up: every part takes the same rule.
+    const ids = new Set(node.entry.questions.map((question) => question.id));
+    const apply = (items) => items.map((item) => (ids.has(item.id)
+      ? { ...item, visibleIf: [rule, ...(item.visibleIf || []).slice(1)] }
+      : item));
+    if (level === "record") updateRecordFieldsStructure(apply);
+    else updatePageQuestionsStructure(apply);
+  }
+
+  /** Swap a follow-up (with its own follow-ups) with its neighbour under the same answer. */
+  function moveFollowUp({ level, node, direction }) {
+    const forest = followUpForest(level);
+    const siblings = node.parentId ? nodeBranchPosition(forest, node)?.siblings : forest?.roots;
+    const target = siblings?.[siblings.indexOf(node) + direction];
+    if (!target) return;
+    const move = (items) => moveItemBlock(items, nodeQuestionIds(node), nodeQuestionIds(target), direction);
+    if (level === "record") updateRecordFieldsStructure(move);
+    else updatePageQuestionsStructure(move);
+  }
+
+  function deleteFollowUp({ level, node }) {
+    if (followUpStructureIsLocked()) return;
+    const items = level === "record" ? activeQuestion?.metadata?.fields || [] : activePage.questions;
+    const ids = new Set(node.entry.questions.map((question) => question.id));
+    const remaining = items.filter((item) => !ids.has(item.id));
+    const dependents = [...new Set(node.entry.questions.flatMap((question) =>
+      question.answerKey ? findQuestionDependents(remaining, question.answerKey, "") : []))];
+    if (dependents.length) {
+      setError(`“${node.entry.label}” shows ${dependents.join(", ")}. Delete ${dependents.length === 1 ? "that follow-up" : "those follow-ups"} or change when ${dependents.length === 1 ? "it appears" : "they appear"} first.`);
+      return;
+    }
+    const noun = followUpNoun(node.entry, level);
+    if (!window.confirm(`Delete the ${noun} “${node.entry.label}”?`)) return;
+    const parent = node.parentId ? followUpForest(level)?.nodeById.get(node.parentId) : null;
+    if (level === "record") {
+      updateRecordFieldsStructure(() => remaining);
+      selectFollowUp(activeQuestion.id, parent?.entry.questions[0]?.id || "");
+    } else {
+      updatePageQuestionsStructure(() => remaining);
+      if (parent) {
+        selectFollowUp(parent.entry.questions[0].id);
+      } else {
+        setFollowUpDialog(null);
+        setActiveQuestionId(remaining[0]?.id || "");
+      }
+    }
+    setError("");
+  }
+
+  function changeRecordFieldType(fieldId, type) {
+    updateNestedQuestion(fieldId, (current) => applyRecordFieldType(current, type), true);
+  }
+
   function applyJson() {
     try {
       const parsed = JSON.parse(jsonText);
@@ -3501,7 +4122,7 @@ export default function AdminQuestionnaireBuilder({
         ? definition.visaContexts.join(", ")
         : "all contexts";
       if (!window.confirm(
-        `Make this questionnaire live for ${definition.visaType} (${contexts})?\n\nThe current live questionnaire for this audience will be archived.`
+        `${definition.status === "archived" ? "Reactivate" : "Make active"} this questionnaire for ${definition.visaType} (${contexts})?\n\nThe questionnaire that is active now for this audience will become inactive.`
       )) return;
     }
     try {
@@ -3604,7 +4225,7 @@ export default function AdminQuestionnaireBuilder({
     }
   }
 
-  /** Publish a draft, or restore a backup, from the library list. */
+  /** Make a draft active, or reactivate an inactive questionnaire, from the library list. */
   // Close the library row "⋯" menu and the "Add content here" menu on an outside click or Escape.
   useEffect(() => {
     if ((!openRowMenuKey && !openInsertMenuKey) || typeof document === "undefined") return undefined;
@@ -3630,23 +4251,23 @@ export default function AdminQuestionnaireBuilder({
 
     const target = entry.definition;
     const title = target.title || target.id;
-    const isBackup = target.status === "archived";
+    const isInactive = target.status === "archived";
     if (!window.confirm(
-      `${isBackup ? "Restore this backup and make it live" : "Make this questionnaire live"} for ${audienceLabel(target)}?\n\n` +
-      `Clients will see “${title}”. The questionnaire that is live now will be kept as a backup, so you can switch back at any time.`
+      `${isInactive ? "Reactivate this questionnaire" : "Make this questionnaire active"} for ${audienceLabel(target)}?\n\n` +
+      `Clients will see “${title}”. The questionnaire that is active now will become inactive, so you can reactivate it at any time.`
     )) return;
 
     try {
       setIsSaving(true);
       setError("");
       setNotice("");
-      // The server archives the current live questionnaire for this audience in the same transaction.
+      // The server makes the currently active questionnaire for this audience inactive in the same transaction.
       await apiRequest(`/api/questionnaire-definitions/${encodeURIComponent(target.id)}`, {
         method: "PATCH",
         body: JSON.stringify({ status: "active", revision: Number(target.revision ?? 0) }),
       });
       await loadList(selectedId);
-      setNotice(`“${title}” is now live. The previous live questionnaire was kept as a backup.`);
+      setNotice(`“${title}” is now active. The previously active questionnaire is now inactive.`);
     } catch (publishError) {
       setError(publishError.message);
     } finally {
@@ -3659,7 +4280,7 @@ export default function AdminQuestionnaireBuilder({
 
     const target = entry.definition;
     const liveWarning = target.status === "active"
-      ? "\n\nThis questionnaire is currently live. Its built-in starter template will become available until another questionnaire is published."
+      ? "\n\nThis questionnaire is currently active. Its built-in starter template will be used until another questionnaire is made active."
       : "";
     const description = "This permanently deletes the questionnaire definition and all of its pages. Saved client answers are not deleted.";
     if (!window.confirm(`Delete “${target.title || target.id}”?\n\n${description}${liveWarning}`)) return;
@@ -3715,6 +4336,7 @@ export default function AdminQuestionnaireBuilder({
     const normalizedLayout = normalizeBuilderLayout(nextLayout);
     setEditorLayout(normalizedLayout);
     setProposedNavigationOpen(false);
+    setFollowUpDialog(null);
     writeBuilderUrl(normalizedLayout, "editor");
   }
 
@@ -3733,12 +4355,103 @@ export default function AdminQuestionnaireBuilder({
   const showOptions = ["select", "radio", "yesNo"].includes(activeQuestion?.type)
     && !activeQuestion?.optionsSource;
 
+  // Follow-up dialog: its trigger (re-resolved each render, so edits that re-parent questions
+  // keep working), the selected page question, and — for a record — its popup field tree.
+  const followUpRoot = followUpDialog && activePage && followUpDialog.pageId === activePage.id
+    ? rootNodeOf(pageForest, pageForest.nodeById.get(followUpDialog.rootId)) || null
+    : null;
+  const followUpPageNode = followUpRoot
+    ? [followUpRoot, ...descendantNodes(followUpRoot)].find((node) =>
+        node.entry.questions.some((question) => question.id === activeQuestionId)) || null
+    : null;
+  const followUpRecord = followUpPageNode?.entry.kind === "repeater"
+    ? { forest: buildConditionalForest(followUpPageNode.entry.nestedEntries || []), entries: followUpPageNode.entry.nestedEntries || [] }
+    : null;
+  const followUpFieldNode = followUpRecord && followUpDialog?.fieldId
+    ? nodeForQuestion(followUpRecord.forest, followUpDialog.fieldId)
+    : null;
+  const followUpField = followUpFieldNode
+    ? (activeQuestion?.metadata?.fields || []).find((field) => field.id === followUpDialog.fieldId) || null
+    : null;
+  const followUpStructureLocked = builtInLegacyStructureIsLocked(activePage);
+
+  useEffect(() => {
+    if (!followUpDialog || typeof document === "undefined") return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setFollowUpDialog(null);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [followUpDialog]);
+
+  const followUpEditor = !followUpRoot ? null : followUpField ? (
+    <EmbeddedNestedQuestionEditor
+      key={followUpField.id}
+      question={followUpField}
+      kind="record"
+      legacy={legacyPage}
+      sourceQuestions={[]}
+      plain
+      showCondition={false}
+      showNested={false}
+      onChangeType={(type) => changeRecordFieldType(followUpField.id, type)}
+      onUpdate={updateNestedQuestion}
+      onDeleteOption={deleteNestedOption}
+    />
+  ) : followUpPageNode && activeQuestion && isQuestionnaireDisplayItem(activeQuestion) ? (
+    <ContentItemEditor
+      item={activeQuestion}
+      disabled={isBusy}
+      locked={followUpStructureLocked}
+      showActions={false}
+      onChange={updateQuestionField}
+    />
+  ) : followUpPageNode && activeQuestion ? (
+    <ProposedInlineQuestionEditor
+      inDialog
+      disabled={isBusy}
+      legacy={legacyPage}
+      onAddOption={addOption}
+      onChange={updateQuestionField}
+      onChangeType={changeQuestionType}
+      onDeleteNestedOption={deleteNestedOption}
+      onDeleteOption={deleteOption}
+      onUpdateNestedQuestion={updateNestedQuestion}
+      onUpdateOption={updateOption}
+      options={activeQuestionOptions}
+      question={activeQuestion}
+      showOptions={showOptions}
+    />
+  ) : null;
+
+  const followUpDialogElement = followUpRoot ? (
+    <FollowUpQuestionsDialog
+      rootNode={followUpRoot}
+      pageForest={pageForest}
+      pageEntries={activePagePresentation?.entries || []}
+      selectedPageNode={followUpPageNode}
+      record={followUpRecord}
+      selectedRecordNode={followUpFieldNode}
+      locked={followUpStructureLocked}
+      disabled={isBusy}
+      error={error}
+      editor={followUpEditor}
+      onSelect={selectFollowUp}
+      onAdd={addFollowUp}
+      onAddRecordField={() => addRecordField()}
+      onSetRule={setFollowUpRule}
+      onMove={moveFollowUp}
+      onDelete={deleteFollowUp}
+      onClose={closeFollowUpDialog}
+    />
+  ) : null;
+
   const createQuestionnaireDialog = createDialogOpen ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#18352d]/35 p-4 backdrop-blur-[1px]" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreateDialogOpen(false); }}>
           <section role="dialog" aria-modal="true" aria-labelledby="new-questionnaire-title" aria-describedby="new-questionnaire-description" className="max-h-[90vh] w-full max-w-[880px] overflow-y-auto rounded-2xl border border-[#dce6e1] bg-white p-0 text-[#17372e] shadow-2xl">
             <div className="relative px-6 pt-6 sm:px-8 sm:pt-8">
               <h2 id="new-questionnaire-title" className="text-2xl font-semibold text-[#17372e]">New questionnaire</h2>
-              <p id="new-questionnaire-description" className="mt-2 text-sm text-[#6d8179]">Choose a starting point, then edit the draft before making it live.</p>
+              <p id="new-questionnaire-description" className="mt-2 text-sm text-[#6d8179]">Choose a starting point, then edit the draft before making it active.</p>
               <button type="button" className="absolute right-5 top-5 inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm font-medium text-[#5d776d] hover:bg-[#f0f5f2] hover:text-[#24453b]" onClick={() => setCreateDialogOpen(false)}>Close <X className="h-4 w-4" /></button>
             </div>
             <div className="space-y-5 px-6 py-3 sm:px-8">
@@ -3755,7 +4468,7 @@ export default function AdminQuestionnaireBuilder({
                     ))}
                   </select>
                   {getMatterTypeOption(createMatterType)?.visaType === "partner" ? (
-                    <p className="text-xs leading-5 text-[#71857d]">Partner subclasses share one live questionnaire. Making this draft live replaces it for all Partner subclasses.</p>
+                    <p className="text-xs leading-5 text-[#71857d]">Partner subclasses share one active questionnaire. Making this draft active replaces it for all Partner subclasses.</p>
                   ) : null}
                 </div>
               </div>
@@ -3775,7 +4488,7 @@ export default function AdminQuestionnaireBuilder({
                       {createSourceEntries.map((entry) => {
                         const counts = definitionCounts(entry.definition);
                         const compatible = entry.definition.visaType === getMatterTypeOption(createMatterType)?.visaType;
-                        const status = entry.definition.status === "active" ? "Live" : entry.definition.status === "archived" ? "Backup" : "Draft";
+                        const status = QUESTIONNAIRE_STAGE_LABELS[entry.definition.status] || "Draft";
                         return <option key={entry.key} value={entry.key} disabled={!compatible}>{entry.definition.title} · {counts.pageCount} {counts.pageCount === 1 ? "section" : "sections"} · {status}{compatible ? "" : " · Different visa family"}</option>;
                       })}
                     </select>
@@ -3792,7 +4505,7 @@ export default function AdminQuestionnaireBuilder({
                   </span>
                 </label>
               </fieldset>
-              <div className="flex items-center gap-3 rounded-lg bg-[#f3f6f4] px-4 py-3 text-xs text-[#647a72]"><LockKeyhole className="h-4 w-4" />This starts as a private draft. Publishing it archives the previous live questionnaire as a backup.</div>
+              <div className="flex items-center gap-3 rounded-lg bg-[#f3f6f4] px-4 py-3 text-xs text-[#647a72]"><LockKeyhole className="h-4 w-4" />This starts as a draft. Making it active turns the currently active questionnaire inactive.</div>
               {error ? <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
             </div>
             <div className="flex flex-col-reverse gap-2 border-t border-[#e3eae6] px-6 py-5 sm:flex-row sm:justify-end sm:px-8">
@@ -3952,6 +4665,7 @@ export default function AdminQuestionnaireBuilder({
     return (
       <div className="space-y-6">
         {createQuestionnaireDialog}
+        {editorLayout === BUILDER_LAYOUTS.PROPOSED ? followUpDialogElement : null}
         <header className="flex flex-col gap-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Button
@@ -3977,15 +4691,15 @@ export default function AdminQuestionnaireBuilder({
                 {isDirty ? <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">Draft changes</Badge> : null}
               </div>
               {definition ? (
-                <p className="mt-2 flex items-center gap-2 text-sm text-[#71857d]"><LockKeyhole className="h-4 w-4" />{definition.status === "active" ? "Live questionnaire. Saved changes apply to the Client Portal." : "Private draft. Clients cannot see it until you make it live."}</p>
+                <p className="mt-2 flex items-center gap-2 text-sm text-[#71857d]"><LockKeyhole className="h-4 w-4" />{definition.status === "active" ? "Active questionnaire. Saved changes apply to the Client Portal." : definition.status === "archived" ? "Inactive questionnaire. Clients cannot see it until you reactivate it." : "Draft. Clients cannot see it until you make it active."}</p>
               ) : null}
             </div>
             {definition ? (
               <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" className="border-[#cfddd6] bg-white text-[#38564b]" disabled={isBusy} onClick={copyDefinitionAsTest}><Copy />Copy as test</Button>
+                <Button type="button" variant="outline" className="border-[#cfddd6] bg-white text-[#38564b]" disabled={isBusy} onClick={copyDefinitionAsTest}><Copy />Copy as draft</Button>
                 <Button type="button" variant="outline" className="border-[#cfddd6] bg-white text-[#38564b]" disabled={isBusy || !isDirty || !savedDefinition} onClick={discardDefinitionChanges}>Cancel changes</Button>
                 <Button type="button" className="bg-[#4F726B] text-white hover:bg-[#3d625a]" disabled={isBusy || !isDirty} onClick={() => saveDefinition()}>{isSaving ? <Loader2 className="animate-spin" /> : <Save />}Save changes</Button>
-                {definition.status !== "active" ? <Button type="button" className="bg-[#173f35] text-white hover:bg-[#102f28]" disabled={isBusy} onClick={() => saveDefinition("active")}>{definition.status === "archived" ? <RotateCcw /> : <Send />}{definition.status === "archived" ? "Restore & make live" : "Make live"}</Button> : null}
+                {definition.status !== "active" ? <Button type="button" className="bg-[#173f35] text-white hover:bg-[#102f28]" disabled={isBusy} onClick={() => saveDefinition("active")}>{definition.status === "archived" ? <RotateCcw /> : <Send />}{definition.status === "archived" ? "Reactivate" : "Make active"}</Button> : null}
               </div>
             ) : null}
           </div>
@@ -4271,63 +4985,50 @@ export default function AdminQuestionnaireBuilder({
 
                           <div className="mt-6 space-y-6 rounded-lg border border-[#dce5e1] p-6">
                             <ContentInsertControl label={"Add content at the beginning of this section"} open={openInsertMenuKey === "start"} disabled={isBusy} onToggle={() => setOpenInsertMenuKey((current) => (current === "start" ? "" : "start"))} onChoose={(kind) => addContentAt(0, kind)} />
-                            {activePagePresentation.primaryEntries.map((entry) => (
-                              <div key={entry.id}>
-                                <PortalBuilderQuestion
-                                  activeQuestion={questionEditorOpen ? activeQuestion : null}
-                                  allPrimaryEntries={activePagePresentation.primaryEntries}
-                                  disabled={isBusy}
-                                  entry={entry}
-                                  legacy={legacyPage}
-                                  onAddOption={addOption}
-                                  onChangeQuestion={updateQuestionField}
-                                  onChangeQuestionType={changeQuestionType}
-                                  onCloseEditor={() => setQuestionEditorOpen(false)}
-                                  onDeleteNestedOption={deleteNestedOption}
-                                  onDeleteQuestion={deleteQuestion}
-                                  onDeleteOption={deleteOption}
-                                  onEdit={(question) => { setActiveQuestionId(question.id); setQuestionEditorOpen(true); }}
-                                  onUpdateNestedQuestion={updateNestedQuestion}
-                                  onUpdateOption={updateOption}
-                                  options={activeQuestionOptions}
-                                  showOptions={showOptions}
-                                  onMoveQuestion={moveQuestion}
-                                  canMoveUp={activeQuestionIndex > 0}
-                                  canMoveDown={activeQuestionIndex >= 0 && activeQuestionIndex < activePage.questions.length - 1}
-                                  structureLocked={builtInLegacyStructureIsLocked(activePage)}
-                                />
-                                <ContentInsertControl label={`Add content after ${entry.label}`} open={openInsertMenuKey === `after:${entry.id}`} disabled={isBusy} onToggle={() => setOpenInsertMenuKey((current) => (current === `after:${entry.id}` ? "" : `after:${entry.id}`))} onChoose={(kind) => addContentAt(getEntryInsertIndex(entry, activePage.questions), kind)} />
-                              </div>
-                            ))}
-
-                            {activePagePresentation.orphanConditionalGroups.flatMap((group) => group.entries).map((entry) => (
-                              <div key={`orphan-${entry.id}`} className="rounded-xl border-l-2 border-[#a8cdbb] pl-3">
-                                <PortalBuilderQuestion
-                                  activeQuestion={questionEditorOpen ? activeQuestion : null}
-                                  allPrimaryEntries={activePagePresentation.primaryEntries}
-                                  disabled={isBusy}
-                                  entry={{ ...entry, conditionalGroups: [] }}
-                                  legacy={legacyPage}
-                                  onAddOption={addOption}
-                                  onChangeQuestion={updateQuestionField}
-                                  onChangeQuestionType={changeQuestionType}
-                                  onCloseEditor={() => setQuestionEditorOpen(false)}
-                                  onDeleteNestedOption={deleteNestedOption}
-                                  onDeleteQuestion={deleteQuestion}
-                                  onDeleteOption={deleteOption}
-                                  onEdit={(question) => { setActiveQuestionId(question.id); setQuestionEditorOpen(true); }}
-                                  onUpdateNestedQuestion={updateNestedQuestion}
-                                  onUpdateOption={updateOption}
-                                  options={activeQuestionOptions}
-                                  showOptions={showOptions}
-                                  onMoveQuestion={moveQuestion}
-                                  canMoveUp={activeQuestionIndex > 0}
-                                  canMoveDown={activeQuestionIndex >= 0 && activeQuestionIndex < activePage.questions.length - 1}
-                                  structureLocked={builtInLegacyStructureIsLocked(activePage)}
-                                />
-                                <ContentInsertControl label={`Add content after ${entry.label}`} open={openInsertMenuKey === `after:${entry.id}`} disabled={isBusy} onToggle={() => setOpenInsertMenuKey((current) => (current === `after:${entry.id}` ? "" : `after:${entry.id}`))} onChoose={(kind) => addContentAt(getEntryInsertIndex(entry, activePage.questions), kind)} />
-                              </div>
-                            ))}
+                            {[
+                              ...activePagePresentation.primaryEntries.map((entry) => ({ entry, orphan: false })),
+                              // Follow-ups whose trigger is on another page stay at the end, as before.
+                              ...pageForest.roots
+                                .filter((node) => node.entry.conditions.length)
+                                .map((node) => ({ entry: { ...node.entry, conditionalGroups: [] }, orphan: true })),
+                            ].map(({ entry, orphan }) => {
+                              const followUpNode = pageForest.nodeById.get(entry.id) || null;
+                              // Insert after the question and everything it reveals, so follow-ups stay together.
+                              const insertIndex = followUpNode
+                                ? indexAfter(activePage.questions, nodeQuestionIds(followUpNode))
+                                : getEntryInsertIndex(entry, activePage.questions);
+                              return (
+                                <div key={orphan ? `orphan-${entry.id}` : entry.id} className={orphan ? "rounded-xl border-l-2 border-[#a8cdbb] pl-3" : undefined}>
+                                  <PortalBuilderQuestion
+                                    activeQuestion={questionEditorOpen ? activeQuestion : null}
+                                    allEntries={activePagePresentation.entries}
+                                    canAddFollowUps={!builtInLegacyStructureIsLocked(activePage)}
+                                    disabled={isBusy}
+                                    entry={entry}
+                                    followUpNode={followUpNode}
+                                    legacy={legacyPage}
+                                    onAddOption={addOption}
+                                    onChangeQuestion={updateQuestionField}
+                                    onChangeQuestionType={changeQuestionType}
+                                    onCloseEditor={() => setQuestionEditorOpen(false)}
+                                    onDeleteNestedOption={deleteNestedOption}
+                                    onDeleteQuestion={deleteQuestion}
+                                    onDeleteOption={deleteOption}
+                                    onEdit={editCanvasQuestion}
+                                    onOpenFollowUps={openFollowUpDialog}
+                                    onUpdateNestedQuestion={updateNestedQuestion}
+                                    onUpdateOption={updateOption}
+                                    options={activeQuestionOptions}
+                                    showOptions={showOptions}
+                                    onMoveQuestion={moveQuestion}
+                                    canMoveUp={activeQuestionIndex > 0}
+                                    canMoveDown={activeQuestionIndex >= 0 && activeQuestionIndex < activePage.questions.length - 1}
+                                    structureLocked={builtInLegacyStructureIsLocked(activePage)}
+                                  />
+                                  <ContentInsertControl label={`Add content after ${entry.label}`} open={openInsertMenuKey === `after:${entry.id}`} disabled={isBusy} onToggle={() => setOpenInsertMenuKey((current) => (current === `after:${entry.id}` ? "" : `after:${entry.id}`))} onChoose={(kind) => addContentAt(insertIndex, kind)} />
+                                </div>
+                              );
+                            })}
 
                             {!activePage.questions.length ? (
                               <div className="rounded-xl border border-dashed border-[#cbdad3] bg-[#fbfcfb] px-6 py-14 text-center">
@@ -4402,7 +5103,7 @@ export default function AdminQuestionnaireBuilder({
                       ) : activePage?.metadata?.dynamicParity === "certified" ? (
                         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900" data-testid="dynamic-certified-notice">
                           <p className="font-semibold">This page is fully managed by the questionnaire</p>
-                          <p className="mt-1">Questions, order, answer types, required settings, choices, conditions and repeating lists can all be changed. Changes reach the Client Portal after Make live. Removing a question hides it from clients; answers already saved are kept.</p>
+                          <p className="mt-1">Questions, order, answer types, required settings, choices, conditions and repeating lists can all be changed. Changes reach the Client Portal once the questionnaire is active. Removing a question hides it from clients; answers already saved are kept.</p>
                         </div>
                       ) : null}
 
@@ -4737,7 +5438,7 @@ export default function AdminQuestionnaireBuilder({
               <p className="text-xs text-[#71857d]">
                 {embeddedInMatter
                   ? `${availableDefinitionEntries.length} available`
-                  : `${definitions.filter((item) => item.status === "active").length} live · ${definitions.filter((item) => item.status === "draft").length} tests`}
+                  : `${definitions.filter((item) => item.status === "active").length} active · ${definitions.filter((item) => item.status === "archived").length} inactive · ${definitions.filter((item) => item.status === "draft").length} drafts`}
               </p>
             </div>
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin text-[#4F726B]" /> : null}
@@ -4881,7 +5582,7 @@ export default function AdminQuestionnaireBuilder({
                     onClick={copyDefinitionAsTest}
                   >
                     <Copy />
-                    Copy as test
+                    Copy as draft
                   </Button>
                   {definition.status !== "active" ? (
                     <Button
@@ -4891,7 +5592,7 @@ export default function AdminQuestionnaireBuilder({
                       onClick={() => saveDefinition("active")}
                     >
                       {definition.status === "archived" ? <RotateCcw /> : <Send />}
-                      {definition.status === "archived" ? "Restore & make live" : "Make live"}
+                      {definition.status === "archived" ? "Reactivate" : "Make active"}
                     </Button>
                   ) : null}
                   <Button
@@ -4911,7 +5612,7 @@ export default function AdminQuestionnaireBuilder({
                 <div className="mt-5 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-800">
                   <Check className="mt-1 h-4 w-4 shrink-0 text-emerald-600" />
                   <span>
-                    This questionnaire is live. Changes you save will apply directly to this questionnaire.
+                    This questionnaire is active. Changes you save apply directly to what clients see.
                   </span>
                 </div>
               ) : null}

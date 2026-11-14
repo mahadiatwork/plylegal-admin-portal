@@ -241,6 +241,8 @@ export function getClientQuestionnairePresentation(page, definition = null) {
   }));
 
   return {
+    // Every displayed entry in client order (each with its `conditions`), for follow-up trees.
+    entries,
     primaryEntries,
     orphanConditionalGroups,
     storageQuestions,

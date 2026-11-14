@@ -1,6 +1,16 @@
 # Dynamic questionnaires
 
-The admin portal manages JSON questionnaire definitions at **Admin → Questionnaires**. Owners can edit visible copy on a live questionnaire, or use **Copy as test** / **Add questionnaire** to prepare a separate test definition. Saving a test does not affect clients; **Make live** publishes it for its visa audience and archives the previous live definition.
+The admin portal manages JSON questionnaire definitions at **Admin → Questionnaires**. Owners can edit visible copy on an active questionnaire, or use **Copy as draft** / **Add questionnaire** to prepare a separate draft. Saving a draft does not affect clients; **Make active** publishes it for its visa audience and makes the previously active questionnaire inactive.
+
+## Stages
+
+| Stage | Stored status | Meaning |
+| --- | --- | --- |
+| **Active** | `active` | What clients see for that visa audience (one per audience). |
+| **Inactive** | `archived` | Was active once and has since been replaced. **Reactivate** (list “⋯” menu or editor) makes it active again. |
+| **Draft** | `draft` | Created or copied but never made active. **Make active** publishes it. |
+
+Only the labels changed; the stored status values are the same as before, so no data migration is needed.
 
 ## Storage and lifecycle
 
@@ -71,7 +81,7 @@ The JSON owns rendering, required-field validation, conditional visibility, save
 
 Supported question types are `text`, `textarea`, `radio`, `select`, `checkbox`, `dateParts`, and `yesNo`. `repeater` remains reserved for developer-supplied components and cannot be activated from the global builder. Supported condition operators are `equals`, `notEquals`, `in`, `notIn`, `exists`, and `notExists`.
 
-The editor allows the owner to change questionnaire structure, wording, options and rules in a Test copy before publishing. Built-in client pages continue to protect their existing answer keys, fields and validation so saved answers remain readable; their supported wording and option labels can be edited directly. Adding a previously absent help text or placeholder converts that page to the dynamic renderer so the new copy is actually displayed.
+The editor allows the owner to change questionnaire structure, wording, options and rules in a draft before making it active. Built-in client pages continue to protect their existing answer keys, fields and validation so saved answers remain readable; their supported wording and option labels can be edited directly. Adding a previously absent help text or placeholder converts that page to the dynamic renderer so the new copy is actually displayed.
 
 Definitions override registered client page slots; they do not create new URLs or own the client navigation. **Add page** is available only when the selected visa flow has an unused registered page route. Removing a managed built-in page restores that built-in client page rather than removing the step from the journey.
 
@@ -86,7 +96,7 @@ proves it renders and saves identically (`plylegal-client-portal/e2e/questionnai
 - The built-in catalog marks promoted pages `metadata.dynamicParity: "certified"` without a renderer.
 - Saved definitions are migrated on load/save (`migrateLegacyQuestionnaireDefinition`): a legacy
   page whose baseline is certified adopts the certified structure, keeps administrator-edited
-  wording, and becomes fully editable. Make live to publish it.
+  wording, and becomes fully editable. Make it active to publish it.
 - Everything is then editable: add/remove/reorder questions, types, required, options,
   conditions (including `anyOf` groups), repeating lists (table + pop-up or inline cards),
   popup sections (`metadata.group` on fields), half-width pairs (`metadata.width`).
@@ -111,3 +121,16 @@ They show to clients in exactly that position, may have a `visibleIf` rule, and 
 (no `answerKey`, `required`, `options` or validation; they are not counted as questions). Older dynamic
 pages that repeated `metadata.group` on each question are converted automatically when opened or saved;
 answer keys and stored answers are unchanged. Locked legacy pages keep their original structure.
+
+## Follow-up questions (new layout)
+
+A follow-up is an ordinary question with a `visibleIf` rule on an earlier answer; the definition stays a
+flat ordered list (page `questions`, or a repeater's `metadata.fields` for its Add/Edit popup). In the new
+builder layout the canvas shows a short summary under the question that reveals them ("If “Yes” → Other
+Names"); the pencil on that question, or on a choice question's **Add follow-up question**, opens one
+dialog with the question, a branch per answer and every follow-up, including record popup fields and
+follow-ups of follow-ups. From there administrators add a follow-up for an answer, choose which answers
+show it (one answer saves `equals`, several save `in`; any further rules are kept), reorder within an
+answer, change a popup field's answer type, and delete. New follow-ups are inserted directly after the
+questions their trigger already reveals. The tree is built by `src/lib/questionnaireConditionalBranches.js`.
+Locked legacy pages open the same dialog for wording only. The classic layout is unchanged.

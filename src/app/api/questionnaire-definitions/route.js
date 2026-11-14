@@ -129,7 +129,7 @@ async function getPublishedAudienceDefinition(transaction, snapshot, nextDefinit
     return existing.status === "active" && hasSameAudience(existing, nextDefinition);
   });
   if (matching.length > 1) {
-    throw new ApiError("Multiple live questionnaires cover this audience", 409);
+    throw new ApiError("Multiple active questionnaires cover this audience", 409);
   }
   if (!matching.length) return null;
   const publishedDoc = matching[0];

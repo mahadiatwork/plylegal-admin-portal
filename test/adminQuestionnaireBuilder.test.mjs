@@ -6,6 +6,7 @@ import { test } from "node:test";
 import * as React from "react";
 import * as crmFieldCatalog from "../src/lib/crmFieldCatalog.js";
 import * as questionnaireClientPresentation from "../src/lib/questionnaireClientPresentation.js";
+import * as questionnaireConditionalBranches from "../src/lib/questionnaireConditionalBranches.js";
 import * as questionnaireContentItems from "../src/lib/questionnaireContentItems.js";
 import * as questionnaireDrafts from "../src/lib/questionnaireDrafts.js";
 import * as questionnaireCrmContract from "../src/lib/questionnaireCrmContract.js";
@@ -126,6 +127,7 @@ async function loadComponent(relativePath) {
       return { completeAdminQuestionnairePages: (definition) => definition };
     }
     if (specifier === "@/lib/questionnaireClientPresentation") return questionnaireClientPresentation;
+    if (specifier === "@/lib/questionnaireConditionalBranches") return questionnaireConditionalBranches;
     if (specifier === "@/lib/questionnaireContentItems") return questionnaireContentItems;
     if (specifier === "@/lib/questionnaireDrafts") return questionnaireDrafts;
     if (specifier === "@/lib/crmFieldCatalog") return crmFieldCatalog;
@@ -218,6 +220,15 @@ async function chooseRowAction(harness, label, rowIndex = 0) {
   toggles[rowIndex].props.onClick();
   harness.render();
   await harness.buttonMatching(label).props.onClick();
+}
+
+/** A question (or record field) in the follow-up dialog's tree, with everything nested under it. */
+function followUpTreeItem(harness, label) {
+  return harness.find(
+    (node) => node.type === "li" && [].concat(node.props.children).some((child) =>
+      React.isValidElement(child) && child.props?.["aria-label"] === `Edit “${label}”`),
+    `Expected ${label} in the follow-up dialog`,
+  );
 }
 
 async function flushEffects(harness) {
@@ -526,7 +537,7 @@ test("embedded live builder exposes editing controls without machine keys", asyn
   }
 
   assert.equal(harness.button("Add questionnaire").props.disabled, false);
-  assert.equal(harness.button("Copy as test").props.disabled, false);
+  assert.equal(harness.button("Copy as draft").props.disabled, false);
   assert.equal(harness.control("Add page").props.disabled, false);
   assert.equal(harness.control("Delete page").props.disabled, false);
   assert.equal(harness.control("Delete question").props.disabled, false);
@@ -619,11 +630,11 @@ test("copy as test creates a separate draft and saving posts it without mutating
     routes: questionnaireRoutes,
   });
 
-  harness.button("Copy as test").props.onClick();
+  harness.button("Copy as draft").props.onClick();
   harness.render();
 
-  assert.equal(harness.control("questionnaire-title").props.value, "Rich questionnaire — Test");
-  assert.ok(text(harness.tree).includes("Test copy created"));
+  assert.equal(harness.control("questionnaire-title").props.value, "Rich questionnaire — Draft");
+  assert.ok(text(harness.tree).includes("Draft copy created"));
   assert.equal(harness.maybeControl("questionnaire-id"), undefined, "the generated ID stays hidden");
 
   await harness.button("Save").props.onClick();
@@ -638,7 +649,7 @@ test("copy as test creates a separate draft and saving posts it without mutating
   assert.equal(submitted.revision, 0);
   assert.notEqual(submitted.id, definition.id);
   assert.match(submitted.id, /^questionnaire-/);
-  assert.equal(submitted.title, "Rich questionnaire — Test");
+  assert.equal(submitted.title, "Rich questionnaire — Draft");
   assert.deepEqual(submitted.pages, definition.pages);
   assert.deepEqual(definition, original, "copying and saving must not alter the live source object");
   assert.equal(
@@ -706,7 +717,7 @@ test("a copied test can add and delete registered pages and questions while keep
     routes: questionnaireRoutes,
   });
 
-  harness.button("Copy as test").props.onClick();
+  harness.button("Copy as draft").props.onClick();
   harness.render();
 
   assert.equal(harness.control("Add page").props.disabled, false);
@@ -1415,14 +1426,19 @@ test("the proposed layout nests the composite Other Family page under Main Appli
   harness.buttonMatching(/Other Family/).props.onClick();
   harness.render();
   assert.equal(text(harness.find((node) => node.props?.["data-testid"] === "portal-section-title")), "Other Family");
-  assert.ok(harness.nodes().some((node) => text(node) === "Address and Phone"));
-  assert.ok(harness.nodes().some((node) => text(node) === "Place of Birth"));
+  // The member list is a follow-up of the Yes/No question: summarised under it, not stacked.
+  const summary = harness.find((node) => node.props?.["data-testid"] === "follow-up-summary");
+  assert.match(text(summary), /If “Yes”→Other family members/);
 
-  harness.control("Edit Other family members").props.onClick();
+  harness.control("Edit follow-up Other family members").props.onClick();
   harness.render();
-  assert.ok(
-    harness.nodes().some((node) => text(node) === "Shown when “Does this person have a current passport?” is Yes"),
-    "passport details should be visibly nested under their Yes trigger",
+  assert.ok(harness.find((node) => node.props?.["data-testid"] === "follow-up-dialog"));
+  const passportTrigger = followUpTreeItem(harness, "Does this person have a current passport?");
+  assert.match(text(passportTrigger), /If “Yes”.*Family Name.*Given Names.*Sex.*Date of Birth/, "passport details should be nested under their Yes trigger");
+  assert.equal(
+    harness.button("Add field for “Yes”").props.disabled,
+    true,
+    "the original client form keeps its structure locked",
   );
 });
 
@@ -1571,9 +1587,9 @@ test("the proposed inline editor can delete a newly added question", async (t) =
   );
 });
 
-test("the questionnaire list row menu restores a backup and keeps the live version as a backup", async (t) => {
+test("the questionnaire list row menu reactivates an inactive questionnaire and makes the active one inactive", async (t) => {
   const live = { ...richDefinition(), id: "live-482", title: "Live 482", status: "active", revision: 3 };
-  const backup = { ...richDefinition(), id: "backup-482", title: "Backup 482", status: "archived", revision: 2 };
+  const backup = { ...richDefinition(), id: "backup-482", title: "Inactive 482", status: "archived", revision: 2 };
   const confirmations = [];
   const { harness, calls, storedDefinitions } = await mountBuilder(t, {
     definition: live,
@@ -1583,26 +1599,29 @@ test("the questionnaire list row menu restores a backup and keeps the live versi
     confirm: (message) => { confirmations.push(message); return true; },
   });
 
-  // The live questionnaire offers Edit and Delete, but not Make live.
+  // The active questionnaire offers Edit and Delete, but not Make active.
   harness.control("Actions for Live 482").props.onClick();
   harness.render();
   assert.ok(harness.buttonMatching(/^Edit$/));
   assert.ok(harness.buttonMatching(/^Delete$/));
-  assert.equal(harness.nodes().some((node) => node.type === "button" && /make live/i.test(text(node))), false);
+  assert.equal(harness.nodes().some((node) => node.type === "button" && /make active|reactivate/i.test(text(node))), false);
 
-  // Opening another row's menu closes the first; the backup can be restored.
-  harness.control("Actions for Backup 482").props.onClick();
+  // Opening another row's menu closes the first; the inactive questionnaire can be reactivated.
+  harness.control("Actions for Inactive 482").props.onClick();
   harness.render();
-  await harness.buttonMatching(/^Restore & make live$/).props.onClick();
+  await harness.buttonMatching(/^Reactivate$/).props.onClick();
   harness.render();
 
   const patch = calls.find((call) => call.options.method === "PATCH");
   assert.equal(patch.url, "/api/questionnaire-definitions/backup-482");
   assert.deepEqual(JSON.parse(patch.options.body), { status: "active", revision: 2 });
-  assert.match(confirmations.at(-1), /Restore this backup/);
+  assert.match(confirmations.at(-1), /Reactivate this questionnaire/);
   assert.equal(storedDefinitions.find((item) => item.id === "backup-482").status, "active");
   assert.equal(storedDefinitions.find((item) => item.id === "live-482").status, "archived");
-  assert.ok(text(harness.tree).includes("is now live"));
+  assert.ok(text(harness.tree).includes("is now active"));
+  // Stage badges: Active / Inactive.
+  const badges = harness.nodes().filter((node) => node.type === "span" && ["Active", "Inactive", "Draft"].includes(text(node))).map(text);
+  assert.ok(badges.includes("Active") && badges.includes("Inactive"));
 });
 
 test("a draft can be made live from the list row menu", async (t) => {
@@ -1610,7 +1629,7 @@ test("a draft can be made live from the list row menu", async (t) => {
   const { harness, calls } = await mountBuilder(t, { definition: draft, initialLayout: "proposed", initialView: "list" });
   harness.control("Actions for Draft 482").props.onClick();
   harness.render();
-  await harness.buttonMatching(/^Make live$/).props.onClick();
+  await harness.buttonMatching(/^Make active$/).props.onClick();
   const patch = calls.find((call) => call.options.method === "PATCH");
   assert.deepEqual(JSON.parse(patch.options.body), { status: "active", revision: 4 });
 });
@@ -1679,4 +1698,177 @@ test("Add content here inserts headings and explanatory text that save in client
     ["answer_key_internal", "eligibility_internal", "records_internal"],
     "existing answer keys are untouched",
   );
+});
+
+// Shape of the spouse/partner "Other Personal Details" page once certified for the dynamic form.
+function otherPersonalDetailsDefinition() {
+  const yesNo = [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }];
+  const onYes = (field) => [{ field, op: "equals", value: "yes" }];
+  return {
+    schemaVersion: 1,
+    id: "spouse-other-details",
+    title: "Spouse other details",
+    version: "1.0.0",
+    visaType: "temporary-work",
+    visaContexts: ["482"],
+    status: "draft",
+    revision: 2,
+    pages: [{
+      id: "spouse-other",
+      title: "Other Personal Details",
+      route: "/intake/temporary-work/spouse-partner/other-details",
+      sectionKey: "temporary_work_spouse_other",
+      completionKey: "temporary-work/spouse-partner/other-details",
+      scope: "profile",
+      order: 10,
+      introBlocks: [],
+      metadata: { dynamicParity: "certified", profileRole: "spouse" },
+      questions: [
+        { id: "has_other_names", answerKey: "has_other_names", label: "Have you ever had another name?", type: "yesNo", required: true, options: yesNo },
+        {
+          id: "other_names",
+          answerKey: "other_names",
+          label: "Other Names",
+          type: "repeater",
+          required: false,
+          visibleIf: onYes("has_other_names"),
+          metadata: {
+            collection: "array",
+            fields: [
+              { id: "other_names-family_name", answerKey: "family_name", label: "Family Name", type: "text", required: true },
+              { id: "other_names-has_evidence", answerKey: "has_evidence", label: "Do you have identity documents for this name?", type: "yesNo", required: false, options: yesNo },
+              { id: "other_names-evidence_type", answerKey: "evidence_type", label: "Evidence Type", type: "select", required: false, options: [{ value: "Marriage Certificate", label: "Marriage Certificate" }], visibleIf: onYes("has_evidence") },
+            ],
+          },
+        },
+        { id: "use_chinese_code", answerKey: "use_chinese_code", label: "Do you use a Chinese Commercial Code?", type: "yesNo", required: true, options: yesNo },
+        { id: "chinese_code", answerKey: "chinese_code", label: "Chinese Commercial Code", type: "text", required: false, visibleIf: onYes("use_chinese_code") },
+        { id: "other_spelling", answerKey: "other_spelling", label: "Is your name spelt differently anywhere?", type: "radio", required: false, options: yesNo },
+      ],
+    }],
+  };
+}
+
+async function openOtherPersonalDetails(t) {
+  const mounted = await mountBuilder(t, { definition: otherPersonalDetailsDefinition(), embeddedInMatter: false });
+  await chooseRowAction(mounted.harness, /^(Edit|Use template)$/);
+  mounted.harness.render();
+  return mounted;
+}
+
+function savedQuestionnairePage(calls) {
+  const saveCall = calls.find(({ url, options }) =>
+    url === "/api/questionnaire-definitions/spouse-other-details" && options.method === "PUT");
+  assert.ok(saveCall, "Expected the follow-up changes to be saved");
+  return JSON.parse(saveCall.options.body).pages[0];
+}
+
+test("the proposed layout summarises follow-ups and edits them in one dialog", async (t) => {
+  const { harness, calls } = await openOtherPersonalDetails(t);
+
+  // The canvas lists follow-ups under their trigger instead of stacking their full previews.
+  const summaries = harness.nodes().filter((node) => node.props?.["data-testid"] === "follow-up-summary");
+  assert.deepEqual(summaries.map(text).map((value) => value.match(/If “Yes”→[^·]+/)?.[0]), [
+    "If “Yes”→Other Names",
+    "If “Yes”→Chinese Commercial Code",
+  ]);
+  assert.equal(harness.maybeControl("Edit Other Names"), undefined, "follow-ups are no longer stacked on the canvas");
+
+  // The pencil on a trigger opens the dialog with every answer as a branch.
+  harness.control("Edit Have you ever had another name?").props.onClick();
+  harness.render();
+  assert.ok(harness.find((node) => node.props?.["data-testid"] === "follow-up-dialog"));
+  assert.equal(harness.maybeControl("inline-question-editor"), undefined);
+  const branches = harness.nodes().filter((node) => node.props?.["data-testid"] === "follow-up-branch").map(text);
+  assert.match(branches[0], /^If “Yes”Other Names/);
+  assert.match(branches[1], /^If “No”Add question for “No”$/);
+
+  // Add a follow-up for "Yes", word it, and move it above Other Names.
+  harness.button("Add question for “Yes”").props.onClick();
+  harness.render();
+  const newLabel = harness.find((node) => node.type === "textarea" && /^inline-label-question-/.test(node.props.id || ""));
+  newLabel.props.onChange({ target: { value: "What was your maiden name?" } });
+  harness.render();
+  assert.match(text(followUpTreeItem(harness, "Have you ever had another name?")), /If “Yes”Other Names.*What was your maiden name\?/);
+  harness.button("Move up").props.onClick();
+  harness.render();
+  assert.match(text(followUpTreeItem(harness, "Have you ever had another name?")), /If “Yes”What was your maiden name\?.*Other Names/);
+
+  // Change which answer shows it: both answers, then only "No".
+  harness.control("Show when the answer is No").props.onChange();
+  harness.render();
+  harness.control("Show when the answer is Yes").props.onChange();
+  harness.render();
+  assert.match(text(followUpTreeItem(harness, "Have you ever had another name?")), /If “No”What was your maiden name\?/);
+
+  // Record popup fields are part of the same tree, with their own follow-ups.
+  harness.control("Edit “Other Names”").props.onClick();
+  harness.render();
+  const recordFields = harness.find((node) => node.props?.["data-testid"] === "follow-up-record-fields");
+  assert.match(text(followUpTreeItem(harness, "Do you have identity documents for this name?")), /If “Yes”Evidence Type/);
+  assert.match(text(recordFields), /Family Name/);
+
+  harness.control("Edit “Do you have identity documents for this name?”").props.onClick();
+  harness.render();
+  harness.button("Add field for “No”").props.onClick();
+  harness.render();
+  const fieldLabel = harness.find((node) => node.type === "textarea" && /^record-other-names-field.*-label$/.test(node.props.id || ""));
+  fieldLabel.props.onChange({ target: { value: "Why not?" } });
+  harness.render();
+  const fieldType = harness.find((node) => node.type === "select" && /^record-other-names-field.*-type$/.test(node.props.id || ""));
+  assert.equal(text(fieldType).includes("Repeating list / records"), false, "record fields cannot hold their own records");
+  fieldType.props.onChange({ target: { value: "textarea" } });
+  harness.render();
+
+  // A field that reveals others cannot be deleted from under them.
+  harness.control("Edit “Do you have identity documents for this name?”").props.onClick();
+  harness.render();
+  harness.button("Delete field").props.onClick();
+  harness.render();
+  const dialogAlert = harness.find((node) => node.props?.role === "alert");
+  assert.match(text(dialogAlert), /shows Evidence Type, Why not\?/);
+
+  harness.button("Done").props.onClick();
+  harness.render();
+  assert.equal(harness.nodes().some((node) => node.props?.["data-testid"] === "follow-up-dialog"), false);
+
+  await harness.button("Save changes").props.onClick();
+  const page = savedQuestionnairePage(calls);
+  assert.deepEqual(page.questions.map((question) => question.answerKey), [
+    "has_other_names", page.questions[1].answerKey, "other_names", "use_chinese_code", "chinese_code", "other_spelling",
+  ]);
+  const added = page.questions[1];
+  assert.equal(added.label, "What was your maiden name?");
+  assert.deepEqual(added.visibleIf, [{ field: "has_other_names", op: "equals", value: "no" }]);
+  const fields = page.questions.find((question) => question.answerKey === "other_names").metadata.fields;
+  assert.deepEqual(fields.map((field) => field.answerKey), ["family_name", "has_evidence", "evidence_type", "new_field"]);
+  assert.equal(fields[3].label, "Why not?");
+  assert.equal(fields[3].type, "textarea");
+  assert.deepEqual(fields[3].visibleIf, [{ field: "has_evidence", op: "equals", value: "no" }]);
+});
+
+test("a choice question without follow-ups offers to add one from the canvas", async (t) => {
+  const { harness, calls } = await openOtherPersonalDetails(t);
+
+  // Only the radio question has no follow-ups yet, so it is the one offering to add them.
+  harness.button("Add follow-up question").props.onClick();
+  harness.render();
+  assert.equal(
+    text(harness.find((node) => node.props?.id === "follow-up-dialog-title")),
+    "Is your name spelt differently anywhere?",
+  );
+  harness.button("Add question for “Yes”").props.onClick();
+  harness.render();
+  harness.button("Done").props.onClick();
+  harness.render();
+
+  const summaries = harness.nodes().filter((node) => node.props?.["data-testid"] === "follow-up-summary");
+  assert.match(text(summaries.at(-1)), /^1 follow-up question.*If “Yes”→New follow-up question/);
+
+  await harness.button("Save changes").props.onClick();
+  const page = savedQuestionnairePage(calls);
+  const added = page.questions.at(-1);
+  assert.equal(page.questions.at(-2).answerKey, "other_spelling", "the follow-up is placed right after its trigger");
+  assert.equal(added.label, "New follow-up question");
+  assert.deepEqual(added.visibleIf, [{ field: "other_spelling", op: "equals", value: "yes" }]);
 });

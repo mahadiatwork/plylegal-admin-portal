@@ -6,6 +6,7 @@ import { test } from "node:test";
 import * as React from "react";
 import * as questionnaireDrafts from "../src/lib/questionnaireDrafts.js";
 import * as questionnaireContentItems from "../src/lib/questionnaireContentItems.js";
+import * as questionnaireConditionalBranches from "../src/lib/questionnaireConditionalBranches.js";
 
 const require = createRequire(import.meta.url);
 const { loadBindings, transform } = require("next/dist/build/swc");
@@ -189,6 +190,7 @@ async function loadComponent(relativePath) {
       };
     }
     if (specifier === "@/lib/questionnaireContentItems") return questionnaireContentItems;
+    if (specifier === "@/lib/questionnaireConditionalBranches") return questionnaireConditionalBranches;
     if (specifier === "@/lib/questionnaireClientPresentation") {
       return {
         describeClientCondition: () => "Shown conditionally",
@@ -331,16 +333,16 @@ test("admin library hides starter templates for saved audiences and never labels
   const statusLabels = harness.nodes()
     .filter((node) => node.type === "span")
     .map((node) => text(node))
-    .filter((label) => ["Live", "Template", "Not published"].includes(label));
+    .filter((label) => ["Active", "Template", "Draft"].includes(label));
 
   assert.equal(pageText.includes("Skills in Demand Visa (482)Built-in starter template"), false);
   assert.equal(pageText.includes("Skills in Demand Visa Questionnaire"), false);
   assert.equal(pageText.includes("Partner Visa (Subclass 820)Built-in starter template"), false);
   assert.equal(pageText.includes("Protection Visa (Subclass 866)Built-in starter template"), false);
   assert.equal(pageText.includes("Employer Nomination Visa (186)Built-in starter template"), true);
-  assert.equal(statusLabels.filter((label) => label === "Live").length, 3);
+  assert.equal(statusLabels.filter((label) => label === "Active").length, 3);
   assert.equal(statusLabels.filter((label) => label === "Template").length, 1);
-  assert.equal(statusLabels.filter((label) => label === "Not published").length, 1);
+  assert.equal(statusLabels.filter((label) => label === "Draft").length, 1);
 
   const saved482Row = harness.nodes().find((node) =>
     node.type === "article" && text(node).includes(saved482.title)
@@ -480,7 +482,7 @@ test("new questionnaire offers live, draft and backup questionnaires as copy sou
   );
   assert.equal(copyOptions.length, 6);
   assert.equal(copySelect.props.value, "saved:saved-partner", "Partner 309 should reuse the Partner 820 source");
-  assert.ok(copyOptions.some((option) => text(option) === "Skills in Demand Visa (482) — previous · 1 section · Backup · Different visa family"));
+  assert.ok(copyOptions.some((option) => text(option) === "Skills in Demand Visa (482) — previous · 1 section · Inactive · Different visa family"));
   assert.ok(copyOptions.some((option) => text(option) === "Employer Nomination Visa (186) — working copy · 1 section · Draft · Different visa family"));
   assert.equal(copyOptions.find((option) => option.props.value === "saved:saved-482").props.disabled, true);
   assert.equal(copyOptions.find((option) => option.props.value === "saved:saved-partner").props.disabled, false);
