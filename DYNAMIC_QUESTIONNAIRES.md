@@ -146,3 +146,16 @@ field or another page, including `anyOf` groups) reads its answer, deletion is b
 names those items. Page `metadata.prefill` rules and repeater table columns for the removed answers are
 removed, and the confirmation lists them. Legacy locked pages offer no deletion. Logic:
 `src/lib/questionnaireQuestionDeletion.js`.
+
+## Builder sidebar (matches the Client Portal)
+
+The builder sidebar lists sections exactly as the client sidebar does: the client's navigation labels
+(e.g. "Other Names", not the page heading "Main Applicant's Other Details"), its order and grouping
+(Getting Started, Included Applicants, Main Applicant with Other Family after Contact Details, Spouse/Partner,
+Child, then All Applicants and the other route groups), and one running step number over the numbered items,
+so there are no gaps. Pages hidden from the new layout, and Other Family member template pages (which the
+client lists without numbers), take no number. The number on the right is the page's client-facing question
+count. Labels come from `src/lib/questionnaireNavigation.js`, which mirrors
+`plylegal-client-portal/src/lib/routes.js` (a unit test compares the two when both repos are present); update
+both together. Page headings are unchanged. A page whose route the client does not list keeps its heading as
+its label, and an optional `page.metadata.navigationTitle` overrides the label. Saved definitions need no migration.

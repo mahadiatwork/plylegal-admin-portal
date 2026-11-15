@@ -91,6 +91,7 @@ import {
   removeQuestionsFromPage,
   singleQuestionNode,
 } from "@/lib/questionnaireQuestionDeletion";
+import { buildQuestionnaireSidebar } from "@/lib/questionnaireNavigation";
 
 const QUESTION_TYPES = [
   ["text", "Short text"],
@@ -931,16 +932,27 @@ function WorkflowPageContentEditor({ page, onChange }) {
   );
 }
 
-function ProposedNavigationPageButton({ active, count, onSelect, page, stepNumber }) {
+/**
+ * One sidebar step: the client's step number (none for pages the client lists without one),
+ * the client navigation label, and the page's client-facing question count on the right.
+ */
+function ProposedNavigationPageButton({ active, count, label, onSelect, page, stepNumber }) {
+  const heading = page.title && page.title !== label ? `${label} (page heading: ${page.title})` : label;
   return (
     <button
       type="button"
+      aria-current={active ? "page" : undefined}
+      data-testid="sidebar-section"
       onClick={onSelect}
       className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${active ? "bg-[#EEF7F2]/60 font-semibold text-slate-900" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
     >
-      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs transition-colors ${active ? "bg-[#244D42] font-bold text-white shadow-sm" : "border border-slate-200 font-medium text-slate-400"}`}>{stepNumber}</span>
-      <span className="min-w-0 flex-1 whitespace-normal break-words leading-snug" title={page.title}>{page.title}</span>
-      <span className="text-xs text-slate-400" title="Client-facing questions">{count}</span>
+      {stepNumber ? (
+        <span data-testid="sidebar-step-number" className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs transition-colors ${active ? "bg-[#244D42] font-bold text-white shadow-sm" : "border border-slate-200 font-medium text-slate-400"}`}>{stepNumber}</span>
+      ) : (
+        <span aria-hidden="true" className="flex h-6 w-6 shrink-0 items-center justify-center"><span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-[#244D42]" : "bg-slate-300"}`} /></span>
+      )}
+      <span data-testid="sidebar-section-label" className="min-w-0 flex-1 whitespace-normal break-words leading-snug" title={heading}>{label}</span>
+      <span data-testid="sidebar-question-count" className="text-xs text-slate-400" title="Client-facing questions">{count}</span>
     </button>
   );
 }
@@ -2979,22 +2991,19 @@ export default function AdminQuestionnaireBuilder({
         key: `saved:${item.id}`,
       }));
   }, [definitions]);
+  // Sidebar labels, order and step numbers follow the Client Portal sidebar (not page headings
+  // or the order pages are stored in); see questionnaireNavigation.js.
+  const allPagesSidebar = useMemo(() => buildQuestionnaireSidebar(definition), [definition]);
   const pageGroups = useMemo(
-    () => groupQuestionnairePages(definition?.pages || []),
+    () => groupQuestionnairePages(allPagesSidebar.items.map((item) => item.page)),
+    [allPagesSidebar]
+  );
+  const navigationLabelById = allPagesSidebar.labelById;
+  const proposedSidebar = useMemo(
+    () => buildQuestionnaireSidebar(definition, { isVisible: isProposedAdminPageVisible }),
     [definition]
   );
-  const proposedVisiblePages = useMemo(
-    () => (definition?.pages || []).filter(isProposedAdminPageVisible),
-    [definition]
-  );
-  const proposedPageGroups = useMemo(
-    () => groupQuestionnairePages(proposedVisiblePages),
-    [proposedVisiblePages]
-  );
-  const proposedPageNumberById = useMemo(
-    () => new Map(proposedVisiblePages.map((page, index) => [page.id, index + 1])),
-    [proposedVisiblePages]
-  );
+  const proposedPageNumberById = proposedSidebar.stepNumberById;
   const pagePresentations = useMemo(
     () => new Map((definition?.pages || []).map((page) => [
       page.id,
@@ -3018,9 +3027,9 @@ export default function AdminQuestionnaireBuilder({
   const filteredPages = useMemo(() => {
     const search = pageSearch.trim().toLowerCase();
     return (activePageGroup?.pages || []).filter((page) =>
-      !search || [page.title, page.id].some((value) => String(value || "").toLowerCase().includes(search))
+      !search || [navigationLabelById.get(page.id), page.title, page.id].some((value) => String(value || "").toLowerCase().includes(search))
     );
-  }, [activePageGroup?.pages, pageSearch]);
+  }, [activePageGroup?.pages, navigationLabelById, pageSearch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -4892,7 +4901,7 @@ export default function AdminQuestionnaireBuilder({
                 <div className="mb-3 flex items-center justify-between rounded-xl border border-[#e4e1d9] bg-[#FAF8F5] px-4 py-3 lg:hidden">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Section navigation</p>
-                    <p className="mt-1 text-sm font-medium text-slate-700">Section {proposedPageNumberById.get(activePageId) || 0} of {proposedVisiblePages.length}</p>
+                    <p className="mt-1 text-sm font-medium text-slate-700">Section {proposedPageNumberById.get(activePageId) || 0} of {proposedSidebar.sectionCount}</p>
                   </div>
                   <Button type="button" variant="outline" size="sm" className="border-slate-200 bg-white text-slate-700" onClick={() => setProposedNavigationOpen((current) => !current)}>
                     {proposedNavigationOpen ? "Hide steps" : "View steps"}
@@ -4906,27 +4915,15 @@ export default function AdminQuestionnaireBuilder({
                   <aside className={`${proposedNavigationOpen ? "block" : "hidden"} w-full shrink-0 border-b border-[#EBE7DF]/80 p-5 shadow-sm sm:p-6 lg:block lg:border-b-0 lg:border-r`}>
                     <div>
                       <span className="mb-1 block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Questionnaire</span>
-                      <p className="text-sm font-semibold text-slate-800">{proposedVisiblePages.length} section{proposedVisiblePages.length === 1 ? "" : "s"}</p>
+                      <p className="text-sm font-semibold text-slate-800">{proposedSidebar.sectionCount} section{proposedSidebar.sectionCount === 1 ? "" : "s"}</p>
                       <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-                        <div className="h-full rounded-full bg-[#244D42] transition-all duration-500" style={{ width: `${proposedVisiblePages.length ? ((proposedPageNumberById.get(activePageId) || 1) / proposedVisiblePages.length) * 100 : 0}%` }} />
+                        <div className="h-full rounded-full bg-[#244D42] transition-all duration-500" style={{ width: `${proposedSidebar.sectionCount ? ((proposedPageNumberById.get(activePageId) || 1) / proposedSidebar.sectionCount) * 100 : 0}%` }} />
                       </div>
                     </div>
 
                     <ScrollArea className="mt-6 h-[min(62vh,680px)] pr-2">
                       <nav className="space-y-2" aria-label="Questionnaire sections">
-                        {proposedPageGroups.filter((group) => group.key !== "non-migrating").map((group) => {
-                          const nestedOtherFamily = group.key === "main-applicant"
-                            ? proposedPageGroups.find((candidate) => candidate.key === "non-migrating")
-                            : null;
-                          const groupIsActive = group.key === activePageGroupKey
-                            || (group.key === "main-applicant" && activePageGroupKey === "non-migrating");
-                          const isExpanded = groupIsActive
-                            || expandedPageGroupKeys.includes(group.key);
-                          const nestedExpanded = activePageGroupKey === "non-migrating"
-                            || expandedPageGroupKeys.includes("non-migrating");
-                          const nestedAfterIndex = nestedOtherFamily
-                            ? group.pages.findIndex((page) => /\/main-applicant\/contact-details$/.test(page.route || ""))
-                            : -1;
+                        {proposedSidebar.entries.map((entry) => {
                           const selectProposedPage = (page) => {
                             setActivePageId(page.id);
                             setActiveQuestionId(page.questions?.[0]?.id || "");
@@ -4934,71 +4931,46 @@ export default function AdminQuestionnaireBuilder({
                             setSectionSettingsOpen(false);
                             setProposedNavigationOpen(false);
                           };
-                          const nestedNavigation = nestedOtherFamily ? (
-                            <Collapsible
-                              open={nestedExpanded}
-                              onOpenChange={(open) => setExpandedPageGroupKeys((current) => open
-                                ? Array.from(new Set([...current, "non-migrating"]))
-                                : current.filter((key) => key !== "non-migrating"))}
-                              className="ml-2 rounded-xl border border-[#e3ebe7] bg-[#fbfcfb] p-1"
-                            >
-                              <CollapsibleTrigger asChild>
-                                <button type="button" className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm font-semibold transition-colors ${activePageGroupKey === "non-migrating" ? "bg-[#e8f3ed] text-[#244D42]" : "text-slate-700 hover:bg-slate-50"}`}>
-                                  <span className="truncate">Other family</span>
-                                  <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${nestedExpanded ? "rotate-180" : ""}`} />
-                                </button>
-                              </CollapsibleTrigger>
-                              <CollapsibleContent className="ml-3 mt-1 space-y-0.5 border-l-2 border-[#dce9e2] pl-3">
-                                {nestedOtherFamily.pages.map((page) => (
-                                  <ProposedNavigationPageButton
-                                    key={page.id}
-                                    active={page.id === activePageId}
-                                    count={pagePresentations.get(page.id)?.primaryCount ?? 0}
-                                    onSelect={() => selectProposedPage(page)}
-                                    page={page}
-                                    stepNumber={proposedPageNumberById.get(page.id) || 0}
-                                  />
-                                ))}
-                              </CollapsibleContent>
-                            </Collapsible>
-                          ) : null;
+                          const renderItem = (item) => (
+                            <ProposedNavigationPageButton
+                              key={item.page.id}
+                              active={item.page.id === activePageId}
+                              count={pagePresentations.get(item.page.id)?.primaryCount ?? 0}
+                              label={item.label}
+                              onSelect={() => selectProposedPage(item.page)}
+                              page={item.page}
+                              stepNumber={item.stepNumber}
+                            />
+                          );
+                          if (entry.kind === "page") return renderItem(entry.item);
+                          const groupIsActive = entry.items.some((item) => item.page.id === activePageId);
+                          const isExpanded = groupIsActive || expandedPageGroupKeys.includes(entry.key);
+                          const canAddHere = availableRoutesByGroup.has(entry.key);
                           return (
                             <Collapsible
-                              key={group.key}
+                              key={entry.key}
                               open={isExpanded}
                               onOpenChange={(open) => setExpandedPageGroupKeys((current) => open
-                                ? Array.from(new Set([...current, group.key]))
-                                : current.filter((key) => key !== group.key))}
+                                ? Array.from(new Set([...current, entry.key]))
+                                : current.filter((key) => key !== entry.key))}
                             >
                               <CollapsibleTrigger asChild>
-                                <button type="button" className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition-colors ${groupIsActive ? "bg-slate-100 text-slate-900" : "text-slate-700 hover:bg-slate-50"}`}>
-                                  <span className="truncate">{group.label}</span>
+                                <button type="button" data-testid="sidebar-group" className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition-colors ${groupIsActive ? "bg-slate-100 text-slate-900" : "text-slate-700 hover:bg-slate-50"}`}>
+                                  <span className="truncate">{entry.label}</span>
                                   <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
                                 </button>
                               </CollapsibleTrigger>
                               <CollapsibleContent className="ml-3 mt-1 space-y-0.5 border-l-2 border-slate-100 pl-3">
-                                {group.pages.map((page, index) => (
-                                  <Fragment key={page.id}>
-                                    <ProposedNavigationPageButton
-                                      active={page.id === activePageId}
-                                      count={pagePresentations.get(page.id)?.primaryCount ?? 0}
-                                      onSelect={() => selectProposedPage(page)}
-                                      page={page}
-                                      stepNumber={proposedPageNumberById.get(page.id) || 0}
-                                    />
-                                    {nestedNavigation && index === nestedAfterIndex ? nestedNavigation : null}
-                                  </Fragment>
-                                ))}
-                                {nestedNavigation && nestedAfterIndex < 0 ? nestedNavigation : null}
+                                {entry.items.map(renderItem)}
                                 <button
                                   type="button"
                                   className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[#b9ccc3] bg-white px-2.5 py-2 text-xs font-semibold text-[#45685d] transition hover:border-[#7fa494] hover:bg-[#eef7f2] disabled:cursor-not-allowed disabled:opacity-50"
-                                  disabled={isBusy || !availableRoutesByGroup.has(group.key)}
-                                  title={availableRoutesByGroup.has(group.key) ? `Add the next available section to ${group.label}` : `All available ${group.label.toLowerCase()} sections are already included`}
-                                  onClick={() => addPage(group.key)}
+                                  disabled={isBusy || !canAddHere}
+                                  title={canAddHere ? `Add the next available section to ${entry.label}` : `All available ${entry.label} sections are already included`}
+                                  onClick={() => addPage(entry.key)}
                                 >
                                   <Plus className="h-3.5 w-3.5" />
-                                  {availableRoutesByGroup.has(group.key) ? "Add section here" : "All sections added"}
+                                  {canAddHere ? "Add section here" : "All sections added"}
                                 </button>
                               </CollapsibleContent>
                             </Collapsible>
@@ -5053,7 +5025,7 @@ export default function AdminQuestionnaireBuilder({
                           setQuestionEditorOpen(false);
                           setSectionSettingsOpen(false);
                         }} className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left text-sm transition ${page.id === activePageId ? "bg-[#e5f1ea] font-semibold text-[#2b5f4d] ring-1 ring-[#add0bf]" : "text-[#587067] hover:bg-[#f2f7f4]"}`}>
-                          <span className="min-w-0 flex-1 whitespace-normal break-words leading-snug" title={page.title}>{page.title}</span>
+                          <span className="min-w-0 flex-1 whitespace-normal break-words leading-snug" title={page.title}>{navigationLabelById.get(page.id) || page.title}</span>
                           <span className="flex shrink-0 items-center gap-2 text-xs text-[#789087]" title="Client-facing questions"><span>{pagePresentations.get(page.id)?.primaryCount ?? 0}</span><ChevronRight className="h-4 w-4" /></span>
                         </button>
                       ))}
@@ -5914,7 +5886,7 @@ export default function AdminQuestionnaireBuilder({
                         }`}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="min-w-0 flex-1 whitespace-normal break-words text-sm font-semibold leading-snug text-[#24453b]" title={page.title}>{page.title}</span>
+                          <span className="min-w-0 flex-1 whitespace-normal break-words text-sm font-semibold leading-snug text-[#24453b]" title={page.title}>{navigationLabelById.get(page.id) || page.title}</span>
                           <ChevronRight className="h-4 w-4 shrink-0 text-[#8aa099]" />
                         </div>
                         <p className="mt-1 text-[11px] text-[#71857d]">{page.metadata?.profileRole ? `${({ main_applicant: "Main Applicant", spouse: "Spouse/Partner", child: "Child", non_migrating: "Other Family" })[page.metadata.profileRole] || page.metadata.profileRole} · ` : ""}{countQuestions(page.questions)} questions</p>

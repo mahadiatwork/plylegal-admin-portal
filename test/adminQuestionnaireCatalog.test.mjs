@@ -8,6 +8,7 @@ import * as questionnaireDrafts from "../src/lib/questionnaireDrafts.js";
 import * as questionnaireContentItems from "../src/lib/questionnaireContentItems.js";
 import * as questionnaireConditionalBranches from "../src/lib/questionnaireConditionalBranches.js";
 import * as questionnaireQuestionDeletion from "../src/lib/questionnaireQuestionDeletion.js";
+import * as questionnaireNavigation from "../src/lib/questionnaireNavigation.js";
 
 const require = createRequire(import.meta.url);
 const { loadBindings, transform } = require("next/dist/build/swc");
@@ -193,6 +194,7 @@ async function loadComponent(relativePath) {
     if (specifier === "@/lib/questionnaireContentItems") return questionnaireContentItems;
     if (specifier === "@/lib/questionnaireConditionalBranches") return questionnaireConditionalBranches;
     if (specifier === "@/lib/questionnaireQuestionDeletion") return questionnaireQuestionDeletion;
+    if (specifier === "@/lib/questionnaireNavigation") return questionnaireNavigation;
     if (specifier === "@/lib/questionnaireClientPresentation") {
       return {
         describeClientCondition: () => "Shown conditionally",

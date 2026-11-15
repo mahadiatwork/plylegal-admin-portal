@@ -8,11 +8,13 @@ import * as crmFieldCatalog from "../src/lib/crmFieldCatalog.js";
 import * as questionnaireClientPresentation from "../src/lib/questionnaireClientPresentation.js";
 import * as questionnaireConditionalBranches from "../src/lib/questionnaireConditionalBranches.js";
 import * as questionnaireQuestionDeletion from "../src/lib/questionnaireQuestionDeletion.js";
+import * as questionnaireNavigation from "../src/lib/questionnaireNavigation.js";
 import * as questionnaireContentItems from "../src/lib/questionnaireContentItems.js";
 import * as questionnaireDrafts from "../src/lib/questionnaireDrafts.js";
 import * as questionnaireCrmContract from "../src/lib/questionnaireCrmContract.js";
 import * as questionnairePageGroups from "../src/lib/questionnairePageGroups.js";
 import { getQuestionnaireWorkflowPages } from "../src/lib/questionnaireWorkflowPages.js";
+import { getBuiltInQuestionnaireDefinition } from "../src/lib/questionnaireBuiltIns.js";
 
 const require = createRequire(import.meta.url);
 const { loadBindings, transform } = require("next/dist/build/swc");
@@ -130,6 +132,7 @@ async function loadComponent(relativePath) {
     if (specifier === "@/lib/questionnaireClientPresentation") return questionnaireClientPresentation;
     if (specifier === "@/lib/questionnaireConditionalBranches") return questionnaireConditionalBranches;
     if (specifier === "@/lib/questionnaireQuestionDeletion") return questionnaireQuestionDeletion;
+    if (specifier === "@/lib/questionnaireNavigation") return questionnaireNavigation;
     if (specifier === "@/lib/questionnaireContentItems") return questionnaireContentItems;
     if (specifier === "@/lib/questionnaireDrafts") return questionnaireDrafts;
     if (specifier === "@/lib/crmFieldCatalog") return crmFieldCatalog;
@@ -231,6 +234,29 @@ function followUpTreeItem(harness, label) {
       React.isValidElement(child) && child.props?.["aria-label"] === `Edit “${label}”`),
     `Expected ${label} in the follow-up dialog`,
   );
+}
+
+/** The new layout's sidebar steps in order: `{ number, label, count, button }` (number "" if none). */
+function sidebarSections(harness) {
+  const navigation = harness.find((node) => node.type === "nav" && node.props["aria-label"] === "Questionnaire sections");
+  return [...walk(navigation)]
+    .filter((node) => node.props?.["data-testid"] === "sidebar-section")
+    .map((button) => {
+      const part = (testId) => [...walk(button)].find((node) => node.props?.["data-testid"] === testId);
+      return {
+        number: part("sidebar-step-number") ? text(part("sidebar-step-number")) : "",
+        label: text(part("sidebar-section-label")),
+        count: text(part("sidebar-question-count")),
+        button,
+      };
+    });
+}
+
+/** Sidebar entries show the client navigation label; the page heading is their tooltip. */
+function sidebarHasPageHeading(harness, heading) {
+  return harness.nodes().some((node) =>
+    typeof node.type === "string" && typeof node.props?.title === "string" &&
+    (node.props.title === heading || node.props.title.endsWith(`(page heading: ${heading})`)));
 }
 
 /** The open "Delete question" confirmation, or undefined. */
@@ -749,7 +775,7 @@ test("a copied test can add and delete registered pages and questions while keep
 
   harness.control("Add page").props.onClick();
   harness.render();
-  assert.ok(text(harness.tree).includes("Health details"));
+  assert.ok(sidebarHasPageHeading(harness, "Health details"), "the added page is listed (under its client label, with its heading as the tooltip)");
   assert.equal(harness.button("Add question").props.disabled, false);
 
   harness.button("Add question").props.onClick();
@@ -769,7 +795,7 @@ test("a copied test can add and delete registered pages and questions while keep
   assert.equal(harness.control("Delete page").props.disabled, false);
   harness.control("Delete page").props.onClick();
   harness.render();
-  assert.equal(text(harness.tree).includes("Health details"), false);
+  assert.equal(sidebarHasPageHeading(harness, "Health details"), false);
   assert.ok(text(harness.tree).includes("1 total"));
   assert.equal(definition.pages.length, 1, "draft structure edits must not mutate the live source");
   assert.equal(definition.pages[0].questions.length, 3);
@@ -786,7 +812,7 @@ test("a live questionnaire can add pages, add questions, edit them, and delete t
   assert.equal(harness.control("Add page").props.disabled, false);
   harness.control("Add page").props.onClick();
   harness.render();
-  assert.ok(text(harness.tree).includes("Health details"));
+  assert.ok(sidebarHasPageHeading(harness, "Health details"), "the added page is listed (under its client label, with its heading as the tooltip)");
   assert.ok(text(harness.tree).includes("2 total"));
 
   // 2. Add question to the new page
@@ -817,7 +843,7 @@ test("a live questionnaire can add pages, add questions, edit them, and delete t
   assert.equal(harness.control("Delete page").props.disabled, false);
   harness.control("Delete page").props.onClick();
   harness.render();
-  assert.equal(text(harness.tree).includes("Health details"), false);
+  assert.equal(sidebarHasPageHeading(harness, "Health details"), false);
   assert.ok(text(harness.tree).includes("1 total"));
 });
 
@@ -1405,7 +1431,7 @@ test("the proposed layout nests the composite Other Family page under Main Appli
   const [start, profile, otherFamily] = getQuestionnaireWorkflowPages("temporary-work");
   const mainPages = ["Details", "Other Names", "Identity", "Contact Details", "Employment"].map((title, index) => ({
     id: `main-${index}`,
-    route: `/intake/temporary-work/main-applicant/${title.toLowerCase().replaceAll(" ", "-")}`,
+    route: `/intake/temporary-work/main-applicant/${title === "Other Names" ? "other" : title.toLowerCase().replaceAll(" ", "-")}`,
     title,
     sectionKey: `main_${index}`,
     completionKey: `temporary-work/main-applicant/${index}`,
@@ -1445,17 +1471,12 @@ test("the proposed layout nests the composite Other Family page under Main Appli
 
   const navigation = harness.find((node) => node.type === "nav" && node.props["aria-label"] === "Questionnaire sections");
   const navigationText = text(navigation);
-  const navigationLabels = [...walk(navigation)]
-    .filter((node) => node.type === "button")
-    .map((node) => text(node));
-  assert.ok(navigationText.includes("Main applicant"));
-  assert.ok(navigationText.includes("Other family"));
-  const contactIndex = navigationLabels.findIndex((label) => label.includes("Contact Details"));
-  const otherFamilyIndex = navigationLabels.indexOf("Other family");
-  const employmentIndex = navigationLabels.findIndex((label) => label.includes("Employment"));
-  assert.ok(contactIndex >= 0 && contactIndex < otherFamilyIndex);
-  assert.ok(otherFamilyIndex < employmentIndex);
-  assert.equal(navigationLabels.some((label) => label.startsWith("Identity Documents")), false, "technical member pages should be hidden from the new layout");
+  // As in the client: Other Family is a numbered step of Main Applicant, after Contact Details.
+  assert.ok(navigationText.includes("Main Applicant"));
+  assert.deepEqual(sidebarSections(harness).map(({ number, label }) => `${number} ${label}`), [
+    "1 Getting Started", "2 Included Applicants",
+    "3 Details", "4 Other Names", "5 Identity", "6 Contact Details", "7 Other Family", "8 Employment",
+  ], "technical member pages are hidden from the new layout and take no numbers");
 
   harness.buttonMatching(/Other Family/).props.onClick();
   harness.render();
@@ -2094,4 +2115,64 @@ test("legacy locked pages offer no question deletion", async (t) => {
   assert.equal(harness.button("Delete question").props.disabled, true);
   assert.equal(deleteDialog(harness), undefined);
   assert.equal(calls.some(({ options }) => options.method === "PUT"), false);
+});
+
+// ── Sidebar navigation matches the Client Portal ──────────────────────────────────────────
+
+function builtIn482() {
+  return { ...getBuiltInQuestionnaireDefinition({ visaType: "temporary-work", visaContext: "482" }), id: "built-in-482", status: "draft", revision: 1 };
+}
+
+test("the new layout sidebar uses the client's 482 labels, order and consecutive step numbers", async (t) => {
+  const definition = builtIn482();
+  const { harness } = await openDefinitionInEditor(t, definition);
+  const sections = sidebarSections(harness);
+
+  assert.deepEqual(sections.slice(0, 11).map(({ number, label }) => `${number} ${label}`), [
+    "1 Getting Started", "2 Included Applicants",
+    "3 Details", "4 Other Names", "5 Identity", "6 Contact Details", "7 Other Family",
+    "8 Employment", "9 Education", "10 Skills", "11 Language",
+  ]);
+  assert.deepEqual(sections.map(({ number }) => Number(number)), sections.map((_, index) => index + 1), "no gaps across the whole sidebar");
+  assert.equal(sections.length, 23);
+  assert.equal(sections.some(({ label }) => label === "Passport"), false, "hidden member template pages are not listed");
+  assert.match(text(harness.tree), /23 sections/);
+
+  // The right-hand number is still each page's client-facing question count.
+  const byTitle = new Map(definition.pages.map((page) => [page.title, page]));
+  const otherNames = sections[3];
+  const page = byTitle.get("Main Applicant's Other Details");
+  assert.equal(otherNames.count, String(questionnaireClientPresentation.getClientQuestionnairePresentation(page, definition).primaryCount));
+  sections.forEach((section) => assert.match(section.count, /^\d+$/));
+
+  // Choosing a step opens that page; its heading is unchanged.
+  otherNames.button.props.onClick();
+  harness.render();
+  assert.equal(text(harness.find((node) => node.props?.["data-testid"] === "portal-section-title")), "Main Applicant's Other Details");
+  assert.equal(sidebarSections(harness)[3].button.props["aria-current"], "page");
+  assert.match(text(harness.tree), /Section 4 of 23/);
+
+  sidebarSections(harness)[6].button.props.onClick();
+  harness.render();
+  assert.equal(text(harness.find((node) => node.props?.["data-testid"] === "portal-section-title")), "Other Family");
+  assert.equal(sidebarSections(harness)[6].label, "Other Family");
+});
+
+test("the current layout lists sections under their client labels in client order", async (t) => {
+  const definition = builtIn482();
+  // Stored with the Other Family page last, as older saved definitions may be.
+  const otherFamily = definition.pages.find((page) => page.route === "/intake/temporary-work/non-migrating");
+  definition.pages = [...definition.pages.filter((page) => page !== otherFamily), otherFamily];
+  const { harness } = await mountBuilder(t, { definition });
+
+  harness.control("embedded-questionnaire-page-group").props.onChange({ target: { value: "main-applicant" } });
+  harness.render();
+  const mainHeadings = new Set(definition.pages
+    .filter((page) => page.route.includes("/main-applicant/"))
+    .map((page) => page.title));
+  const listed = harness.nodes()
+    .filter((node) => node.type === "span" && mainHeadings.has(node.props.title))
+    .map((node) => [text(node), node.props.title]);
+  assert.deepEqual(listed.map(([label]) => label), ["Details", "Other Names", "Identity", "Contact Details", "Employment", "Education", "Skills", "Language"]);
+  assert.deepEqual(listed[1], ["Other Names", "Main Applicant's Other Details"], "the heading stays available as the tooltip");
 });
