@@ -12,6 +12,7 @@ import {
   toggleVisualHeadingCommand,
   visualHeadingKeyboardShortcuts,
 } from "@/lib/richTextEditor";
+import { useDialogs } from "@/components/ui/confirm-dialog";
 import {
   AlignCenter,
   AlignJustify,
@@ -123,6 +124,7 @@ export function RichTextEditor({
   placeholder = "Write your note…",
 }) {
   const onChangeRef = useRef(onChange);
+  const { prompt } = useDialogs();
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -198,18 +200,24 @@ export function RichTextEditor({
     );
   }
 
-  const promptForLink = () => {
-    const entered = window.prompt(
-      "Enter a link (http, https, mailto or tel)",
-      editor.getAttributes("link").href || "",
-    );
+  const promptForLink = async () => {
+    const entered = await prompt({
+      title: "Add a link",
+      description: "Paste a web address, email address or phone number.",
+      label: "Link",
+      defaultValue: editor.getAttributes("link").href || "",
+      placeholder: "https://example.com",
+      helper: "Accepted: http, https, mailto and tel links.",
+      confirmLabel: "Add link",
+      validate: (value) =>
+        value.trim() && normalizeLinkInput(value)
+          ? ""
+          : "Enter a valid http, https, mailto or tel link.",
+    });
     if (entered === null) return;
 
     const href = normalizeLinkInput(entered);
-    if (!href) {
-      window.alert("Enter a valid http, https, mailto or tel link.");
-      return;
-    }
+    if (!href) return;
 
     editor.chain().focus().extendMarkRange("link").setLink({ href }).run();
   };

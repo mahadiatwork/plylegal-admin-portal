@@ -81,6 +81,33 @@ const richTextModule = {
   },
 };
 
+/** The in-app dialog helper, backed by the harness's window mocks. */
+const dialogStub = {
+  useDialogs: () => ({
+    confirm: async (options) => Boolean(globalThis.window?.confirm?.(dialogText(options))),
+    alert: async (options) => globalThis.window?.alert?.(dialogText(options)),
+    prompt: async (options) => {
+      const fields = Array.isArray(options?.fields) && options.fields.length
+        ? options.fields
+        : [{ name: "value", label: options?.label || "", defaultValue: options?.defaultValue ?? "" }];
+      const answers = {};
+      for (const field of fields) {
+        const answer = globalThis.window?.prompt?.(field.label || "", field.defaultValue ?? "");
+        if (answer === null || answer === undefined) return null;
+        answers[field.name] = answer;
+      }
+      return Array.isArray(options?.fields) && options.fields.length ? answers : answers.value;
+    },
+  }),
+};
+
+function dialogText(options) {
+  if (typeof options === "string") return options;
+  if (!options) return "";
+  const details = Array.isArray(options.details) ? options.details : [];
+  return [options.title, options.description, options.warning, ...details].filter(Boolean).join("\n");
+}
+
 async function loadComponent(relativePath, overrides = {}) {
   const filename = path.resolve(relativePath);
   const source = await readFile(filename, "utf8");
@@ -105,6 +132,7 @@ async function loadComponent(relativePath, overrides = {}) {
     if (specifier === "@/components/ui/badge") return { Badge: "span" };
     if (specifier === "@/components/ui/input") return { Input: "input" };
     if (specifier === "@/components/ui/textarea") return { Textarea: "textarea" };
+    if (specifier === "@/components/ui/confirm-dialog") return dialogStub;
     if (specifier === "@/components/ui/rich-text") return richTextModule;
     if (specifier === "@/components/matter/MatterTabLoadingState") {
       return {

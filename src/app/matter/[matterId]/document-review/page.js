@@ -18,6 +18,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useDialogs } from "@/components/ui/confirm-dialog";
 
 const DOCUMENT_SOURCE = "documentReview";
 const MAX_DOCUMENT_SIZE = 50 * 1024 * 1024;
@@ -182,6 +183,7 @@ export default function DocumentReviewPage() {
   const matterId = params.matterId;
   const matterData = useMatterData();
   const application = matterData?.application || null;
+  const { confirm } = useDialogs();
 
   const [resources, setResources] = useState([]);
   const [comments, setComments] = useState([]);
@@ -364,7 +366,13 @@ export default function DocumentReviewPage() {
   const handleRemoveDocument = async () => {
     if (!documentResource?.id) return;
 
-    const confirmed = window.confirm("Remove this document from review?");
+    const confirmed = await confirm({
+      tone: "warning",
+      title: "Remove this document from review?",
+      description: "The document will be taken out of the review queue for this matter.",
+      details: ["Comments and correction requests on it stop appearing here."],
+      confirmLabel: "Remove document",
+    });
     if (!confirmed) return;
 
     try {

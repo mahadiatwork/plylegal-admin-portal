@@ -26,6 +26,7 @@ import {
   RichTextEditor,
 } from "@/components/ui/rich-text";
 import MatterTabLoadingState from "@/components/matter/MatterTabLoadingState";
+import { useDialogs } from "@/components/ui/confirm-dialog";
 import ResourceFoldersSidebar, {
   categoryIconOptions,
 } from "@/components/admin/ResourceFoldersSidebar";
@@ -193,6 +194,7 @@ export default function AdminResourceTemplatesManager({
   onScopeChange = null,
   matterOnly = false,
 }) {
+  const { confirm, prompt } = useDialogs();
   const [templates, setTemplates] = useState([]);
   const [itemsBySlug, setItemsBySlug] = useState({});
   const [activeVisa, setActiveVisa] = useState(GLOBAL_SCOPE);
@@ -698,17 +700,32 @@ export default function AdminResourceTemplatesManager({
   const handleRenameCategory = async (category) => {
     if (!isActiveTemplateAvailable) return;
     if (category.name.toLowerCase() === "uncategorized") return;
-    const nextName = window.prompt("Folder name", category.name);
-    if (nextName === null) return;
+    const renamed = await prompt({
+      title: "Rename folder",
+      description: `Update how “${category.name}” appears in the resource library.`,
+      fields: [
+        {
+          name: "name",
+          label: "Folder name",
+          defaultValue: category.name,
+          placeholder: "e.g. Guides",
+        },
+        {
+          name: "description",
+          label: "Folder description (optional)",
+          defaultValue: category.description || "",
+          placeholder: "What staff will find in this folder",
+          multiline: true,
+        },
+      ],
+      validate: ({ name }) => (cleanText(name) ? "" : "Enter a folder name."),
+      confirmLabel: "Save folder",
+    });
+    if (renamed === null) return;
 
-    const replacementName = cleanText(nextName);
+    const replacementName = cleanText(renamed.name);
     if (!replacementName) return;
-    const nextDescription = window.prompt(
-      "Folder description (optional)",
-      category.description || "",
-    );
-    if (nextDescription === null) return;
-    const replacementDescription = cleanText(nextDescription);
+    const replacementDescription = cleanText(renamed.description);
     if (replacementName === category.name && replacementDescription === cleanText(category.description)) return;
 
     const scope = templateBySlug[selectedScope]?.title || selectedScope;
@@ -771,9 +788,17 @@ export default function AdminResourceTemplatesManager({
     if (!isActiveTemplateAvailable) return;
     if (category.name.toLowerCase() === "uncategorized") return;
     const scope = templateBySlug[selectedScope]?.title || selectedScope;
-    if (!window.confirm(
-      `Delete the "${category.name}" category from ${scope}? Existing resources will be moved to Uncategorized. Files, notes, and links will be kept.`
-    )) return;
+    const confirmed = await confirm({
+      tone: "danger",
+      title: "Delete this folder?",
+      description: `“${category.name}” will be removed from ${scope}.`,
+      details: [
+        "Resources inside it are moved to Uncategorized.",
+        "Files, notes and links are kept.",
+      ],
+      confirmLabel: "Delete folder",
+    });
+    if (!confirmed) return;
 
     try {
       setDeletingCategory(category.name);
@@ -981,10 +1006,21 @@ export default function AdminResourceTemplatesManager({
   const handleDelete = async (item) => {
     if (failedTemplateSlugSet.has(item.visaSlug)) return;
     const resourceName = item.name || item.fileName || "this resource";
-    const confirmed = window.confirm(
+    const confirmed = await confirm(
       item.deletionPending
-        ? `Retry deletion of "${resourceName}" from Zoho WorkDrive and Firebase?`
-        : `Delete "${resourceName}" from Zoho WorkDrive and Firebase?`
+        ? {
+            tone: "danger",
+            title: "Retry deletion?",
+            description: `“${resourceName}” was not fully removed last time. Retry deleting it from Zoho WorkDrive and Firebase?`,
+            confirmLabel: "Retry deletion",
+          }
+        : {
+            tone: "danger",
+            title: "Delete this resource?",
+            description: `“${resourceName}” will be permanently deleted from Zoho WorkDrive and Firebase.`,
+            details: ["Staff and clients will lose access to it.", "This cannot be undone."],
+            confirmLabel: "Delete resource",
+          }
     );
     if (!confirmed) return;
 

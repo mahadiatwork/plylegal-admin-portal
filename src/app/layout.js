@@ -1,4 +1,5 @@
 import "./globals.css";
+import { DialogProvider } from "@/components/ui/confirm-dialog";
 
 export const metadata = {
   title: "Ply Legal Admin Portal",
@@ -13,7 +14,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en" className="h-full antialiased" suppressHydrationWarning>
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
-        {children}
+        <DialogProvider>{children}</DialogProvider>
       </body>
     </html>
   );

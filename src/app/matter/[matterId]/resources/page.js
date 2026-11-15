@@ -25,6 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { RichTextContent, RichTextEditor } from "@/components/ui/rich-text";
 import { Textarea } from "@/components/ui/textarea";
+import { useDialogs } from "@/components/ui/confirm-dialog";
 import AdminResourceTemplatesManager from "@/components/admin/AdminResourceTemplatesManager";
 import ResourceFoldersSidebar from "@/components/admin/ResourceFoldersSidebar";
 import MatterTabLoadingState from "@/components/matter/MatterTabLoadingState";
@@ -299,6 +300,7 @@ export default function ResourcesPage() {
 export function MatterResourcesManager({ matterId, resourceSource = "", pageTitle = "Resources" }) {
   const sharedFilesMode = resourceSource === "sharedFiles";
   const resourceQuery = sharedFilesMode ? "?source=sharedFiles" : "";
+  const { confirm, prompt } = useDialogs();
   const [individualResources, setIndividualResources] = useState([]);
   const [isIndividualLoading, setIsIndividualLoading] = useState(true);
   const [mode, setMode] = useState("file");
@@ -669,16 +671,31 @@ export function MatterResourcesManager({ matterId, resourceSource = "", pageTitl
   };
 
   const handleRenameCategory = async (category) => {
-    const promptedName = window.prompt("Folder name", category.name);
-    if (promptedName === null) return;
-    const nextName = promptedName.trim();
+    const renamed = await prompt({
+      title: "Rename folder",
+      description: `Update how “${category.name}” appears for this matter.`,
+      fields: [
+        {
+          name: "name",
+          label: "Folder name",
+          defaultValue: category.name,
+          placeholder: "e.g. Guides",
+        },
+        {
+          name: "description",
+          label: "Folder description (optional)",
+          defaultValue: category.description || "",
+          placeholder: "What staff will find in this folder",
+          multiline: true,
+        },
+      ],
+      validate: ({ name }) => (name.trim() ? "" : "Enter a folder name."),
+      confirmLabel: "Save folder",
+    });
+    if (renamed === null) return;
+    const nextName = renamed.name.trim();
     if (!nextName) return;
-    const promptedDescription = window.prompt(
-      "Folder description (optional)",
-      category.description || "",
-    );
-    if (promptedDescription === null) return;
-    const nextDescription = promptedDescription.trim();
+    const nextDescription = renamed.description.trim();
     if (nextName === category.name && nextDescription === String(category.description || "").trim()) return;
 
     try {
@@ -709,12 +726,17 @@ export function MatterResourcesManager({ matterId, resourceSource = "", pageTitl
   };
 
   const handleDeleteCategory = async (category) => {
-    if (
-      !window.confirm(
-        `Delete the “${category.name}” folder? Existing resources will be moved to Uncategorized. Files, notes, and links will be kept.`,
-      )
-    )
-      return;
+    const confirmed = await confirm({
+      tone: "danger",
+      title: "Delete this folder?",
+      description: `“${category.name}” will be removed from this matter’s resources.`,
+      details: [
+        "Resources inside it are moved to Uncategorized.",
+        "Files, notes and links are kept.",
+      ],
+      confirmLabel: "Delete folder",
+    });
+    if (!confirmed) return;
 
     try {
       setDeletingCategory(category.name);
@@ -853,10 +875,22 @@ export function MatterResourcesManager({ matterId, resourceSource = "", pageTitl
   };
 
   const handleArchive = async (resource) => {
-    const confirmed = window.confirm(
+    const resourceName = resource.title || resource.fileName || "this resource";
+    const confirmed = await confirm(
       resource.workDriveCleanupPending
-        ? `Retry WorkDrive cleanup for "${resource.title || resource.fileName}"?`
-        : `Archive "${resource.title || resource.fileName}"?`,
+        ? {
+            tone: "warning",
+            title: "Retry WorkDrive cleanup?",
+            description: `“${resourceName}” was archived, but its file was not removed from Zoho WorkDrive. Retry the cleanup?`,
+            confirmLabel: "Retry cleanup",
+          }
+        : {
+            tone: "warning",
+            title: "Archive this resource?",
+            description: `“${resourceName}” will be archived and hidden from this matter’s resource list.`,
+            details: ["Staff can still find it in the archived view.", "You can restore it later."],
+            confirmLabel: "Archive resource",
+          }
     );
     if (!confirmed) return;
 

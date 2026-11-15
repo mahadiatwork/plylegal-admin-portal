@@ -33,6 +33,7 @@ import {
   RichTextEditor,
 } from "@/components/ui/rich-text";
 import { Textarea } from "@/components/ui/textarea";
+import { useDialogs } from "@/components/ui/confirm-dialog";
 import { getWorkDrivePreviewUrl } from "@/lib/workDrivePreviewUrl.mjs";
 
 const statusOptions = [
@@ -336,6 +337,7 @@ function ResourceRow({
 }
 
 export default function AdminResourcesManager() {
+  const { confirm } = useDialogs();
   const [resources, setResources] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -581,7 +583,12 @@ export default function AdminResourcesManager() {
   };
 
   const handleArchive = async (resource) => {
-    const confirmed = window.confirm(`Archive "${resource.title || resource.fileName || "this resource"}"?`);
+    const confirmed = await confirm({
+      tone: "warning",
+      title: "Archive this resource?",
+      description: `“${resource.title || resource.fileName || "This resource"}” will be hidden from the shared library. You can restore it to draft at any time.`,
+      confirmLabel: "Archive resource",
+    });
     if (!confirmed) return;
 
     await mutateResource(
@@ -598,9 +605,13 @@ export default function AdminResourcesManager() {
   };
 
   const handleDelete = async (resource) => {
-    const confirmed = window.confirm(
-      `Delete "${resource.title || resource.fileName || "this resource"}"? This removes it from the shared library.`
-    );
+    const confirmed = await confirm({
+      tone: "danger",
+      title: "Delete this resource?",
+      description: `“${resource.title || resource.fileName || "This resource"}” will be permanently removed from the shared library.`,
+      details: ["Staff and clients will no longer be able to open it.", "This cannot be undone."],
+      confirmLabel: "Delete resource",
+    });
     if (!confirmed) return;
 
     try {

@@ -70,6 +70,36 @@ const starterDefinition = {
 
 let registeredQuestionnaireRoutes = [];
 
+/**
+ * The in-app dialog helper, backed by the harness's window.confirm/window.prompt mocks, so tests
+ * keep recording the copy a confirmation shows and answering it.
+ */
+const dialogStub = {
+  useDialogs: () => ({
+    confirm: async (options) => Boolean(globalThis.window?.confirm?.(dialogText(options))),
+    alert: async (options) => globalThis.window?.alert?.(dialogText(options)),
+    prompt: async (options) => {
+      const fields = Array.isArray(options?.fields) && options.fields.length
+        ? options.fields
+        : [{ name: "value", label: options?.label || "", defaultValue: options?.defaultValue ?? "" }];
+      const answers = {};
+      for (const field of fields) {
+        const answer = globalThis.window?.prompt?.(field.label || "", field.defaultValue ?? "");
+        if (answer === null || answer === undefined) return null;
+        answers[field.name] = answer;
+      }
+      return Array.isArray(options?.fields) && options.fields.length ? answers : answers.value;
+    },
+  }),
+};
+
+function dialogText(options) {
+  if (typeof options === "string") return options;
+  if (!options) return "";
+  const details = Array.isArray(options.details) ? options.details : [];
+  return [options.title, options.description, options.warning, ...details].filter(Boolean).join("\n");
+}
+
 async function loadComponent(relativePath) {
   const filename = path.resolve(relativePath);
   const source = await readFile(filename, "utf8");
@@ -101,6 +131,7 @@ async function loadComponent(relativePath) {
     if (specifier === "@/components/ui/input") return { Input: "input" };
     if (specifier === "@/components/ui/scroll-area") return { ScrollArea: "div" };
     if (specifier === "@/components/ui/textarea") return { Textarea: "textarea" };
+    if (specifier === "@/components/ui/confirm-dialog") return dialogStub;
     if (specifier === "@/components/matter/MatterTabLoadingState") {
       return {
         __esModule: true,
@@ -678,7 +709,7 @@ test("copy as test creates a separate draft and saving posts it without mutating
     routes: questionnaireRoutes,
   });
 
-  harness.button("Copy as draft").props.onClick();
+  await harness.button("Copy as draft").props.onClick();
   harness.render();
 
   assert.equal(harness.control("questionnaire-title").props.value, "Rich questionnaire — Draft");
@@ -765,7 +796,7 @@ test("a copied test can add and delete registered pages and questions while keep
     routes: questionnaireRoutes,
   });
 
-  harness.button("Copy as draft").props.onClick();
+  await harness.button("Copy as draft").props.onClick();
   harness.render();
 
   assert.equal(harness.control("Add page").props.disabled, false);
@@ -793,7 +824,7 @@ test("a copied test can add and delete registered pages and questions while keep
   assert.ok(text(harness.tree).includes("No questions on this page."));
 
   assert.equal(harness.control("Delete page").props.disabled, false);
-  harness.control("Delete page").props.onClick();
+  await harness.control("Delete page").props.onClick();
   harness.render();
   assert.equal(sidebarHasPageHeading(harness, "Health details"), false);
   assert.ok(text(harness.tree).includes("1 total"));
@@ -841,7 +872,7 @@ test("a live questionnaire can add pages, add questions, edit them, and delete t
 
   // 5. Delete page
   assert.equal(harness.control("Delete page").props.disabled, false);
-  harness.control("Delete page").props.onClick();
+  await harness.control("Delete page").props.onClick();
   harness.render();
   assert.equal(sidebarHasPageHeading(harness, "Health details"), false);
   assert.ok(text(harness.tree).includes("1 total"));
@@ -1294,7 +1325,7 @@ test("the matter builder switches between its questionnaire list and the new lay
   assert.ok(text(harness.tree).includes("Design preview."));
   assert.equal(harness.maybeControl("embedded-questionnaire-page-group"), undefined);
 
-  harness.button("Visa questionnaires").props.onClick();
+  await harness.button("Visa questionnaires").props.onClick();
   harness.render();
 
   assert.equal(replacedUrls.at(-1), "/matter/app-123/questionnaire-builder?layout=proposed&view=list");
@@ -1309,7 +1340,7 @@ test("the matter builder switches between its questionnaire list and the new lay
 
   harness.button("Current layout").props.onClick();
   harness.render();
-  harness.button("Visa questionnaires").props.onClick();
+  await harness.button("Visa questionnaires").props.onClick();
   harness.render();
   assert.equal(replacedUrls.at(-1), "/matter/app-123/questionnaire-builder?layout=current&view=list");
   assert.ok(rowActionToggles(harness).length, "Expected the questionnaire list with row actions");
@@ -1527,7 +1558,10 @@ test("the proposed layout supports pencil editing and inserts a question between
   harness.render();
   harness.button("Question").props.onClick();
   harness.render();
-  assert.ok(harness.find((node) => node.props?.["data-testid"] === "inline-question-editor"));
+  // Creating a question opens the same "Question and follow-ups" dialog as editing one.
+  assert.ok(harness.find((node) => node.props?.["data-testid"] === "follow-up-dialog"));
+  harness.button("Keep question").props.onClick();
+  harness.render();
 
   await harness.button("Save changes").props.onClick();
   const saveCall = calls.find(({ url, options }) =>
@@ -1608,7 +1642,9 @@ test("the proposed layout exposes visible question and sidebar section creation 
   assert.equal(saved.pages[1].route, "/intake/temporary-work/main-applicant/other");
 });
 
-test("the proposed inline editor can delete a newly added question", async (t) => {
+const followUpDialogOf = (harness) => harness.nodes().find((node) => node.props?.["data-testid"] === "follow-up-dialog");
+
+test("a newly added question can be discarded from the dialog without leaving a placeholder", async (t) => {
   const { harness, calls } = await mountBuilder(t, {
     definition: richDefinition(),
     embeddedInMatter: false,
@@ -1618,18 +1654,13 @@ test("the proposed inline editor can delete a newly added question", async (t) =
   harness.render();
   harness.button("Add question").props.onClick();
   harness.render();
+  assert.ok(followUpDialogOf(harness), "Expected the new question to open the dialog");
+  assert.ok(harness.maybeControl("Edit “New question”"), "Expected the new question in the dialog tree");
 
-  const deleteControl = harness.control("Delete question");
-  assert.match(deleteControl.props.className, /text-red-600/);
-  deleteControl.props.onClick();
+  harness.button("Discard new question").props.onClick();
   harness.render();
-  confirmDeletion(harness);
 
-  assert.equal(
-    harness.nodes().some((node) => node.props?.["data-testid"] === "inline-question-editor"),
-    false,
-    "Expected the inline editor to close after deletion",
-  );
+  assert.equal(followUpDialogOf(harness), undefined);
   assert.equal(harness.maybeControl("Edit New question"), undefined);
 
   await harness.button("Save changes").props.onClick();
@@ -1641,6 +1672,118 @@ test("the proposed inline editor can delete a newly added question", async (t) =
     savedPage.questions.map((question) => question.label),
     ["Original question text?", "Eligibility source", "Record question"],
   );
+});
+
+test("closing an untouched new question discards it; closing an edited one asks first", async (t) => {
+  const prompts = [];
+  let answer = false;
+  const { harness } = await mountBuilder(t, {
+    definition: richDefinition(),
+    embeddedInMatter: false,
+    confirm: (message) => { prompts.push(message); return answer; },
+  });
+  await chooseRowAction(harness, /^(Edit|Use template)$/);
+  harness.render();
+
+  harness.button("Add question").props.onClick();
+  harness.render();
+  await harness.buttonMatching(/^Close\s*$/).props.onClick();
+  harness.render();
+  assert.equal(followUpDialogOf(harness), undefined);
+  assert.equal(harness.maybeControl("Edit New question"), undefined, "untouched question is removed silently");
+  assert.equal(prompts.length, 0);
+
+  harness.button("Add question").props.onClick();
+  harness.render();
+  const label = harness.find((node) => node.type === "textarea" && /^inline-label-question-/.test(node.props.id || ""));
+  label.props.onChange({ target: { value: "Kept unless discarded" } });
+  harness.render();
+  await harness.buttonMatching(/^Close\s*$/).props.onClick();
+  harness.render();
+  assert.match(prompts.at(-1), /Discard this new question/);
+  assert.ok(followUpDialogOf(harness), "declining keeps the dialog open");
+  answer = true;
+  await harness.buttonMatching(/^Close\s*$/).props.onClick();
+  harness.render();
+  assert.equal(followUpDialogOf(harness), undefined);
+  assert.equal(harness.maybeControl("Edit Kept unless discarded"), undefined);
+});
+
+test("a question can be created with a follow-up in the dialog and saved as a draft", async (t) => {
+  const { harness, calls } = await openOtherPersonalDetails(t);
+
+  harness.button("Add question").props.onClick();
+  harness.render();
+  const label = harness.find((node) => node.type === "textarea" && /^inline-label-question-/.test(node.props.id || ""));
+  label.props.onChange({ target: { value: "Do you have a nickname?" } });
+  harness.render();
+  harness.find((node) => node.type === "select" && String(node.props.id || "").startsWith("inline-type-"))
+    .props.onChange({ target: { value: "yesNo" } });
+  harness.render();
+
+  harness.button("Add question for “Yes”").props.onClick();
+  harness.render();
+  harness.find((node) => node.type === "textarea" && /^inline-label-question-/.test(node.props.id || ""))
+    .props.onChange({ target: { value: "What is it?" } });
+  harness.render();
+  assert.match(text(followUpTreeItem(harness, "Do you have a nickname?")), /If “Yes”What is it\?/);
+
+  harness.button("Keep question").props.onClick();
+  harness.render();
+  assert.equal(followUpDialogOf(harness), undefined);
+
+  await harness.button("Save changes").props.onClick();
+  const questions = savedQuestionnairePage(calls).questions;
+  const trigger = questions.find((question) => question.label === "Do you have a nickname?");
+  const followUp = questions.find((question) => question.label === "What is it?");
+  assert.equal(trigger.type, "yesNo");
+  assert.deepEqual(followUp.visibleIf, [{ field: trigger.answerKey, op: "equals", value: "yes" }]);
+  assert.equal(questions.indexOf(followUp), questions.indexOf(trigger) + 1, "follow-up stays directly after its trigger");
+});
+
+test("editing a question that has no follow-ups opens the dialog and keeps its ids", async (t) => {
+  const { harness, calls } = await openOtherPersonalDetails(t);
+
+  harness.control("Edit Is your name spelt differently anywhere?").props.onClick();
+  harness.render();
+  assert.ok(followUpDialogOf(harness), "every question edits in the dialog");
+  assert.equal(harness.maybeControl("Keep question"), undefined, "an existing question has no discard step");
+  harness.find((node) => node.type === "textarea" && node.props.id === "inline-label-other_spelling")
+    .props.onChange({ target: { value: "Is your name spelt another way?" } });
+  harness.render();
+  harness.button("Done").props.onClick();
+  harness.render();
+  assert.equal(followUpDialogOf(harness), undefined);
+
+  await harness.button("Save changes").props.onClick();
+  const edited = savedQuestionnairePage(calls).questions.find((question) => question.id === "other_spelling");
+  assert.equal(edited.label, "Is your name spelt another way?");
+  assert.equal(edited.answerKey, "other_spelling");
+});
+
+test("a question without fixed answers can reveal a follow-up through a display rule", async (t) => {
+  const { harness, calls } = await openOtherPersonalDetails(t);
+
+  harness.control("Edit Do you use a Chinese Commercial Code?").props.onClick();
+  harness.render();
+  harness.control("Edit “Chinese Commercial Code”").props.onClick();
+  harness.render();
+  harness.button("Add question shown by a rule").props.onClick();
+  harness.render();
+  harness.find((node) => node.type === "textarea" && /^inline-label-question-/.test(node.props.id || ""))
+    .props.onChange({ target: { value: "Why this code?" } });
+  harness.render();
+
+  harness.control("Rule").props.onChange({ target: { value: "equals" } });
+  harness.render();
+  harness.control("Answer").props.onChange({ target: { value: "ABC" } });
+  harness.render();
+  harness.button("Done").props.onClick();
+  harness.render();
+
+  await harness.button("Save changes").props.onClick();
+  const followUp = savedQuestionnairePage(calls).questions.find((question) => question.label === "Why this code?");
+  assert.deepEqual(followUp.visibleIf, [{ field: "chinese_code", op: "equals", value: "ABC" }]);
 });
 
 test("the questionnaire list row menu reactivates an inactive questionnaire and makes the active one inactive", async (t) => {
@@ -1732,7 +1875,7 @@ test("Add content here inserts headings and explanatory text that save in client
   harness.render();
   harness.button("Heading").props.onClick();
   harness.render();
-  harness.buttonMatching(/^Remove heading$/).props.onClick();
+  await harness.buttonMatching(/^Remove heading$/).props.onClick();
   harness.render();
   assert.match(confirmations.at(-1), /Remove the heading/);
 
@@ -2106,7 +2249,10 @@ test("legacy locked pages offer no question deletion", async (t) => {
   );
   harness.control("Edit Is your name spelt differently anywhere?").props.onClick();
   harness.render();
-  assert.equal(harness.control("Delete question").props.disabled, true);
+  assert.ok(followUpDialogOf(harness), "locked pages also edit in the dialog, with structure locked");
+  assert.equal(harness.button("Delete question").props.disabled, true);
+  const dialogAdds = [...walk(followUpDialogOf(harness))].filter((node) => node.type === "button" && /^Add (question|field)/.test(text(node)));
+  assert.ok(dialogAdds.every((node) => node.props.disabled), "no structural additions on a locked page");
 
   harness.control("Edit Do you use a Chinese Commercial Code?").props.onClick();
   harness.render();

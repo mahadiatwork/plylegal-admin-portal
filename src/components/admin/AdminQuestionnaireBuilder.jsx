@@ -92,6 +92,7 @@ import {
   singleQuestionNode,
 } from "@/lib/questionnaireQuestionDeletion";
 import { buildQuestionnaireSidebar } from "@/lib/questionnaireNavigation";
+import { useDialogs } from "@/components/ui/confirm-dialog";
 
 const QUESTION_TYPES = [
   ["text", "Short text"],
@@ -1760,7 +1761,7 @@ function PortalBuilderQuestion({
 
         {followUpNode?.branches.length ? (
           <FollowUpSummary node={followUpNode} entries={allEntries} onOpen={onOpenFollowUps} />
-        ) : canAddFollowUps && entryCanTrigger(entry) && !isEditing ? (
+        ) : canAddFollowUps && entryCanHaveFollowUps(entry) && !isEditing ? (
           <button
             type="button"
             className="mt-3 inline-flex items-center gap-1.5 rounded-md px-1 py-0.5 text-xs font-semibold text-[#2b5f4d] opacity-100 transition hover:underline focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]/30 sm:opacity-0 sm:group-hover/question:opacity-100"
@@ -2341,6 +2342,21 @@ function entryCanTrigger(entry) {
   return entry?.kind === "question" && entry.questions?.length === 1 && getTriggerChoices(entry.questions[0]).length > 0;
 }
 
+/**
+ * Any single-answer question can reveal follow-ups. Choice questions offer one branch per
+ * answer; every other type (text, number, long text, a single date field, a choice list loaded
+ * at run time…) uses a display rule built from the supported operators. Split dates and
+ * repeating lists cannot: a record list has no single answer to read.
+ */
+function entryCanHaveFollowUps(entry) {
+  return entry?.kind === "question"
+    && entry.questions?.length === 1
+    && entry.questions[0]?.type !== "repeater"
+    && Boolean(entry.questions[0]?.answerKey);
+}
+
+const FOLLOW_UP_RULE_LIMITATIONS = "Only the first display rule can be edited here; any other rules on this item are kept. Combined “any of” rules are edited in Advanced JSON.";
+
 /** Answer type change for a record (popup) field; record fields cannot hold their own records. */
 function applyRecordFieldType(question, type) {
   const metadata = { ...(question.metadata || {}) };
@@ -2392,7 +2408,7 @@ function followUpNoun(entry, level) {
 function FollowUpSummary({ node, entries, onOpen }) {
   const followUps = descendantNodes(node);
   if (!followUps.length) return null;
-  const choices = entryCanTrigger(node.entry) ? getTriggerChoices(node.entry.questions[0]) : [];
+  const choices = entryCanHaveFollowUps(node.entry) ? getTriggerChoices(node.entry.questions[0]) : [];
   const branches = getAnswerBranches(node, choices).filter((branch) => branch.children.length);
   return (
     <div data-testid="follow-up-summary" className="mt-4 rounded-lg border border-[#d6e4dd] bg-[#f6faf8] px-4 py-3">
@@ -2435,8 +2451,56 @@ function FollowUpSummary({ node, entries, onOpen }) {
 }
 
 /** "Show this question when the answer to … is [Yes] [No]". Stateless. */
-function FollowUpRuleControl({ idBase, noun, triggerLabel, choices, conditions, entries, disabled, onChange }) {
+function FollowUpRuleControl({ idBase, noun, triggerLabel, choices, conditions, entries, disabled, onChange, onChangeCondition }) {
   const selected = ruleAnswerValues(conditions.slice(0, 1)) || [];
+  if (!choices.length && onChangeCondition) {
+    // The question has no fixed answers to pick from: edit the rule with the supported operators.
+    const condition = conditions[0] || {};
+    const op = condition.op || "equals";
+    const noValue = ["exists", "notExists"].includes(op);
+    const multi = ["in", "notIn"].includes(op);
+    const valueText = Array.isArray(condition.value) ? condition.value.join(", ") : condition.value === undefined ? "" : String(condition.value);
+    return (
+      <div className="mt-4 rounded-xl border border-[#b9d9c8] bg-[#f0f7f3] p-4" data-testid="follow-up-rule">
+        <p className="text-sm font-semibold text-[#24453b]">Show this {noun} when the answer to “{triggerLabel}”</p>
+        {condition.op === "anyOf" ? (
+          <p className="mt-3 text-xs leading-5 text-[#60786f]">This is a combined “any of” rule: {describeClientCondition(conditions, entries).replace(/^Shown /, "shown ")}. Edit it in Advanced JSON.</p>
+        ) : (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <select
+              id={`${idBase}-rule-operator`}
+              aria-label="Rule"
+              className={selectClassName}
+              value={op}
+              disabled={disabled}
+              onChange={(event) => onChangeCondition({ op: event.target.value, value: condition.value })}
+            >
+              {CONDITION_OPERATORS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+            {noValue ? (
+              <p className="flex h-10 items-center text-sm text-[#60786f]">No answer needs to be entered.</p>
+            ) : (
+              <Input
+                id={`${idBase}-rule-value`}
+                aria-label={multi ? "Answers, separated by commas" : "Answer"}
+                className={inputClassName}
+                value={valueText}
+                disabled={disabled}
+                placeholder={multi ? "Answer 1, Answer 2" : "Answer"}
+                onChange={(event) => onChangeCondition({
+                  op,
+                  value: multi ? event.target.value.split(",").map((value) => value.trim()) : event.target.value,
+                })}
+              />
+            )}
+          </div>
+        )}
+        <p className="mt-3 text-xs leading-5 text-[#60786f]">
+          {FOLLOW_UP_RULE_LIMITATIONS}
+        </p>
+      </div>
+    );
+  }
   const toggle = (value) => {
     const isOn = selected.includes(value);
     const next = choices
@@ -2506,9 +2570,12 @@ function FollowUpQuestionsDialog({
   onAdd,
   onAddRecordField,
   onSetRule,
+  onSetCondition,
   onMove,
   onDelete,
   onClose,
+  isNewQuestion = false,
+  onDiscardNew,
 }) {
   const activeNode = selectedRecordNode || selectedPageNode;
   const level = selectedRecordNode ? "record" : "page";
@@ -2539,11 +2606,12 @@ function FollowUpQuestionsDialog({
   const addButtonClassName = "mt-1 inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-semibold text-[#2b5f4d] transition hover:bg-[#e3f0ea] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F726B]/30 disabled:cursor-not-allowed disabled:opacity-50";
 
   function renderBranches(node, nodeLevel, nodeEntries) {
-    const canTrigger = entryCanTrigger(node.entry);
+    const canTrigger = entryCanHaveFollowUps(node.entry);
     const choices = canTrigger ? getTriggerChoices(node.entry.questions[0]) : [];
     // Empty answers are offered for the dialog's own question and for whichever trigger is selected.
     const offerEmpty = canTrigger && (node === rootNode || isSelected(node, nodeLevel));
     if (!node.branches.length && !offerEmpty) return null;
+    const freeRule = canTrigger && !choices.length;
     const branches = getAnswerBranches(node, choices);
     const listEveryAnswer = offerEmpty && choices.length <= FOLLOW_UP_ALL_BRANCHES_LIMIT;
     const visible = branches.filter((branch) => branch.children.length || (branch.kind === "answer" && listEveryAnswer));
@@ -2565,6 +2633,21 @@ function FollowUpQuestionsDialog({
             </button>
           </div>
         ))}
+        {freeRule && offerEmpty ? (
+          <div className="border-l-2 border-[#cfe2d8] pl-3">
+            <button
+              type="button"
+              className={addButtonClassName}
+              disabled={disabled || locked}
+              onClick={() => onAdd({ level: nodeLevel, node, branch: { kind: "new-rule", conditions: null, children: [] } })}
+            >
+              <Plus className="h-3.5 w-3.5" />Add {addNoun} shown by a rule
+            </button>
+            {!node.branches.length ? (
+              <p className="pl-1.5 text-[11px] leading-4 text-[#71857d]">This question has no fixed answers, so a follow-up starts with the rule “has an answer”. Change the rule on the right.</p>
+            ) : null}
+          </div>
+        ) : null}
         {otherAnswers.length ? (
           <select
             aria-label={`Add a follow-up ${addNoun} for another answer`}
@@ -2676,6 +2759,7 @@ function FollowUpQuestionsDialog({
                     entries={entries}
                     disabled={disabled || locked}
                     onChange={(values) => onSetRule({ level, node: activeNode, values })}
+                    onChangeCondition={(rule) => onSetCondition({ level, node: activeNode, ...rule })}
                   />
                 ) : null}
                 <div className="mt-5">{editor}</div>
@@ -2695,8 +2779,17 @@ function FollowUpQuestionsDialog({
           </div>
         </div>
         <footer className="flex flex-col gap-3 border-t border-[#e3eae6] bg-[#fbfcfb] px-5 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <p className="text-xs text-[#71857d]">Changes go into your draft straight away. Use Save changes on the page to keep them.</p>
-          <Button type="button" className="bg-[#244D42] text-white hover:bg-[#183a31]" onClick={onClose}><Check />Done</Button>
+          <p className="text-xs text-[#71857d]">
+            {isNewQuestion
+              ? "Choose Keep question to keep this new question in your draft, or discard it. Use Save changes on the page to save the draft; nothing becomes active automatically."
+              : "Changes go into your draft straight away. Use Save changes on the page to keep them."}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            {isNewQuestion ? (
+              <Button type="button" variant="outline" className="border-[#d2dfd8] bg-white text-[#38564b]" onClick={onDiscardNew}><Trash2 />Discard new question</Button>
+            ) : null}
+            <Button type="button" className="bg-[#244D42] text-white hover:bg-[#183a31]" onClick={isNewQuestion ? () => onClose({ keep: true }) : onClose}><Check />{isNewQuestion ? "Keep question" : "Done"}</Button>
+          </div>
         </footer>
       </section>
     </div>
@@ -2841,6 +2934,7 @@ export default function AdminQuestionnaireBuilder({
   initialView = "editor",
 } = {}) {
   const matterData = useMatterData();
+  const { confirm } = useDialogs();
   const [definitions, setDefinitions] = useState([]);
   const [selectedId, setSelectedId] = useState("");
   const [definition, setDefinition] = useState(null);
@@ -3137,8 +3231,16 @@ export default function AdminQuestionnaireBuilder({
     return () => window.cancelAnimationFrame(frame);
   }, [activePageId, adminView, embeddedInMatter, questionEditorOpen]);
 
-  function confirmDiscard() {
-    return !isDirty || window.confirm("Discard your unsaved questionnaire changes?");
+  async function confirmDiscard() {
+    if (!isDirty) return true;
+    return confirm({
+      tone: "warning",
+      title: "Discard unsaved changes?",
+      description: "Your questionnaire edits have not been saved yet. Continuing will discard them.",
+      details: ["The version saved on the server stays available."],
+      cancelLabel: "Keep editing",
+      confirmLabel: "Discard changes",
+    });
   }
 
   function selectPageGroup(groupKey) {
@@ -3255,7 +3357,7 @@ export default function AdminQuestionnaireBuilder({
 
   async function selectDefinition(id) {
     if (id === selectedId && !isCreating) return;
-    if (!confirmDiscard()) return;
+    if (!(await confirmDiscard())) return;
     const requestId = ++selectionRequestId.current;
 
     try {
@@ -3280,12 +3382,12 @@ export default function AdminQuestionnaireBuilder({
     }
   }
 
-  function createDefinitionFrom(source, {
+  async function createDefinitionFrom(source, {
     starter = false,
     asTestCopy = false,
     checkDiscard = true,
   } = {}) {
-    if (checkDiscard && !confirmDiscard()) return;
+    if (checkDiscard && !(await confirmDiscard())) return false;
     selectionRequestId.current += 1;
     setIsLoading(false);
     setIsLoadingDefinition(false);
@@ -3314,11 +3416,12 @@ export default function AdminQuestionnaireBuilder({
       : starter
         ? `${source.title} is ready to edit. Its existing forms and client answers are preserved while you make changes.`
         : "A new draft questionnaire is ready. Add pages and questions, then save it when you are finished.");
+    return true;
   }
 
-  function copyDefinitionAsTest() {
+  async function copyDefinitionAsTest() {
     if (!definition) return;
-    createDefinitionFrom(savedDefinition || definition, { asTestCopy: true });
+    await createDefinitionFrom(savedDefinition || definition, { asTestCopy: true });
   }
 
   function openCreateQuestionnaireDialog() {
@@ -3361,7 +3464,7 @@ export default function AdminQuestionnaireBuilder({
       setError("Questionnaire name is required.");
       return;
     }
-    if (!confirmDiscard()) return;
+    if (!(await confirmDiscard())) return;
 
     try {
       setIsLoadingDefinition(true);
@@ -3419,16 +3522,15 @@ export default function AdminQuestionnaireBuilder({
     setSectionSettingsOpen(false);
     if (requestedLayout) changeEditorLayout(requestedLayout);
     if (entry.source === "builtIn") {
-      createDefinitionFrom(entry.definition, { starter: true });
-      setAdminView("editor");
+      if (await createDefinitionFrom(entry.definition, { starter: true })) setAdminView("editor");
       return;
     }
     await selectDefinition(entry.definition.id);
     setAdminView("editor");
   }
 
-  function returnToQuestionnaireLibrary() {
-    if (!confirmDiscard()) return;
+  async function returnToQuestionnaireLibrary() {
+    if (!(await confirmDiscard())) return;
     if (builderIsDirty && savedDefinition) {
       const restored = clone(savedDefinition);
       setDefinition(restored);
@@ -3518,9 +3620,16 @@ export default function AdminQuestionnaireBuilder({
     setError("");
   }
 
-  function deletePage() {
+  async function deletePage() {
     if (!activePage) return;
-    if (!window.confirm(`Delete the page “${activePage.title}” and all of its questions?`)) return;
+    const confirmed = await confirm({
+      tone: "danger",
+      title: "Delete this page?",
+      description: `“${activePage.title}” and all of its questions will be removed from this questionnaire.`,
+      details: ["Answers clients have already saved will not be deleted."],
+      confirmLabel: "Delete page",
+    });
+    if (!confirmed) return;
     const remaining = definition.pages.filter((page) => page.id !== activePage.id);
     setDefinition((current) => ({ ...current, pages: remaining }));
     setActivePageId(remaining[0]?.id || "");
@@ -3760,8 +3869,21 @@ export default function AdminQuestionnaireBuilder({
       questions.splice(safeInsertIndex, 0, question);
       return { ...editablePage, questions };
     });
-    setFollowUpDialog(null);
     setActiveQuestionId(question.id);
+    if (openEditor && editorLayout === BUILDER_LAYOUTS.PROPOSED) {
+      // Creating a question uses the same "Question and follow-ups" dialog as editing one.
+      setQuestionEditorOpen(false);
+      setOpenInsertMenuKey("");
+      setError("");
+      setFollowUpDialog({
+        pageId: activePage.id,
+        rootId: question.id,
+        fieldId: "",
+        newQuestion: { id: question.id, baseline: JSON.stringify(question) },
+      });
+      return;
+    }
+    setFollowUpDialog(null);
     if (openEditor) setQuestionEditorOpen(true);
   }
 
@@ -3801,7 +3923,7 @@ export default function AdminQuestionnaireBuilder({
     else addContentItemAt(insertIndex, kind);
   }
 
-  function deleteQuestion() {
+  async function deleteQuestion() {
     if (!activeQuestion) return;
     if (builtInLegacyStructureIsLocked(activePage)) {
       setError("This built-in page is locked to its original answer structure until dynamic-renderer parity is certified. You can still edit wording and option labels.");
@@ -3809,7 +3931,13 @@ export default function AdminQuestionnaireBuilder({
     }
     if (isQuestionnaireDisplayItem(activeQuestion)) {
       const kindLabel = (QUESTIONNAIRE_DISPLAY_TYPE_LABELS[activeQuestion.type] || "content").toLowerCase();
-      if (!window.confirm(`Remove the ${kindLabel} “${activeQuestion.label}”?`)) return;
+      const confirmed = await confirm({
+        tone: "danger",
+        title: `Remove the ${kindLabel}?`,
+        description: `“${activeQuestion.label}” will be removed from this page.`,
+        confirmLabel: `Remove ${kindLabel}`,
+      });
+      if (!confirmed) return;
       const remainingItems = activePage.questions.filter((question) => question.id !== activeQuestion.id);
       updateActivePage((page) => ({ ...promotePageForStructure(page), questions: remainingItems }));
       setActiveQuestionId(remainingItems[0]?.id || "");
@@ -4046,15 +4174,47 @@ export default function AdminQuestionnaireBuilder({
     setFollowUpDialog({ pageId: activePage.id, rootId: root.entry.id, fieldId });
   }
 
-  function closeFollowUpDialog() {
+  /** Removes a just-created question and every follow-up added beneath it. */
+  function discardNewQuestion() {
+    const created = followUpDialog?.newQuestion;
+    if (!created) return;
+    const root = pageForest.nodeById.get(created.id);
+    const ids = new Set(root ? nodeQuestionIds(root) : [created.id]);
+    updateActivePage((page) => ({ ...page, questions: page.questions.filter((question) => !ids.has(question.id)) }));
+    setFollowUpDialog(null);
+    setActiveQuestionId(activePage?.questions?.find((question) => !ids.has(question.id))?.id || "");
+    setError("");
+  }
+
+  /**
+   * Done / Close / Escape. A question created in the dialog and left untouched is discarded
+   * silently; one with edits or follow-ups asks first, so nothing is lost or left behind by accident.
+   */
+  async function closeFollowUpDialog(options) {
+    const created = followUpDialog?.newQuestion;
+    if (created && !options?.keep) {
+      const current = activePage?.questions?.find((question) => question.id === created.id);
+      const root = pageForest.nodeById.get(created.id);
+      const untouched = !current || (JSON.stringify(current) === created.baseline && !(root && descendantNodes(root).length));
+      if (untouched || (await confirm({
+        tone: "warning",
+        title: "Discard this new question?",
+        description: "The question and its follow-ups have not been added to the questionnaire yet.",
+        cancelLabel: "Keep editing",
+        confirmLabel: "Discard question",
+      }))) {
+        discardNewQuestion();
+      }
+      return;
+    }
     setFollowUpDialog(null);
     setError("");
   }
 
-  /** Canvas pencil: questions with follow-ups (and follow-ups themselves) open the dialog. */
+  /** Canvas pencil: every question opens the "Question and follow-ups" dialog; content items keep their editor. */
   function editCanvasQuestion(question) {
     const node = nodeForQuestion(pageForest, question.id);
-    if (node && (node.parentId || node.branches.length)) {
+    if (!isQuestionnaireDisplayItem(question) && node) {
       openFollowUpDialog(question.id);
       return;
     }
@@ -4101,7 +4261,9 @@ export default function AdminQuestionnaireBuilder({
     const trigger = node.entry.questions[0];
     const conditions = branch.kind === "answer"
       ? [normalizeConditionForSource({ field: trigger.answerKey, op: "equals", value: branch.value }, trigger)]
-      : clone(branch.conditions);
+      : branch.kind === "new-rule"
+        ? [{ field: trigger.answerKey, op: "exists" }]
+        : clone(branch.conditions);
     if (level === "record") {
       addRecordField({ node, branchChildren: branch.children, conditions });
       return;
@@ -4172,6 +4334,23 @@ export default function AdminQuestionnaireBuilder({
     else updatePageQuestionsStructure(apply);
   }
 
+  /** Sets the operator and value of a follow-up's first rule (questions without fixed answers). */
+  function setFollowUpCondition({ level, node, op, value }) {
+    if (followUpStructureIsLocked()) return;
+    const parent = followUpForest(level)?.nodeById.get(node.parentId);
+    const current = node.entry.conditions?.[0];
+    const field = current?.field;
+    const trigger = parent?.entry.questions.find((question) => question.answerKey === field) || parent?.entry.questions[0];
+    if (!trigger || !field || current?.op === "anyOf") return;
+    const rule = normalizeConditionForSource({ ...current, field, op, value }, trigger);
+    const ids = new Set(node.entry.questions.map((question) => question.id));
+    const apply = (items) => items.map((item) => (ids.has(item.id)
+      ? { ...item, visibleIf: [rule, ...(item.visibleIf || []).slice(1)] }
+      : item));
+    if (level === "record") updateRecordFieldsStructure(apply);
+    else updatePageQuestionsStructure(apply);
+  }
+
   /** Swap a follow-up (with its own follow-ups) with its neighbour under the same answer. */
   function moveFollowUp({ level, node, direction }) {
     const forest = followUpForest(level);
@@ -4192,7 +4371,7 @@ export default function AdminQuestionnaireBuilder({
     updateNestedQuestion(fieldId, (current) => applyRecordFieldType(current, type), true);
   }
 
-  function applyJson() {
+  async function applyJson() {
     try {
       const parsed = JSON.parse(jsonText);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -4204,7 +4383,13 @@ export default function AdminQuestionnaireBuilder({
       if (
         builderIsDirty &&
         jsonHasPendingEdits &&
-        !window.confirm("Replace the current visual-builder changes with this JSON?")
+        !(await confirm({
+          tone: "warning",
+          title: "Replace the builder changes?",
+          description: "The visual-builder edits you have made will be replaced by this JSON.",
+          cancelLabel: "Keep builder changes",
+          confirmLabel: "Replace with JSON",
+        }))
       ) {
         return;
       }
@@ -4272,9 +4457,14 @@ export default function AdminQuestionnaireBuilder({
       const contexts = definition.visaContexts?.length
         ? definition.visaContexts.join(", ")
         : "all contexts";
-      if (!window.confirm(
-        `${definition.status === "archived" ? "Reactivate" : "Make active"} this questionnaire for ${definition.visaType} (${contexts})?\n\nThe questionnaire that is active now for this audience will become inactive.`
-      )) return;
+      const confirmed = await confirm({
+        tone: "info",
+        title: `${definition.status === "archived" ? "Reactivate" : "Make active"} this questionnaire?`,
+        description: `“${definition.title || definition.id}” will become the questionnaire clients see for ${definition.visaType} (${contexts}).`,
+        details: ["The questionnaire that is active now for this audience will become inactive.", "You can reactivate it at any time."],
+        confirmLabel: definition.status === "archived" ? "Reactivate" : "Make active",
+      });
+      if (!confirmed) return;
     }
     try {
       setIsSaving(true);
@@ -4333,8 +4523,14 @@ export default function AdminQuestionnaireBuilder({
 
   async function deleteDefinition() {
     if (!definition) return;
-    const description = "This permanently deletes the definition and all of its pages. Saved client answers are not deleted.";
-    if (!window.confirm(`Delete “${definition.title}”?\n\n${description}`)) return;
+    const confirmed = await confirm({
+      tone: "danger",
+      title: "Delete this questionnaire?",
+      description: `“${definition.title}” and all of its pages will be permanently deleted.`,
+      details: ["Saved client answers are not deleted.", "This cannot be undone."],
+      confirmLabel: "Delete questionnaire",
+    });
+    if (!confirmed) return;
 
     try {
       setIsDeleting(true);
@@ -4403,10 +4599,14 @@ export default function AdminQuestionnaireBuilder({
     const target = entry.definition;
     const title = target.title || target.id;
     const isInactive = target.status === "archived";
-    if (!window.confirm(
-      `${isInactive ? "Reactivate this questionnaire" : "Make this questionnaire active"} for ${audienceLabel(target)}?\n\n` +
-      `Clients will see “${title}”. The questionnaire that is active now will become inactive, so you can reactivate it at any time.`
-    )) return;
+    const confirmed = await confirm({
+      tone: "info",
+      title: isInactive ? "Reactivate this questionnaire?" : "Make this questionnaire active?",
+      description: `Clients for ${audienceLabel(target)} will see “${title}”.`,
+      details: ["The questionnaire that is active now will become inactive, so you can reactivate it at any time."],
+      confirmLabel: isInactive ? "Reactivate" : "Make active",
+    });
+    if (!confirmed) return;
 
     try {
       setIsSaving(true);
@@ -4431,10 +4631,17 @@ export default function AdminQuestionnaireBuilder({
 
     const target = entry.definition;
     const liveWarning = target.status === "active"
-      ? "\n\nThis questionnaire is currently active. Its built-in starter template will be used until another questionnaire is made active."
+      ? "This questionnaire is currently active. Its built-in starter template will be used until another questionnaire is made active."
       : "";
-    const description = "This permanently deletes the questionnaire definition and all of its pages. Saved client answers are not deleted.";
-    if (!window.confirm(`Delete “${target.title || target.id}”?\n\n${description}${liveWarning}`)) return;
+    const confirmed = await confirm({
+      tone: "danger",
+      title: "Delete this questionnaire?",
+      description: `“${target.title || target.id}” and all of its pages will be permanently deleted.`,
+      details: ["Saved client answers are not deleted.", "This cannot be undone."],
+      warning: liveWarning,
+      confirmLabel: "Delete questionnaire",
+    });
+    if (!confirmed) return;
 
     try {
       setIsDeleting(true);
@@ -4526,13 +4733,16 @@ export default function AdminQuestionnaireBuilder({
     : null;
   const followUpStructureLocked = builtInLegacyStructureIsLocked(activePage);
 
+  const closeFollowUpDialogRef = useRef(closeFollowUpDialog);
+  closeFollowUpDialogRef.current = closeFollowUpDialog;
+
   useEffect(() => {
     if ((!followUpDialog && !deleteRequest) || typeof document === "undefined") return undefined;
     // Escape closes the topmost dialog: the delete confirmation sits above the follow-up dialog.
     const closeOnEscape = (event) => {
       if (event.key !== "Escape") return;
       if (deleteRequest) setDeleteRequest(null);
-      else setFollowUpDialog(null);
+      else closeFollowUpDialogRef.current();
     };
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
@@ -4602,9 +4812,25 @@ export default function AdminQuestionnaireBuilder({
       onAdd={addFollowUp}
       onAddRecordField={() => addRecordField()}
       onSetRule={setFollowUpRule}
+      onSetCondition={setFollowUpCondition}
       onMove={moveFollowUp}
       onDelete={deleteFollowUp}
       onClose={closeFollowUpDialog}
+      isNewQuestion={Boolean(followUpDialog?.newQuestion)}
+      onDiscardNew={async () => {
+        const created = followUpDialog?.newQuestion;
+        const root = created ? pageForest.nodeById.get(created.id) : null;
+        const confirmed = !root || !descendantNodes(root).length
+          ? true
+          : await confirm({
+              tone: "warning",
+              title: "Discard this new question?",
+              description: "The question and its follow-ups have not been added to the questionnaire yet.",
+              cancelLabel: "Keep editing",
+              confirmLabel: "Discard question",
+            });
+        if (confirmed) discardNewQuestion();
+      }}
     />
   ) : null;
 
@@ -5517,8 +5743,8 @@ export default function AdminQuestionnaireBuilder({
             variant="outline"
             className="border-[#d7e4de] bg-white text-[#38564b]"
             disabled={isBusy}
-            onClick={() => {
-              if (confirmDiscard()) loadList();
+            onClick={async () => {
+              if (await confirmDiscard()) loadList();
             }}
           >
             <RefreshCw className={isLoading ? "animate-spin" : ""} />
