@@ -1741,6 +1741,78 @@ test("a question can be created with a follow-up in the dialog and saved as a dr
   assert.equal(questions.indexOf(followUp), questions.indexOf(trigger) + 1, "follow-up stays directly after its trigger");
 });
 
+test("the dialog's Add question button adds several standalone questions next to conditional follow-ups", async (t) => {
+  const { harness, calls } = await openOtherPersonalDetails(t);
+  const setLabel = (value) => {
+    harness.find((node) => node.type === "textarea" && /^inline-label-question-/.test(node.props.id || ""))
+      .props.onChange({ target: { value } });
+    harness.render();
+  };
+  const dialogAddQuestion = () => {
+    const holder = harness.find((node) => node.props?.["data-testid"] === "add-standalone-question");
+    return [...walk(holder)].find((node) => node.type === "button");
+  };
+
+  harness.button("Add question").props.onClick();
+  harness.render();
+  setLabel("Standalone A");
+  harness.find((node) => node.type === "select" && String(node.props.id || "").startsWith("inline-type-"))
+    .props.onChange({ target: { value: "yesNo" } });
+  harness.render();
+  harness.button("Add question for “Yes”").props.onClick();
+  harness.render();
+  setLabel("Only if A is yes");
+
+  dialogAddQuestion().props.onClick();
+  harness.render();
+  setLabel("Standalone B");
+  dialogAddQuestion().props.onClick();
+  harness.render();
+  setLabel("Standalone C");
+
+  // All three groups are listed; switching back to the first keeps the others.
+  harness.control("Edit “Standalone A”").props.onClick();
+  harness.render();
+  assert.match(text(followUpTreeItem(harness, "Standalone A")), /If “Yes”Only if A is yes/);
+  harness.control("Edit “Standalone B”");
+  harness.control("Edit “Standalone C”");
+
+  harness.button("Keep question").props.onClick();
+  harness.render();
+  assert.equal(followUpDialogOf(harness), undefined);
+
+  await harness.button("Save changes").props.onClick();
+  const questions = savedQuestionnairePage(calls).questions;
+  const byLabel = (label) => questions.find((question) => question.label === label);
+  const a = byLabel("Standalone A");
+  assert.deepEqual(byLabel("Only if A is yes").visibleIf, [{ field: a.answerKey, op: "equals", value: "yes" }]);
+  assert.ok(!byLabel("Standalone B").visibleIf?.length, "standalone question has no display rule");
+  assert.ok(!byLabel("Standalone C").visibleIf?.length, "standalone question has no display rule");
+  const order = ["Standalone A", "Only if A is yes", "Standalone B", "Standalone C"].map((label) => questions.indexOf(byLabel(label)));
+  assert.deepEqual(order, [order[0], order[0] + 1, order[0] + 2, order[0] + 3]);
+  assert.equal(questions.filter((question) => question.label === "New question").length, 0, "no placeholder is left behind");
+});
+
+test("discarding one new standalone question keeps the others", async (t) => {
+  const { harness } = await openOtherPersonalDetails(t);
+  harness.button("Add question").props.onClick();
+  harness.render();
+  const holder = () => harness.find((node) => node.props?.["data-testid"] === "add-standalone-question");
+  [...walk(holder())].find((node) => node.type === "button").props.onClick();
+  harness.render();
+  harness.find((node) => node.type === "textarea" && /^inline-label-question-/.test(node.props.id || ""))
+    .props.onChange({ target: { value: "Second one" } });
+  harness.render();
+  assert.ok(harness.maybeControl("Edit “New question”"));
+  harness.control("Edit “New question”").props.onClick();
+  harness.render();
+  await harness.button("Discard new question").props.onClick();
+  harness.render();
+  assert.ok(followUpDialogOf(harness), "the dialog stays open on the remaining question");
+  assert.equal(harness.maybeControl("Edit “New question”"), undefined);
+  assert.ok(harness.maybeControl("Edit “Second one”"));
+});
+
 test("editing a question that has no follow-ups opens the dialog and keeps its ids", async (t) => {
   const { harness, calls } = await openOtherPersonalDetails(t);
 

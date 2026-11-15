@@ -503,6 +503,8 @@ test("condition values must exist in static source options", () => {
 
 test("normalizes and preserves a validated CRM mapping", () => {
   const input = validDefinition();
+  // Contacts mappings are only valid on main applicant pages.
+  input.pages[0].metadata = { ...input.pages[0].metadata, profileRole: "main_applicant" };
   input.pages[0].questions[0].metadata = { crm: { mode: "portal_only" } };
   input.pages[0].questions.push({
     id: "main_family_name",

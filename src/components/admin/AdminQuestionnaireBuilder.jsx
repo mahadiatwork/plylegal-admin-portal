@@ -2556,7 +2556,9 @@ function FollowUpRuleControl({ idBase, noun, triggerLabel, choices, conditions, 
  * is the builder's editor for the selected question or record field.
  */
 function FollowUpQuestionsDialog({
-  rootNode,
+  rootNodes,
+  onAddQuestion,
+  newRootIds = new Set(),
   pageForest,
   pageEntries,
   selectedPageNode,
@@ -2574,10 +2576,13 @@ function FollowUpQuestionsDialog({
   onMove,
   onDelete,
   onClose,
-  isNewQuestion = false,
   onDiscardNew,
 }) {
   const activeNode = selectedRecordNode || selectedPageNode;
+  // The question group (a question plus its follow-ups) the selection belongs to; names the dialog.
+  const rootNode = rootNodes.find((root) => root === selectedPageNode || descendantNodes(root).includes(selectedPageNode)) || rootNodes[0];
+  const isNewQuestion = newRootIds.size > 0;
+  const activeRootIsNew = newRootIds.has(rootNode.entry.id);
   const level = selectedRecordNode ? "record" : "page";
   const forest = level === "record" ? record.forest : pageForest;
   const entries = level === "record" ? record.entries : pageEntries;
@@ -2589,7 +2594,7 @@ function FollowUpQuestionsDialog({
     ? ""
     : level === "record"
       ? position ? "Popup follow-up field" : "Popup field"
-      : activeNode === rootNode ? "Question" : `Follow-up ${noun}`;
+      : rootNodes.includes(activeNode) ? "Question" : `Follow-up ${noun}`;
   const ruleParent = position?.parent || null;
   const ruleField = activeNode?.entry.conditions?.[0]?.field;
   const ruleTrigger = ruleParent
@@ -2609,7 +2614,7 @@ function FollowUpQuestionsDialog({
     const canTrigger = entryCanHaveFollowUps(node.entry);
     const choices = canTrigger ? getTriggerChoices(node.entry.questions[0]) : [];
     // Empty answers are offered for the dialog's own question and for whichever trigger is selected.
-    const offerEmpty = canTrigger && (node === rootNode || isSelected(node, nodeLevel));
+    const offerEmpty = canTrigger && (rootNodes.includes(node) || isSelected(node, nodeLevel));
     if (!node.branches.length && !offerEmpty) return null;
     const freeRule = canTrigger && !choices.length;
     const branches = getAnswerBranches(node, choices);
@@ -2736,7 +2741,22 @@ function FollowUpQuestionsDialog({
         ) : null}
         <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,2fr)_minmax(0,3fr)] lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)] lg:grid-rows-1">
           <nav aria-label="Question and follow-ups" className="min-h-0 overflow-y-auto border-b border-[#e3eae6] bg-[#f8fbf9] p-3 lg:border-b-0 lg:border-r">
-            <ul className="space-y-1">{renderNode(rootNode, "page", pageEntries)}</ul>
+            <ul className="space-y-1">{rootNodes.map((root) => renderNode(root, "page", pageEntries))}</ul>
+            <div className="mt-3 border-t border-[#e3eae6] pt-3" data-testid="add-standalone-question">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full justify-center border-[#244D42] bg-white font-semibold text-[#244D42] hover:bg-[#e3f0ea]"
+                disabled={disabled || locked}
+                onClick={onAddQuestion}
+              >
+                <Plus />Add question
+              </Button>
+              <p className="mt-1.5 text-[11px] leading-4 text-[#71857d]">
+                Adds a regular question that clients always see. To show a question only after a certain answer, use the “Add question for …” buttons under that answer instead.
+              </p>
+            </div>
           </nav>
           <div className="min-h-0 overflow-y-auto p-5 sm:p-6">
             {error ? (
@@ -2785,8 +2805,8 @@ function FollowUpQuestionsDialog({
               : "Changes go into your draft straight away. Use Save changes on the page to keep them."}
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            {isNewQuestion ? (
-              <Button type="button" variant="outline" className="border-[#d2dfd8] bg-white text-[#38564b]" onClick={onDiscardNew}><Trash2 />Discard new question</Button>
+            {activeRootIsNew ? (
+              <Button type="button" variant="outline" className="border-[#d2dfd8] bg-white text-[#38564b]" onClick={() => onDiscardNew(rootNode.entry.id)}><Trash2 />Discard new question</Button>
             ) : null}
             <Button type="button" className="bg-[#244D42] text-white hover:bg-[#183a31]" onClick={isNewQuestion ? () => onClose({ keep: true }) : onClose}><Check />{isNewQuestion ? "Keep question" : "Done"}</Button>
           </div>
@@ -3879,7 +3899,8 @@ export default function AdminQuestionnaireBuilder({
         pageId: activePage.id,
         rootId: question.id,
         fieldId: "",
-        newQuestion: { id: question.id, baseline: JSON.stringify(question) },
+        extraRootIds: [],
+        created: [{ id: question.id, baseline: JSON.stringify(question) }],
       });
       return;
     }
@@ -4031,6 +4052,19 @@ export default function AdminQuestionnaireBuilder({
       selectFollowUp(request.parentQuestionId);
       return;
     }
+    // A dialog question was deleted: stay open on another question from this dialog, if any.
+    const survivingRoots = [followUpDialog?.rootId, ...(followUpDialog?.extraRootIds || [])]
+      .filter((id) => id && !removed.has(id) && remaining.some((question) => question.id === id));
+    if (followUpDialog && survivingRoots.length) {
+      setActiveQuestionId(survivingRoots[0]);
+      setFollowUpDialog((current) => current && ({
+        ...current,
+        fieldId: "",
+        extraRootIds: (current.extraRootIds || []).filter((id) => !removed.has(id)),
+        created: (current.created || []).filter((item) => !removed.has(item.id)),
+      }));
+      return;
+    }
     setFollowUpDialog(null);
     setQuestionEditorOpen(false);
     setActiveQuestionId(remaining[0]?.id || "");
@@ -4174,41 +4208,97 @@ export default function AdminQuestionnaireBuilder({
     setFollowUpDialog({ pageId: activePage.id, rootId: root.entry.id, fieldId });
   }
 
-  /** Removes a just-created question and every follow-up added beneath it. */
-  function discardNewQuestion() {
-    const created = followUpDialog?.newQuestion;
-    if (!created) return;
+  /** True when a question created in this dialog is still as it was created (no edits, no follow-ups). */
+  function newQuestionIsUntouched(created) {
+    const current = activePage?.questions?.find((question) => question.id === created.id);
     const root = pageForest.nodeById.get(created.id);
-    const ids = new Set(root ? nodeQuestionIds(root) : [created.id]);
-    updateActivePage((page) => ({ ...page, questions: page.questions.filter((question) => !ids.has(question.id)) }));
-    setFollowUpDialog(null);
-    setActiveQuestionId(activePage?.questions?.find((question) => !ids.has(question.id))?.id || "");
-    setError("");
+    return !current || (JSON.stringify(current) === created.baseline && !(root && descendantNodes(root).length));
   }
 
   /**
-   * Done / Close / Escape. A question created in the dialog and left untouched is discarded
-   * silently; one with edits or follow-ups asks first, so nothing is lost or left behind by accident.
+   * Removes just-created questions (default: all of them) and every follow-up added beneath each.
+   * The dialog stays open on whatever remains, and closes when nothing is left.
+   */
+  function discardNewQuestions(createdItems = followUpDialog?.created || []) {
+    if (!createdItems.length) return;
+    const ids = new Set();
+    createdItems.forEach((created) => {
+      const root = pageForest.nodeById.get(created.id);
+      (root ? nodeQuestionIds(root) : [created.id]).forEach((id) => ids.add(id));
+    });
+    const discardedRoots = new Set(createdItems.map((created) => created.id));
+    const remaining = (activePage?.questions || []).filter((question) => !ids.has(question.id));
+    updateActivePage((page) => ({ ...page, questions: page.questions.filter((question) => !ids.has(question.id)) }));
+    const rootIds = [followUpDialog?.rootId, ...(followUpDialog?.extraRootIds || [])]
+      .filter((id) => id && !discardedRoots.has(id) && remaining.some((question) => question.id === id));
+    setError("");
+    if (!rootIds.length) {
+      setFollowUpDialog(null);
+      setActiveQuestionId(remaining[0]?.id || "");
+      return;
+    }
+    setActiveQuestionId(rootIds[0]);
+    setFollowUpDialog((current) => current && ({
+      ...current,
+      fieldId: "",
+      extraRootIds: (current.extraRootIds || []).filter((id) => !discardedRoots.has(id)),
+      created: (current.created || []).filter((item) => !discardedRoots.has(item.id)),
+    }));
+  }
+
+  /**
+   * Done / Close / Escape. Questions created in the dialog and left untouched are discarded
+   * silently; if any has edits or follow-ups it asks first, so nothing is lost or left behind by accident.
    */
   async function closeFollowUpDialog(options) {
-    const created = followUpDialog?.newQuestion;
-    if (created && !options?.keep) {
-      const current = activePage?.questions?.find((question) => question.id === created.id);
-      const root = pageForest.nodeById.get(created.id);
-      const untouched = !current || (JSON.stringify(current) === created.baseline && !(root && descendantNodes(root).length));
-      if (untouched || (await confirm({
+    const createdItems = followUpDialog?.created || [];
+    if (createdItems.length && !options?.keep) {
+      const touched = createdItems.filter((created) => !newQuestionIsUntouched(created));
+      if (!touched.length || (await confirm({
         tone: "warning",
-        title: "Discard this new question?",
-        description: "The question and its follow-ups have not been added to the questionnaire yet.",
+        title: touched.length > 1 ? "Discard these new questions?" : "Discard this new question?",
+        description: touched.length > 1
+          ? "These questions and their follow-ups have not been added to the questionnaire yet."
+          : "The question and its follow-ups have not been added to the questionnaire yet.",
         cancelLabel: "Keep editing",
-        confirmLabel: "Discard question",
+        confirmLabel: touched.length > 1 ? "Discard questions" : "Discard question",
       }))) {
-        discardNewQuestion();
+        discardNewQuestions(createdItems);
       }
       return;
     }
     setFollowUpDialog(null);
     setError("");
+  }
+
+  /** "Add question" in the dialog: a regular question with no display rule, listed after the others. */
+  function addStandaloneQuestion() {
+    if (!followUpDialog || followUpStructureIsLocked()) return;
+    const existingIds = new Set();
+    const existingAnswerKeys = new Set();
+    definition.pages.forEach((page) =>
+      collectQuestionMachineKeys(page.questions, existingIds, existingAnswerKeys)
+    );
+    const id = uniqueId(existingIds, `question-${existingIds.size + 1}`);
+    const answerKey = uniqueId(existingAnswerKeys, id.replace(/-/g, "_")).replace(/-/g, "_");
+    const question = normalizeQuestion({ id, answerKey, label: "New question", type: "text", required: false });
+    const lastRoot = followUpRoots[followUpRoots.length - 1];
+    updatePageQuestionsStructure((questions) => {
+      const treeIds = new Set(lastRoot ? nodeQuestionIds(lastRoot) : []);
+      let after = -1;
+      questions.forEach((item, index) => { if (treeIds.has(item.id)) after = index; });
+      const next = [...questions];
+      next.splice(after < 0 ? next.length : after + 1, 0, question);
+      return next;
+    });
+    setActiveQuestionId(question.id);
+    setError("");
+    setFollowUpDialog((current) => current && ({
+      ...current,
+      fieldId: "",
+      extraRootIds: [...(current.extraRootIds || []), question.id],
+      created: [...(current.created || []), { id: question.id, baseline: JSON.stringify(question) }],
+    }));
   }
 
   /** Canvas pencil: every question opens the "Question and follow-ups" dialog; content items keep their editor. */
@@ -4715,11 +4805,17 @@ export default function AdminQuestionnaireBuilder({
 
   // Follow-up dialog: its trigger (re-resolved each render, so edits that re-parent questions
   // keep working), the selected page question, and — for a record — its popup field tree.
-  const followUpRoot = followUpDialog && activePage && followUpDialog.pageId === activePage.id
-    ? rootNodeOf(pageForest, pageForest.nodeById.get(followUpDialog.rootId)) || null
-    : null;
+  const followUpRoots = [];
+  if (followUpDialog && activePage && followUpDialog.pageId === activePage.id) {
+    [followUpDialog.rootId, ...(followUpDialog.extraRootIds || [])].forEach((id) => {
+      const root = rootNodeOf(pageForest, pageForest.nodeById.get(id));
+      if (root && !followUpRoots.includes(root)) followUpRoots.push(root);
+    });
+  }
+  const followUpRoot = followUpRoots[0] || null;
+  const followUpCreatedIds = new Set((followUpDialog?.created || []).map((item) => item.id));
   const followUpPageNode = followUpRoot
-    ? [followUpRoot, ...descendantNodes(followUpRoot)].find((node) =>
+    ? followUpRoots.flatMap((root) => [root, ...descendantNodes(root)]).find((node) =>
         node.entry.questions.some((question) => question.id === activeQuestionId)) || null
     : null;
   const followUpRecord = followUpPageNode?.entry.kind === "repeater"
@@ -4798,7 +4894,9 @@ export default function AdminQuestionnaireBuilder({
 
   const followUpDialogElement = followUpRoot ? (
     <FollowUpQuestionsDialog
-      rootNode={followUpRoot}
+      rootNodes={followUpRoots}
+      onAddQuestion={addStandaloneQuestion}
+      newRootIds={followUpCreatedIds}
       pageForest={pageForest}
       pageEntries={activePagePresentation?.entries || []}
       selectedPageNode={followUpPageNode}
@@ -4816,10 +4914,10 @@ export default function AdminQuestionnaireBuilder({
       onMove={moveFollowUp}
       onDelete={deleteFollowUp}
       onClose={closeFollowUpDialog}
-      isNewQuestion={Boolean(followUpDialog?.newQuestion)}
-      onDiscardNew={async () => {
-        const created = followUpDialog?.newQuestion;
-        const root = created ? pageForest.nodeById.get(created.id) : null;
+      onDiscardNew={async (rootId) => {
+        const created = (followUpDialog?.created || []).find((item) => item.id === rootId);
+        if (!created) return;
+        const root = pageForest.nodeById.get(created.id);
         const confirmed = !root || !descendantNodes(root).length
           ? true
           : await confirm({
@@ -4829,7 +4927,7 @@ export default function AdminQuestionnaireBuilder({
               cancelLabel: "Keep editing",
               confirmLabel: "Discard question",
             });
-        if (confirmed) discardNewQuestion();
+        if (confirmed) discardNewQuestions([created]);
       }}
     />
   ) : null;

@@ -143,6 +143,9 @@ export function validateQuestionCrmMapping(question, path, context, issues) {
   if (mapping.module !== expectedModule) {
     issues.push(`${path}.metadata.crm.module must be "${expectedModule}" for target "${mapping.target}"`);
   }
+  if (mapping.target === CRM_TARGETS.main_contact && context.profileRole !== "main_applicant") {
+    issues.push(`${path}.metadata.crm target "main_contact" is only allowed on main applicant pages; spouse, child and other family answers must not be written to the main applicant's Contact`);
+  }
   if (!SAFE_ZOHO_FIELD_API_NAME.test(mapping.fieldApiName)) {
     issues.push(`${path}.metadata.crm.fieldApiName is not a safe Zoho API name`);
     return mapping;
