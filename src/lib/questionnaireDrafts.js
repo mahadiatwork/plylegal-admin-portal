@@ -1,5 +1,6 @@
 import { getBuiltInQuestionnaireDefinition } from "./questionnaireBuiltIns.js";
 import { getLegacyQuestionnairePublishIssues } from "./questionnaireLegacyProtection.js";
+import { isDefinitionNavigation } from "./questionnaireNavigationModel.js";
 
 /** Start a separate draft without unpublishing the questionnaire clients use. */
 export function createQuestionnaireDraft(source, id) {
@@ -12,6 +13,8 @@ export function createQuestionnaireDraft(source, id) {
     visaContexts: [...(source.visaContexts || (source.visaContext ? [source.visaContext] : []))],
     status: "draft",
     revision: 0,
+    // Which groups the questionnaire includes (and their order) is part of the questionnaire.
+    ...(source.navigation ? { navigation: structuredClone(source.navigation) } : {}),
     pages: structuredClone(source.pages || []),
   };
 }
@@ -24,11 +27,15 @@ export function createQuestionnaireDraftForMatterType(source, id, matterType) {
 
   const draft = createQuestionnaireDraft(source, id);
   const sourceContexts = draft.visaContexts;
+  // A definition-driven questionnaire lists exactly the sections its author chose; rebuilding it
+  // from the other context's built-in template would discard them.
+  const keepsOwnPages = isDefinitionNavigation(source);
   draft.visaContexts = [...matterType.visaContexts];
   if (draft.visaContexts.length === 1) draft.visaContext = draft.visaContexts[0];
   else delete draft.visaContext;
 
   if (
+    keepsOwnPages ||
     matterType.visaType !== "temporary-work" ||
     (sourceContexts.length === draft.visaContexts.length &&
       sourceContexts.every((context) => draft.visaContexts.includes(context)))

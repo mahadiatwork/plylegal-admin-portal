@@ -9,6 +9,7 @@ import * as questionnaireClientPresentation from "../src/lib/questionnaireClient
 import * as questionnaireConditionalBranches from "../src/lib/questionnaireConditionalBranches.js";
 import * as questionnaireQuestionDeletion from "../src/lib/questionnaireQuestionDeletion.js";
 import * as questionnaireNavigation from "../src/lib/questionnaireNavigation.js";
+import * as questionnaireNavigationModel from "../src/lib/questionnaireNavigationModel.js";
 import * as questionnaireContentItems from "../src/lib/questionnaireContentItems.js";
 import * as questionnaireDrafts from "../src/lib/questionnaireDrafts.js";
 import * as questionnaireCrmContract from "../src/lib/questionnaireCrmContract.js";
@@ -164,6 +165,8 @@ async function loadComponent(relativePath) {
     if (specifier === "@/lib/questionnaireConditionalBranches") return questionnaireConditionalBranches;
     if (specifier === "@/lib/questionnaireQuestionDeletion") return questionnaireQuestionDeletion;
     if (specifier === "@/lib/questionnaireNavigation") return questionnaireNavigation;
+    if (specifier === "@/lib/questionnaireNavigationModel") return questionnaireNavigationModel;
+    if (specifier === "@/components/admin/QuestionnaireStructureControls") return structureControls;
     if (specifier === "@/lib/questionnaireContentItems") return questionnaireContentItems;
     if (specifier === "@/lib/questionnaireDrafts") return questionnaireDrafts;
     if (specifier === "@/lib/crmFieldCatalog") return crmFieldCatalog;
@@ -175,6 +178,7 @@ async function loadComponent(relativePath) {
   return componentModule.exports;
 }
 
+const structureControls = await loadComponent("src/components/admin/QuestionnaireStructureControls.jsx");
 const { default: AdminQuestionnaireBuilder } = await loadComponent(
   "src/components/admin/AdminQuestionnaireBuilder.jsx",
 );
@@ -1622,7 +1626,13 @@ test("the proposed layout exposes visible question and sidebar section creation 
   repeaterType.props.onChange({ target: { value: "repeater" } });
   harness.render();
 
+  // "Add section here" now opens the new-section dialog; a shipped Client Portal page is still one of its choices.
   harness.button("Add section here").props.onClick();
+  harness.render();
+  const sectionDialog = harness.find((node) => typeof node.type === "function" && node.type.name === "NewSectionDialog", "Expected the new-section dialog");
+  assert.equal(sectionDialog.props.initialGroup, "main-applicant");
+  assert.ok(sectionDialog.props.builtInOptions.some((option) => option.href === "/intake/temporary-work/main-applicant/other"));
+  await sectionDialog.props.onCreate({ groupKey: "main-applicant", builtInHref: "/intake/temporary-work/main-applicant/other" });
   harness.render();
   assert.equal(harness.control("proposed-page-route").props.value, "/intake/temporary-work/main-applicant/other");
 
@@ -2393,4 +2403,224 @@ test("the current layout lists sections under their client labels in client orde
     .map((node) => [text(node), node.props.title]);
   assert.deepEqual(listed.map(([label]) => label), ["Details", "Other Names", "Identity", "Contact Details", "Employment", "Education", "Skills", "Language"]);
   assert.deepEqual(listed[1], ["Other Names", "Main Applicant's Other Details"], "the heading stays available as the tooltip");
+});
+
+// ── Flexible structure: new sections, groups, drag and drop ordering ──
+
+function blankDraft(overrides = {}) {
+  const question = (id, label) => ({ id, answerKey: id, label, type: "text", required: false });
+  const page = (id, title, order, questions) => ({
+    id,
+    title,
+    route: `/intake/temporary-work/main-applicant/${id.replace(/^custom-main-applicant-/, "")}`,
+    sectionKey: `custom_${id.replace(/-/g, "_")}`,
+    completionKey: `temporary-work/main-applicant/${id.replace(/^custom-main-applicant-/, "")}`,
+    scope: "profile",
+    order,
+    introBlocks: [],
+    metadata: { renderer: "dynamic", customSection: true, profileRole: "main_applicant" },
+    questions,
+  });
+  return {
+    schemaVersion: 1,
+    id: "blank-draft",
+    title: "Blank draft",
+    version: "1.0.0",
+    visaType: "temporary-work",
+    visaContexts: ["482"],
+    status: "draft",
+    revision: 0,
+    navigation: { mode: "definition", groups: ["main-applicant"] },
+    pages: [
+      page("custom-main-applicant-employer-background", "Employer background", 10, [
+        question("first_q", "First"),
+        question("second_q", "Second"),
+        question("third_q", "Third"),
+      ]),
+      page("custom-main-applicant-work-authorisation", "Work authorisation", 20, [question("only_q", "Only")]),
+    ],
+    ...overrides,
+  };
+}
+
+const dragEvent = () => ({
+  preventDefault() {},
+  stopPropagation() {},
+  currentTarget: { closest: () => null },
+  dataTransfer: { setData() {}, setDragImage() {}, effectAllowed: "", dropEffect: "" },
+});
+
+/** Drag the element returned by `source(harness)` onto `target(harness)`, re-rendering between events like a browser would. */
+function dragAndDrop(harness, source, target) {
+  source(harness).props.onDragStart(dragEvent());
+  harness.render();
+  target(harness).props.onDragOver(dragEvent());
+  harness.render();
+  target(harness).props.onDrop(dragEvent());
+  harness.render();
+}
+
+const sidebarRow = (pageId) => (harness) => harness.find(
+  (node) => node.props?.["data-testid"] === "sidebar-row" && node.props["data-page-id"] === pageId,
+  `Expected sidebar row for ${pageId}`,
+);
+const questionRow = (entryId) => (harness) => harness.find(
+  (node) => node.props?.["data-testid"] === "question-row" && node.props["data-entry-id"] === entryId,
+  `Expected question row for ${entryId}`,
+);
+const questionHandle = (entryId) => (harness) => [...walk(questionRow(entryId)(harness))]
+  .find((node) => node.props?.["data-testid"] === "question-drag-handle");
+const questionRowIds = (harness) => harness.nodes()
+  .filter((node) => node.props?.["data-testid"] === "question-row")
+  .map((node) => node.props["data-entry-id"]);
+
+test("a blank questionnaire is created definition-driven and an admin can add entirely new sections under Main Applicant", async (t) => {
+  const { harness, calls } = await mountBuilder(t, { embeddedInMatter: false, extraDefinitions: [], definition: blankDraft({ pages: [] }) });
+  await chooseRowAction(harness, /^(Edit|Use template)$/);
+  harness.render();
+
+  // Empty state offers "Add section"; it opens the dialog rather than a list of built-in pages.
+  harness.buttonMatching(/^Add section$/).props.onClick();
+  harness.render();
+  const dialog = () => harness.find((node) => typeof node.type === "function" && node.type.name === "NewSectionDialog");
+  assert.equal(dialog().props.initialGroup, "main-applicant");
+  assert.ok(dialog().props.groups.some((group) => group.key === "main-applicant" && group.included));
+
+  await dialog().props.onCreate({ groupKey: "main-applicant", title: "Employer background" });
+  harness.render();
+  harness.buttonMatching(/^Add section$/).props.onClick();
+  harness.render();
+  await dialog().props.onCreate({ groupKey: "main-applicant", title: "Work authorisation" });
+  harness.render();
+
+  assert.deepEqual(sidebarSections(harness).map((section) => section.label), ["Employer background", "Work authorisation"]);
+  assert.deepEqual(sidebarSections(harness).map((section) => section.number), ["1", "2"]);
+
+  await harness.button("Save changes").props.onClick();
+  const save = calls.find(({ options }) => options.method === "PUT");
+  assert.ok(save, "Expected the new sections to be saved");
+  const saved = JSON.parse(save.options.body);
+  assert.deepEqual(saved.navigation, { mode: "definition", groups: ["main-applicant"] });
+  assert.deepEqual(saved.pages.map((page) => page.title), ["Employer background", "Work authorisation"]);
+  assert.deepEqual(saved.pages.map((page) => page.route), [
+    "/intake/temporary-work/main-applicant/employer-background",
+    "/intake/temporary-work/main-applicant/work-authorisation",
+  ]);
+  assert.equal(new Set(saved.pages.map((page) => page.sectionKey)).size, 2);
+  assert.ok(saved.pages.every((page) => page.metadata.renderer === "dynamic" && page.scope === "profile"));
+});
+
+test("the structure panel includes or excludes groups, keeping their sections", async (t) => {
+  const withSpouse = blankDraft();
+  withSpouse.pages.push({
+    id: "custom-spouse-partner-partner-info", title: "Partner info", route: "/intake/temporary-work/spouse-partner/partner-info",
+    sectionKey: "custom_partner_info", completionKey: "temporary-work/spouse-partner/partner-info", scope: "profile", order: 30,
+    introBlocks: [], metadata: { renderer: "dynamic", profileRole: "spouse" }, questions: [{ id: "p_q", answerKey: "p_q", label: "Partner q", type: "text", required: false }],
+  });
+  withSpouse.navigation = { mode: "definition", groups: ["main-applicant", "spouse-partner"] };
+  const { harness, calls } = await mountBuilder(t, { embeddedInMatter: false, definition: withSpouse, confirm: () => true });
+  await chooseRowAction(harness, /^(Edit|Use template)$/);
+  harness.render();
+  assert.deepEqual(harness.nodes().filter((node) => node.props?.["data-testid"] === "sidebar-group").length, 2);
+
+  await harness.control("Include Spouse / Partner").props.onChange({ target: { checked: false } });
+  harness.render();
+  assert.equal(harness.nodes().filter((node) => node.props?.["data-testid"] === "sidebar-group").length, 1);
+  assert.deepEqual(sidebarSections(harness).map((section) => section.label), ["Employer background", "Work authorisation"]);
+
+  await harness.button("Save changes").props.onClick();
+  const saved = JSON.parse(calls.find(({ options }) => options.method === "PUT").options.body);
+  assert.deepEqual(saved.navigation.groups, ["main-applicant"]);
+  assert.ok(saved.pages.some((page) => page.id === "custom-spouse-partner-partner-info"), "the hidden group's section is kept in the definition");
+
+  // Re-including restores it (and an unrelated group can be added too).
+  await harness.control("Include Spouse / Partner").props.onChange({ target: { checked: true } });
+  harness.render();
+  assert.equal(harness.nodes().filter((node) => node.props?.["data-testid"] === "sidebar-group").length, 2);
+});
+
+test("sidebar sections reorder by drag and drop or by the move buttons, and the order is saved", async (t) => {
+  const { harness, calls } = await mountBuilder(t, { embeddedInMatter: false, definition: blankDraft() });
+  await chooseRowAction(harness, /^(Edit|Use template)$/);
+  harness.render();
+  assert.deepEqual(sidebarSections(harness).map((section) => section.label), ["Employer background", "Work authorisation"]);
+
+  // Keyboard-accessible fallback.
+  harness.control("Move Employer background later").props.onClick();
+  harness.render();
+  assert.deepEqual(sidebarSections(harness).map((section) => section.label), ["Work authorisation", "Employer background"]);
+  assert.deepEqual(sidebarSections(harness).map((section) => section.number), ["1", "2"]);
+
+  // Drag Work authorisation back onto Employer background... then drop it the other way round.
+  dragAndDrop(harness, sidebarRow("custom-main-applicant-employer-background"), sidebarRow("custom-main-applicant-work-authorisation"));
+  assert.deepEqual(sidebarSections(harness).map((section) => section.label), ["Employer background", "Work authorisation"]);
+  dragAndDrop(harness, sidebarRow("custom-main-applicant-employer-background"), sidebarRow("custom-main-applicant-work-authorisation"));
+  assert.deepEqual(sidebarSections(harness).map((section) => section.label), ["Work authorisation", "Employer background"]);
+
+  await harness.button("Save changes").props.onClick();
+  const saved = JSON.parse(calls.find(({ options }) => options.method === "PUT").options.body);
+  const byOrder = [...saved.pages].sort((left, right) => left.order - right.order).map((page) => page.title);
+  assert.deepEqual(byOrder, ["Work authorisation", "Employer background"]);
+});
+
+test("questions reorder inside a section by drag and drop or by the move buttons, and the order is saved", async (t) => {
+  const { harness, calls } = await mountBuilder(t, { embeddedInMatter: false, definition: blankDraft() });
+  await chooseRowAction(harness, /^(Edit|Use template)$/);
+  harness.render();
+  assert.deepEqual(questionRowIds(harness), ["first_q", "second_q", "third_q"]);
+
+  harness.control("Move question “Third” earlier").props.onClick();
+  harness.render();
+  assert.deepEqual(questionRowIds(harness), ["first_q", "third_q", "second_q"]);
+
+  dragAndDrop(harness, questionHandle("third_q"), questionRow("first_q"));
+  assert.deepEqual(questionRowIds(harness), ["third_q", "first_q", "second_q"]);
+  dragAndDrop(harness, questionHandle("third_q"), questionRow("second_q"));
+  assert.deepEqual(questionRowIds(harness), ["first_q", "second_q", "third_q"]);
+  dragAndDrop(harness, questionHandle("first_q"), questionRow("third_q"));
+  assert.deepEqual(questionRowIds(harness), ["second_q", "third_q", "first_q"]);
+
+  await harness.button("Save changes").props.onClick();
+  const saved = JSON.parse(calls.find(({ options }) => options.method === "PUT").options.body);
+  assert.deepEqual(saved.pages[0].questions.map((question) => question.id), ["second_q", "third_q", "first_q"]);
+  assert.equal(saved.pages[1].questions[0].id, "only_q", "other sections are untouched");
+});
+
+test("repeater popup fields reorder by drag and drop, and the order is saved", async (t) => {
+  const field = (id, label, extra = {}) => ({ id, answerKey: id, label, type: "text", required: false, ...extra });
+  const definition = blankDraft();
+  definition.pages[0].questions = [{
+    id: "employers",
+    answerKey: "employers",
+    label: "Employers",
+    type: "repeater",
+    required: false,
+    metadata: {
+      collection: "array",
+      fields: [field("employer_name", "Employer name"), field("job_title", "Job title"), field("start_year", "Start year")],
+    },
+  }];
+  const { harness, calls } = await mountBuilder(t, { embeddedInMatter: false, definition });
+  await chooseRowAction(harness, /^(Edit|Use template)$/);
+  harness.render();
+  const card = harness.find((node) => typeof node.type === "function" && node.type.name === "PortalBuilderQuestion");
+  card.props.onEdit(definition.pages[0].questions[0]);
+  harness.render();
+
+  const ids = () => harness.nodes()
+    .filter((node) => node.props?.["data-testid"] === "record-field-row")
+    .map((node) => node.props["data-field-id"]);
+  assert.deepEqual(ids(), ["employer_name", "job_title", "start_year"]);
+
+  const row = (id) => (h) => h.find((node) => node.props?.["data-testid"] === "record-field-row" && node.props["data-field-id"] === id);
+  dragAndDrop(harness, row("start_year"), row("employer_name"));
+  assert.deepEqual(ids(), ["start_year", "employer_name", "job_title"]);
+  dragAndDrop(harness, row("start_year"), row("job_title"));
+  assert.deepEqual(ids(), ["employer_name", "job_title", "start_year"]);
+  dragAndDrop(harness, row("employer_name"), row("job_title"));
+  assert.deepEqual(ids(), ["job_title", "employer_name", "start_year"]);
+
+  await harness.button("Save changes").props.onClick();
+  const saved = JSON.parse(calls.find(({ options }) => options.method === "PUT").options.body);
+  assert.deepEqual(saved.pages[0].questions[0].metadata.fields.map((item) => item.id), ["job_title", "employer_name", "start_year"]);
 });

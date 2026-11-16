@@ -9,6 +9,7 @@ import * as questionnaireContentItems from "../src/lib/questionnaireContentItems
 import * as questionnaireConditionalBranches from "../src/lib/questionnaireConditionalBranches.js";
 import * as questionnaireQuestionDeletion from "../src/lib/questionnaireQuestionDeletion.js";
 import * as questionnaireNavigation from "../src/lib/questionnaireNavigation.js";
+import * as questionnaireNavigationModel from "../src/lib/questionnaireNavigationModel.js";
 
 const require = createRequire(import.meta.url);
 const { loadBindings, transform } = require("next/dist/build/swc");
@@ -222,6 +223,8 @@ async function loadComponent(relativePath) {
     if (specifier === "@/lib/questionnaireConditionalBranches") return questionnaireConditionalBranches;
     if (specifier === "@/lib/questionnaireQuestionDeletion") return questionnaireQuestionDeletion;
     if (specifier === "@/lib/questionnaireNavigation") return questionnaireNavigation;
+    if (specifier === "@/lib/questionnaireNavigationModel") return questionnaireNavigationModel;
+    if (specifier === "@/components/admin/QuestionnaireStructureControls") return structureControls;
     if (specifier === "@/lib/questionnaireClientPresentation") {
       return {
         describeClientCondition: () => "Shown conditionally",
@@ -248,6 +251,7 @@ async function loadComponent(relativePath) {
   return componentModule.exports;
 }
 
+const structureControls = await loadComponent("src/components/admin/QuestionnaireStructureControls.jsx");
 const { default: AdminQuestionnaireBuilder } = await loadComponent(
   "src/components/admin/AdminQuestionnaireBuilder.jsx",
 );

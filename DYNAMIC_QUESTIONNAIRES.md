@@ -159,3 +159,19 @@ count. Labels come from `src/lib/questionnaireNavigation.js`, which mirrors
 `plylegal-client-portal/src/lib/routes.js` (a unit test compares the two when both repos are present); update
 both together. Page headings are unchanged. A page whose route the client does not list keeps its heading as
 its label, and an optional `page.metadata.navigationTitle` overrides the label. Saved definitions need no migration.
+
+## Custom structure (definition-driven navigation)
+
+A questionnaire can own its sidebar instead of using the Client Portal's hard-coded route tables:
+`navigation: { mode: "definition", groups: [...] }`. See "Flexible structure" in the workspace `AGENTS.md` for the
+data model, the client/admin files involved and the end-to-end proof. In short:
+
+- **Add section** creates a brand-new section with its own title under any group (including Main Applicant), with
+  generated, collision-free `id` / `route` / `sectionKey` / `completionKey` that never change when the title does.
+  It always uses the dynamic renderer. Shipped Client Portal pages can still be added from the same dialog.
+- **Who this questionnaire covers** (structure panel) includes or excludes groups and orders them. Excluded groups
+  keep their sections and every saved answer; clients simply stop seeing, counting or being blocked by them.
+- Sidebar groups and sections, questions on a page and the fields of a repeater all reorder by drag and drop, with
+  move-earlier / move-later buttons as the keyboard fallback. The order is stored in the definition
+  (`navigation.groups`, `page.order`, array order).
+- `completeAdminQuestionnairePages` no longer pads these definitions with the built-in fallback pages.

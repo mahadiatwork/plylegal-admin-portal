@@ -92,6 +92,29 @@ import {
   singleQuestionNode,
 } from "@/lib/questionnaireQuestionDeletion";
 import { buildQuestionnaireSidebar } from "@/lib/questionnaireNavigation";
+import {
+  NAVIGATION_GROUPS,
+  SELECTABLE_GROUP_KEYS,
+  createCustomSection,
+  enableDefinitionNavigation,
+  getGroupPages,
+  getIncludedGroupKeys,
+  getPageGroupKey as getNavigationGroupKey,
+  isDefinitionNavigation,
+  moveGroup,
+  moveGroupPage,
+  reorderGroup,
+  reorderGroupPages,
+  setGroupIncluded,
+} from "@/lib/questionnaireNavigationModel";
+import {
+  DragHandle,
+  FieldOrderList,
+  NewSectionDialog,
+  QuestionnaireStructurePanel,
+  ReorderButtons,
+  useDragReorder,
+} from "@/components/admin/QuestionnaireStructureControls";
 import { useDialogs } from "@/components/ui/confirm-dialog";
 
 const QUESTION_TYPES = [
@@ -708,6 +731,9 @@ function makeNewDefinition() {
     visaContexts: ["482"],
     status: "draft",
     revision: 0,
+    // A blank questionnaire owns its structure: only the groups listed here exist for clients, and
+    // sections are exactly the ones added below (no built-in pages are mixed in).
+    navigation: { mode: "definition", groups: ["main-applicant"] },
     pages: [],
   });
 }
@@ -969,6 +995,15 @@ function groupRepeaterFields(fields = [], sections = []) {
   return groups.map((group, index) => ({
     ...group,
     label: sections[index]?.heading || group.key,
+  }));
+}
+
+/** Top-level fields of a repeater as reorderable blocks (a field plus the fields only it reveals). */
+function repeaterFieldBlocks(question) {
+  return groupRepeaterFieldConditions(question?.metadata?.fields || []).map(({ field, conditionalGroups }) => ({
+    id: field.id,
+    label: field.label || field.answerKey || field.id,
+    dependents: conditionalGroups.reduce((total, group) => total + group.fields.length, 0),
   }));
 }
 
@@ -2574,6 +2609,7 @@ function FollowUpQuestionsDialog({
   onSetRule,
   onSetCondition,
   onMove,
+  recordFieldDrag = null,
   onDelete,
   onClose,
   onDiscardNew,
@@ -2676,8 +2712,17 @@ function FollowUpQuestionsDialog({
     const selected = isSelected(node, nodeLevel);
     const followUpCount = descendantNodes(node).length;
     const showRecordFields = nodeLevel === "page" && record && node === selectedPageNode;
+    // Popup fields can be dragged into a new order (the Move up / Move down buttons stay available).
+    const reorderable = nodeLevel === "record" && Boolean(recordFieldDrag) && record?.forest.roots.includes(node) && record.forest.roots.length > 1;
     return (
-      <li key={node.entry.id}>
+      <li
+        key={node.entry.id}
+        {...(reorderable ? recordFieldDrag.bind(node.entry.questions[0]?.id || node.entry.id, { disabled: disabled || locked }) : {})}
+        data-testid={nodeLevel === "record" ? "record-field-row" : undefined}
+        data-field-id={nodeLevel === "record" ? (node.entry.questions[0]?.id || node.entry.id) : undefined}
+        title={reorderable ? "Drag to reorder" : undefined}
+        className={reorderable ? "rounded-lg data-[drop-target=true]:ring-2 data-[drop-target=true]:ring-[#79ae97] data-[dragging=true]:opacity-50" : undefined}
+      >
         <button
           type="button"
           aria-current={selected ? "true" : undefined}
@@ -2980,6 +3025,12 @@ export default function AdminQuestionnaireBuilder({
   );
   const [editorLayout, setEditorLayout] = useState(() => normalizeBuilderLayout(initialLayout));
   const [expandedPageGroupKeys, setExpandedPageGroupKeys] = useState([]);
+  const [newSectionDialog, setNewSectionDialog] = useState(null);
+  // Drag and drop (each also has keyboard-accessible move buttons).
+  const sectionDrag = useDragReorder((sourceId, targetId) => dropSectionOnSection(sourceId, targetId), "section");
+  const groupDrag = useDragReorder((sourceKey, targetKey) => dropStructureGroup(sourceKey, targetKey), "group");
+  const recordFieldDrag = useDragReorder((sourceId, targetId) => reorderRepeaterField(sourceId, targetId), "record-field");
+  const questionDrag = useDragReorder((sourceId, targetId) => reorderPrimaryEntry(sourceId, targetId), "question");
   const [proposedNavigationOpen, setProposedNavigationOpen] = useState(false);
   const [pageSearch, setPageSearch] = useState("");
   const [questionEditorOpen, setQuestionEditorOpen] = useState(false);
@@ -3108,10 +3159,27 @@ export default function AdminQuestionnaireBuilder({
   // Sidebar labels, order and step numbers follow the Client Portal sidebar (not page headings
   // or the order pages are stored in); see questionnaireNavigation.js.
   const allPagesSidebar = useMemo(() => buildQuestionnaireSidebar(definition), [definition]);
+  const definitionDriven = isDefinitionNavigation(definition);
   const pageGroups = useMemo(
-    () => groupQuestionnairePages(allPagesSidebar.items.map((item) => item.page)),
+    () => (allPagesSidebar.definitionDriven
+      // Definition-driven: every included group is listed, even while empty, so sections can be added to it.
+      ? allPagesSidebar.entries.map((entry) => ({ key: entry.key, label: entry.label, pages: entry.items.map((item) => item.page) }))
+      : groupQuestionnairePages(allPagesSidebar.items.map((item) => item.page))),
     [allPagesSidebar]
   );
+  // Groups the structure panel can switch on or off, included ones first in sidebar order.
+  const structureGroups = useMemo(() => {
+    const includedKeys = definitionDriven ? getIncludedGroupKeys(definition) : [];
+    const selectable = SELECTABLE_GROUP_KEYS.filter((key) => !includedKeys.includes(key));
+    const keys = [...includedKeys, ...selectable];
+    if (!keys.includes("shared") && getGroupPages(definition, "shared").length) keys.push("shared");
+    return keys.map((key) => ({
+      key,
+      label: NAVIGATION_GROUPS[key]?.label || key,
+      included: includedKeys.includes(key),
+      pageCount: getGroupPages(definition, key).length,
+    }));
+  }, [definition, definitionDriven]);
   const navigationLabelById = allPagesSidebar.labelById;
   const proposedSidebar = useMemo(
     () => buildQuestionnaireSidebar(definition, { isVisible: isProposedAdminPageVisible }),
@@ -3593,32 +3661,52 @@ export default function AdminQuestionnaireBuilder({
     if (field === "id") setActivePageId(value);
   }
 
-  function addPage(groupKey = null) {
+  function addPage(groupKey = null, explicitHref = null) {
     const existingIds = new Set((definition?.pages || []).map((page) => page.id));
     const pageNum = (definition?.pages?.length || 0) + 1;
     const id = uniqueId(existingIds, `page-${pageNum}`);
-    const registeredRoute = groupKey ? availableRoutesByGroup.get(groupKey) : nextAvailableRoute;
+    const registeredRoute = explicitHref
+      ? registeredRoutes.find((route) => route.href === explicitHref)
+      : groupKey ? availableRoutesByGroup.get(groupKey) : nextAvailableRoute;
     if (groupKey && !registeredRoute) {
       setError("Every available Client Portal section in this sidebar group has already been added.");
       return;
     }
     const route = registeredRoute?.href || `/intake/${definition.visaType}/${id}`;
-    const page = normalizePage({
-      id,
-      title: registeredRoute?.title || `Page ${pageNum}`,
-      route,
-      sectionKey: id.replace(/-/g, "_"),
-      completionKey: route.replace(/^\/intake\//, ""),
-      scope: getRouteScope(route),
-      order: pageNum * 10,
-      introBlocks: [],
-      questions: [],
-      metadata: {
-        renderer: "dynamic",
-      },
-    });
+    // Adding a shipped Client Portal screen: start from its built-in page (storage keys, renderer
+    // and wording) so it behaves exactly like the same page in a copied questionnaire.
+    const shippedPage = explicitHref
+      ? questionnaireBuiltInTemplates
+          .filter((template) => template.visaType === definition.visaType)
+          .flatMap((template) => template.pages || [])
+          .find((candidate) => candidate.route === route)
+      : null;
+    const page = normalizePage(shippedPage
+      ? { ...clone(shippedPage), id: existingIds.has(shippedPage.id) ? id : shippedPage.id, order: pageNum * 10 }
+      : {
+        id,
+        title: registeredRoute?.title || `Page ${pageNum}`,
+        route,
+        sectionKey: id.replace(/-/g, "_"),
+        completionKey: route.replace(/^\/intake\//, ""),
+        scope: getRouteScope(route),
+        order: pageNum * 10,
+        introBlocks: [],
+        questions: [],
+        metadata: {
+          renderer: "dynamic",
+        },
+      });
 
     setDefinition((current) => {
+      if (isDefinitionNavigation(current)) {
+        // Keep the saved sidebar order: the new section goes last in its group.
+        const groupKeyOfPage = getNavigationGroupKey(page);
+        const siblingOrders = getGroupPages(current, groupKeyOfPage).map((candidate) => Number(candidate.order) || 0);
+        const allOrders = current.pages.map((candidate) => Number(candidate.order) || 0);
+        const ordered = { ...page, order: siblingOrders.length ? Math.max(...siblingOrders) + 1 : (allOrders.length ? Math.max(...allOrders) : 0) + 10 };
+        return setGroupIncluded({ ...current, pages: [...current.pages, ordered] }, groupKeyOfPage, true);
+      }
       const pages = [...current.pages];
       const lastGroupIndex = groupKey
         ? pages.reduce((lastIndex, candidate, index) =>
@@ -3656,7 +3744,130 @@ export default function AdminQuestionnaireBuilder({
     setActiveQuestionId(remaining[0]?.questions?.[0]?.id || "");
   }
 
+  // ── Flexible structure: groups, new sections, ordering ──
+
+  /** The active section's position among the sections of its sidebar group (definition-driven only). */
+  const activeGroupKey = activePage ? getNavigationGroupKey(activePage) : "";
+  const activeGroupPages = definitionDriven && activePage ? getGroupPages(definition, activeGroupKey) : [];
+  const activeGroupIndex = activeGroupPages.findIndex((page) => page.id === activePageId);
+  const canMoveActivePage = (direction) => (definitionDriven
+    ? activeGroupIndex >= 0 && activeGroupIndex + direction >= 0 && activeGroupIndex + direction < activeGroupPages.length
+    : activePageIndex >= 0 && activePageIndex + direction >= 0 && activePageIndex + direction < definition.pages.length);
+
+  /** Previous / next section as clients see the sidebar (definition-driven) or in stored order. */
+  function adjacentPage(direction) {
+    if (definitionDriven) {
+      const items = proposedSidebar.items;
+      const index = items.findIndex((item) => item.page.id === activePageId);
+      return index < 0 ? null : items[index + direction]?.page || null;
+    }
+    return definition.pages[activePageIndex + direction] || null;
+  }
+
+  function openNewSectionDialog(groupKey = "") {
+    const preferred = groupKey || (activePage ? getNavigationGroupKey(activePage) : "") || "main-applicant";
+    setNewSectionDialog({ groupKey: SELECTABLE_GROUP_KEYS.includes(preferred) ? preferred : "main-applicant", error: "" });
+  }
+
+  /** Built-in Client Portal screens that could still be added, for the dialog's optional second source. */
+  const builtInSectionOptions = useMemo(() => {
+    const used = new Set((definition?.pages || []).map((page) => page.route));
+    return registeredRoutes
+      .filter((route) => !used.has(route.href))
+      .map((route) => ({ href: route.href, title: route.title, groupKey: getNavigationGroupKey({ route: route.href }) }))
+      // Children / Other Family screens are per-person placeholders; only their template routes are addable.
+      .filter((option) => SELECTABLE_GROUP_KEYS.includes(option.groupKey));
+  }, [definition?.pages, registeredRoutes]);
+
+  async function createSectionFromDialog({ groupKey, title, builtInHref }) {
+    if (!definition) return;
+    if (builtInHref) {
+      setNewSectionDialog(null);
+      addPage(groupKey, builtInHref);
+      return;
+    }
+    if (!definitionDriven && definition.pages.length) {
+      const confirmed = await confirm({
+        title: "Let this questionnaire control its own structure?",
+        description: "Your own sections are only shown to clients when the questionnaire defines its sidebar. The groups and sections you already have are kept, in a sidebar built from this questionnaire instead of the standard Client Portal order.",
+        details: ["Saved client answers are not changed.", "Hand-written Client Portal pages keep working in the groups they belong to."],
+        confirmLabel: "Add section",
+      });
+      if (!confirmed) return;
+    }
+    try {
+      const { definition: next, page } = createCustomSection(definition, { title, groupKey, builtInRoutes: registeredRoutes });
+      setDefinition(next);
+      setActivePageId(page.id);
+      setActiveQuestionId("");
+      setExpandedPageGroupKeys((current) => Array.from(new Set([...current, groupKey])));
+      setSectionSettingsOpen(true);
+      setQuestionEditorOpen(false);
+      setNewSectionDialog(null);
+      setError("");
+    } catch (createError) {
+      setNewSectionDialog((current) => current && ({ ...current, error: createError.message || "Could not create the section." }));
+    }
+  }
+
+  function enableStructure() {
+    setDefinition((current) => enableDefinitionNavigation(current));
+  }
+
+  async function toggleStructureGroup(groupKey, included) {
+    if (!definition) return;
+    const pageCount = getGroupPages(definition, groupKey).length;
+    if (!included) {
+      const label = NAVIGATION_GROUPS[groupKey]?.label || groupKey;
+      const confirmed = await confirm({
+        title: `Hide ${label} from this questionnaire?`,
+        description: `${label} will no longer appear in the client sidebar, count towards progress, block submission or be reachable by link.`,
+        details: [
+          pageCount ? `${pageCount} section${pageCount === 1 ? "" : "s"} stay in the questionnaire so you can include the group again.` : "You can include the group again at any time.",
+          "Answers clients have already saved are kept.",
+        ],
+        confirmLabel: `Hide ${label}`,
+      });
+      if (!confirmed) return;
+    }
+    const next = setGroupIncluded(definition, groupKey, included);
+    setDefinition(next);
+    if (!included && activePage && getNavigationGroupKey(activePage) === groupKey) {
+      const fallback = buildQuestionnaireSidebar(next).items[0]?.page;
+      setActivePageId(fallback?.id || "");
+      setActiveQuestionId(fallback?.questions?.[0]?.id || "");
+      setQuestionEditorOpen(false);
+      setSectionSettingsOpen(false);
+    }
+  }
+
+  function moveStructureGroup(groupKey, direction) {
+    setDefinition((current) => moveGroup(current, groupKey, direction));
+  }
+
+  function dropStructureGroup(sourceKey, targetKey) {
+    setDefinition((current) => reorderGroup(current, sourceKey, targetKey));
+  }
+
+  /** Drop one sidebar section on another (same group only: the group decides the route and storage). */
+  function dropSectionOnSection(sourceId, targetId) {
+    const source = definition.pages.find((page) => page.id === sourceId);
+    const target = definition.pages.find((page) => page.id === targetId);
+    if (!source || !target) return;
+    const groupKey = getNavigationGroupKey(source);
+    if (groupKey !== getNavigationGroupKey(target)) return;
+    setDefinition((current) => reorderGroupPages(current, groupKey, sourceId, targetId));
+  }
+
+  function moveSidebarSection(page, direction) {
+    setDefinition((current) => moveGroupPage(current, getNavigationGroupKey(page), page.id, direction));
+  }
+
   function movePage(direction) {
+    if (definitionDriven) {
+      if (activePage) moveSidebarSection(activePage, direction);
+      return;
+    }
     const nextIndex = activePageIndex + direction;
     if (activePageIndex < 0 || nextIndex < 0 || nextIndex >= definition.pages.length) return;
     const pages = [...definition.pages];
@@ -4452,6 +4663,52 @@ export default function AdminQuestionnaireBuilder({
     else updatePageQuestionsStructure(move);
   }
 
+  /** The ids a question moves together with: itself plus the follow-ups it reveals. */
+  function entryBlockIds(entry) {
+    const node = pageForest.nodeById.get(entry.id);
+    return node ? nodeQuestionIds(node) : getEntryQuestions(entry).map((question) => question.id);
+  }
+
+  /** Drop one question of the page onto another (drag and drop), moving its follow-ups with it. */
+  function reorderPrimaryEntry(sourceId, targetId) {
+    const entries = activePagePresentation?.primaryEntries || [];
+    const sourceIndex = entries.findIndex((entry) => entry.id === sourceId);
+    const targetIndex = entries.findIndex((entry) => entry.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
+    const direction = sourceIndex < targetIndex ? 1 : -1;
+    const source = entryBlockIds(entries[sourceIndex]);
+    const target = entryBlockIds(entries[targetIndex]);
+    updatePageQuestionsStructure((items) => moveItemBlock(items, source, target, direction));
+  }
+
+  /** Keyboard / button fallback: swap a question with its neighbour. */
+  function moveEntry(entry, direction) {
+    const entries = activePagePresentation?.primaryEntries || [];
+    const index = entries.findIndex((candidate) => candidate.id === entry.id);
+    const neighbour = entries[index + direction];
+    if (neighbour) reorderPrimaryEntry(entry.id, neighbour.id);
+  }
+
+  /** Reorder the top-level fields of a repeater (a field moves with the fields it reveals). */
+  function reorderRepeaterField(sourceId, targetId) {
+    const fields = activeQuestion?.metadata?.fields || [];
+    const blocks = groupRepeaterFieldConditions(fields).map(({ field, conditionalGroups }) => ({
+      id: field.id,
+      ids: [field.id, ...conditionalGroups.flatMap((group) => group.fields.map((nested) => nested.id))],
+    }));
+    const sourceIndex = blocks.findIndex((block) => block.id === sourceId);
+    const targetIndex = blocks.findIndex((block) => block.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
+    updateRecordFieldsStructure((items) => moveItemBlock(items, blocks[sourceIndex].ids, blocks[targetIndex].ids, sourceIndex < targetIndex ? 1 : -1));
+  }
+
+  function moveRepeaterField(fieldId, direction) {
+    const blocks = groupRepeaterFieldConditions(activeQuestion?.metadata?.fields || []);
+    const index = blocks.findIndex(({ field }) => field.id === fieldId);
+    const neighbour = blocks[index + direction];
+    if (neighbour) reorderRepeaterField(fieldId, neighbour.field.id);
+  }
+
   function deleteFollowUp({ level, node }) {
     const questionId = node?.entry.questions[0]?.id;
     if (questionId) requestQuestionDeletion({ level, questionId });
@@ -4901,6 +5158,7 @@ export default function AdminQuestionnaireBuilder({
       pageEntries={activePagePresentation?.entries || []}
       selectedPageNode={followUpPageNode}
       record={followUpRecord}
+      recordFieldDrag={recordFieldDrag}
       selectedRecordNode={followUpFieldNode}
       locked={followUpStructureLocked}
       disabled={isBusy}
@@ -4929,6 +5187,19 @@ export default function AdminQuestionnaireBuilder({
             });
         if (confirmed) discardNewQuestions([created]);
       }}
+    />
+  ) : null;
+
+  const newSectionDialogElement = newSectionDialog ? (
+    <NewSectionDialog
+      open
+      groups={structureGroups}
+      initialGroup={newSectionDialog.groupKey}
+      builtInOptions={builtInSectionOptions}
+      error={newSectionDialog.error}
+      disabled={isBusy}
+      onCreate={createSectionFromDialog}
+      onCancel={() => setNewSectionDialog(null)}
     />
   ) : null;
 
@@ -5153,6 +5424,7 @@ export default function AdminQuestionnaireBuilder({
       <div className="space-y-6">
         {createQuestionnaireDialog}
         {deleteQuestionDialog}
+        {newSectionDialogElement}
         {editorLayout === BUILDER_LAYOUTS.PROPOSED ? followUpDialogElement : null}
         <header className="flex flex-col gap-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -5255,55 +5527,117 @@ export default function AdminQuestionnaireBuilder({
                             setSectionSettingsOpen(false);
                             setProposedNavigationOpen(false);
                           };
-                          const renderItem = (item) => (
-                            <ProposedNavigationPageButton
-                              key={item.page.id}
-                              active={item.page.id === activePageId}
-                              count={pagePresentations.get(item.page.id)?.primaryCount ?? 0}
-                              label={item.label}
-                              onSelect={() => selectProposedPage(item.page)}
-                              page={item.page}
-                              stepNumber={item.stepNumber}
-                            />
-                          );
+                          const renderItem = (item, itemIndex = 0, items = []) => {
+                            const button = (
+                              <ProposedNavigationPageButton
+                                key={item.page.id}
+                                active={item.page.id === activePageId}
+                                count={pagePresentations.get(item.page.id)?.primaryCount ?? 0}
+                                label={item.label}
+                                onSelect={() => selectProposedPage(item.page)}
+                                page={item.page}
+                                stepNumber={item.stepNumber}
+                              />
+                            );
+                            if (!definitionDriven) return button;
+                            // Definition-driven: drag a section onto another one in its group, or use the arrows.
+                            return (
+                              <div
+                                key={item.page.id}
+                                data-testid="sidebar-row"
+                                data-page-id={item.page.id}
+                                {...sectionDrag.bind(item.page.id, { disabled: isBusy })}
+                                className="group/row flex items-center gap-0.5 rounded-xl data-[drop-target=true]:ring-2 data-[drop-target=true]:ring-[#79ae97] data-[dragging=true]:opacity-50"
+                              >
+                                <DragHandle className="opacity-30 transition group-hover/row:opacity-100 group-focus-within/row:opacity-100" />
+                                <div className="min-w-0 flex-1">{button}</div>
+                                <ReorderButtons
+                                  label={item.label}
+                                  disabled={isBusy}
+                                  canMoveUp={itemIndex > 0}
+                                  canMoveDown={itemIndex < items.length - 1}
+                                  onMove={(direction) => moveSidebarSection(item.page, direction)}
+                                  className="opacity-0 transition group-hover/row:opacity-100 group-focus-within/row:opacity-100"
+                                />
+                              </div>
+                            );
+                          };
                           if (entry.kind === "page") return renderItem(entry.item);
                           const groupIsActive = entry.items.some((item) => item.page.id === activePageId);
-                          const isExpanded = groupIsActive || expandedPageGroupKeys.includes(entry.key);
-                          const canAddHere = availableRoutesByGroup.has(entry.key);
+                          const isExpanded = groupIsActive || expandedPageGroupKeys.includes(entry.key) || (definitionDriven && entry.items.length === 0);
+                          const includedGroupKeys = definitionDriven ? getIncludedGroupKeys(definition) : [];
+                          const groupPosition = includedGroupKeys.indexOf(entry.key);
                           return (
-                            <Collapsible
+                            <div
                               key={entry.key}
+                              data-testid="sidebar-group-block"
+                              data-group={entry.key}
+                              {...(definitionDriven ? groupDrag.bindTarget(entry.key) : {})}
+                              className="rounded-xl data-[drop-target=true]:ring-2 data-[drop-target=true]:ring-[#79ae97]"
+                            >
+                            <Collapsible
                               open={isExpanded}
                               onOpenChange={(open) => setExpandedPageGroupKeys((current) => open
                                 ? Array.from(new Set([...current, entry.key]))
                                 : current.filter((key) => key !== entry.key))}
                             >
-                              <CollapsibleTrigger asChild>
-                                <button type="button" data-testid="sidebar-group" className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition-colors ${groupIsActive ? "bg-slate-100 text-slate-900" : "text-slate-700 hover:bg-slate-50"}`}>
-                                  <span className="truncate">{entry.label}</span>
-                                  <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
-                                </button>
-                              </CollapsibleTrigger>
+                              <div className="group/group flex items-center gap-0.5">
+                                <CollapsibleTrigger asChild>
+                                  <button
+                                    type="button"
+                                    data-testid="sidebar-group"
+                                    {...(definitionDriven ? groupDrag.bindSource(entry.key, { disabled: isBusy }) : {})}
+                                    className={`flex min-w-0 flex-1 items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition-colors ${groupIsActive ? "bg-slate-100 text-slate-900" : "text-slate-700 hover:bg-slate-50"}`}
+                                  >
+                                    {definitionDriven ? <DragHandle /> : null}
+                                    <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+                                    <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                                  </button>
+                                </CollapsibleTrigger>
+                                {definitionDriven ? (
+                                  <ReorderButtons
+                                    label={`${entry.label} group`}
+                                    disabled={isBusy}
+                                    canMoveUp={groupPosition > 0}
+                                    canMoveDown={groupPosition >= 0 && groupPosition < includedGroupKeys.length - 1}
+                                    onMove={(direction) => moveStructureGroup(entry.key, direction)}
+                                    className="opacity-0 transition group-hover/group:opacity-100 group-focus-within/group:opacity-100"
+                                  />
+                                ) : null}
+                              </div>
                               <CollapsibleContent className="ml-3 mt-1 space-y-0.5 border-l-2 border-slate-100 pl-3">
-                                {entry.items.map(renderItem)}
+                                {entry.items.map((item, itemIndex) => renderItem(item, itemIndex, entry.items))}
                                 <button
                                   type="button"
+                                  data-testid="sidebar-add-section"
                                   className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[#b9ccc3] bg-white px-2.5 py-2 text-xs font-semibold text-[#45685d] transition hover:border-[#7fa494] hover:bg-[#eef7f2] disabled:cursor-not-allowed disabled:opacity-50"
-                                  disabled={isBusy || !canAddHere}
-                                  title={canAddHere ? `Add the next available section to ${entry.label}` : `All available ${entry.label} sections are already included`}
-                                  onClick={() => addPage(entry.key)}
+                                  disabled={isBusy}
+                                  title={`Add a section to ${entry.label}`}
+                                  onClick={() => openNewSectionDialog(entry.key)}
                                 >
                                   <Plus className="h-3.5 w-3.5" />
-                                  {canAddHere ? "Add section here" : "All sections added"}
+                                  Add section here
                                 </button>
                               </CollapsibleContent>
                             </Collapsible>
+                            </div>
                           );
                         })}
                       </nav>
                     </ScrollArea>
 
-                    <Button type="button" variant="outline" className="mt-5 w-full border-[#d2dfd8] bg-white text-[#38564b]" disabled={isBusy} onClick={() => { addPage(); setSectionSettingsOpen(true); setQuestionEditorOpen(false); }}><Plus />Add section</Button>
+                    <Button type="button" variant="outline" className="mt-5 w-full border-[#d2dfd8] bg-white text-[#38564b]" disabled={isBusy} onClick={() => openNewSectionDialog()}><Plus />Add section</Button>
+                    <div className="mt-4">
+                      <QuestionnaireStructurePanel
+                        definitionDriven={definitionDriven}
+                        groups={structureGroups}
+                        disabled={isBusy}
+                        onEnable={enableStructure}
+                        onToggleGroup={toggleStructureGroup}
+                        onMoveGroup={moveStructureGroup}
+                        onReorderGroup={dropStructureGroup}
+                      />
+                    </div>
                   </aside>
                 ) : (
                 <aside className="self-start overflow-hidden rounded-xl border border-[#dce6e1] bg-white shadow-[0_1px_2px_rgba(23,55,46,0.04)] lg:sticky lg:top-6">
@@ -5342,22 +5676,55 @@ export default function AdminQuestionnaireBuilder({
                   <div className="border-y border-[#e5ebe8] px-3 py-3">
                     <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#7b8e87]">{activePageGroup?.label || "Questionnaire sections"}</p>
                     <div className="max-h-[calc(100vh-460px)] space-y-1 overflow-y-auto">
-                      {filteredPages.map((page) => (
-                        <button key={page.id} type="button" onClick={() => {
-                          setActivePageId(page.id);
-                          setActiveQuestionId(page.questions?.[0]?.id || "");
-                          setQuestionEditorOpen(false);
-                          setSectionSettingsOpen(false);
-                        }} className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left text-sm transition ${page.id === activePageId ? "bg-[#e5f1ea] font-semibold text-[#2b5f4d] ring-1 ring-[#add0bf]" : "text-[#587067] hover:bg-[#f2f7f4]"}`}>
-                          <span className="min-w-0 flex-1 whitespace-normal break-words leading-snug" title={page.title}>{navigationLabelById.get(page.id) || page.title}</span>
-                          <span className="flex shrink-0 items-center gap-2 text-xs text-[#789087]" title="Client-facing questions"><span>{pagePresentations.get(page.id)?.primaryCount ?? 0}</span><ChevronRight className="h-4 w-4" /></span>
-                        </button>
-                      ))}
+                      {filteredPages.map((page, pageIndex) => {
+                        const pageButton = (
+                          <button key={page.id} type="button" onClick={() => {
+                            setActivePageId(page.id);
+                            setActiveQuestionId(page.questions?.[0]?.id || "");
+                            setQuestionEditorOpen(false);
+                            setSectionSettingsOpen(false);
+                          }} className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left text-sm transition ${page.id === activePageId ? "bg-[#e5f1ea] font-semibold text-[#2b5f4d] ring-1 ring-[#add0bf]" : "text-[#587067] hover:bg-[#f2f7f4]"}`}>
+                            <span className="min-w-0 flex-1 whitespace-normal break-words leading-snug" title={page.title}>{navigationLabelById.get(page.id) || page.title}</span>
+                            <span className="flex shrink-0 items-center gap-2 text-xs text-[#789087]" title="Client-facing questions"><span>{pagePresentations.get(page.id)?.primaryCount ?? 0}</span><ChevronRight className="h-4 w-4" /></span>
+                          </button>
+                        );
+                        if (!definitionDriven || pageSearch) return pageButton;
+                        return (
+                          <div
+                            key={page.id}
+                            data-testid="sidebar-row"
+                            data-page-id={page.id}
+                            {...sectionDrag.bind(page.id, { disabled: isBusy })}
+                            className="flex items-center gap-1 rounded-lg data-[drop-target=true]:ring-2 data-[drop-target=true]:ring-[#79ae97] data-[dragging=true]:opacity-50"
+                          >
+                            <DragHandle />
+                            <div className="min-w-0 flex-1">{pageButton}</div>
+                            <ReorderButtons
+                              label={navigationLabelById.get(page.id) || page.title}
+                              disabled={isBusy}
+                              canMoveUp={pageIndex > 0}
+                              canMoveDown={pageIndex < filteredPages.length - 1}
+                              onMove={(direction) => moveSidebarSection(page, direction)}
+                            />
+                          </div>
+                        );
+                      })}
                       {!filteredPages.length ? <p className="px-3 py-8 text-center text-xs leading-5 text-[#7a8e86]">{pageSearch ? "No matching sections in this group." : "No sections in this group."}</p> : null}
                     </div>
                   </div>
                   <div className="p-3">
-                    <Button type="button" variant="outline" className="w-full border-[#d2dfd8] bg-white text-[#38564b]" disabled={isBusy} onClick={() => { addPage(); setSectionSettingsOpen(true); setQuestionEditorOpen(false); }}><Plus />Add section</Button>
+                    <Button type="button" variant="outline" className="w-full border-[#d2dfd8] bg-white text-[#38564b]" disabled={isBusy} onClick={() => openNewSectionDialog()}><Plus />Add section</Button>
+                    <div className="mt-3">
+                      <QuestionnaireStructurePanel
+                        definitionDriven={definitionDriven}
+                        groups={structureGroups}
+                        disabled={isBusy}
+                        onEnable={enableStructure}
+                        onToggleGroup={toggleStructureGroup}
+                        onMoveGroup={moveStructureGroup}
+                        onReorderGroup={dropStructureGroup}
+                      />
+                    </div>
                   </div>
                 </aside>
                 )}
@@ -5369,7 +5736,7 @@ export default function AdminQuestionnaireBuilder({
                         <FileText className="h-10 w-10 text-[#9fb4ac]" />
                         <h2 className="mt-4 text-lg font-semibold text-[#17372e]">Add your first section</h2>
                         <p className="mt-2 max-w-md text-sm text-[#71857d]">Sections group related questions and preserve the existing Client Portal routes and answer storage.</p>
-                        <Button type="button" className="mt-5 bg-[#244D42] text-white hover:bg-[#183a31]" onClick={() => { addPage(); setSectionSettingsOpen(true); }}><Plus />Add section</Button>
+                        <Button type="button" className="mt-5 bg-[#244D42] text-white hover:bg-[#183a31]" onClick={() => openNewSectionDialog()}><Plus />Add section</Button>
                       </section>
                     ) : (
                       <section data-testid="portal-style-builder" className="overflow-hidden rounded-2xl border border-[#dbe4e0] bg-white shadow-md">
@@ -5402,8 +5769,8 @@ export default function AdminQuestionnaireBuilder({
                                 <div className="flex flex-wrap items-center justify-between gap-3">
                                   <div><p className="text-sm font-semibold text-[#24453b]">Edit section</p><p className="mt-1 text-xs text-[#71857d]">The title and description update above as you type.</p></div>
                                   <div className="flex items-center gap-1">
-                                    <Button type="button" variant="ghost" size="icon" disabled={isBusy || activePageIndex === 0} onClick={() => movePage(-1)} aria-label="Move section up"><ArrowUp /></Button>
-                                    <Button type="button" variant="ghost" size="icon" disabled={isBusy || activePageIndex === definition.pages.length - 1} onClick={() => movePage(1)} aria-label="Move section down"><ArrowDown /></Button>
+                                    <Button type="button" variant="ghost" size="icon" disabled={isBusy || !canMoveActivePage(-1)} onClick={() => movePage(-1)} aria-label="Move section up"><ArrowUp /></Button>
+                                    <Button type="button" variant="ghost" size="icon" disabled={isBusy || !canMoveActivePage(1)} onClick={() => movePage(1)} aria-label="Move section down"><ArrowDown /></Button>
                                     <Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" disabled={isBusy} onClick={deletePage} aria-label="Delete section"><Trash2 /></Button>
                                     <Button type="button" variant="ghost" size="sm" className="text-[#45685d]" onClick={() => setSectionSettingsOpen(false)}><X className="h-4 w-4" />Close</Button>
                                   </div>
@@ -5448,8 +5815,37 @@ export default function AdminQuestionnaireBuilder({
                               const insertIndex = followUpNode
                                 ? indexAfter(activePage.questions, nodeQuestionIds(followUpNode))
                                 : getEntryInsertIndex(entry, activePage.questions);
+                              const primaryEntries = activePagePresentation.primaryEntries;
+                              const primaryIndex = orphan ? -1 : primaryEntries.findIndex((candidate) => candidate.id === entry.id);
+                              const canReorderEntries = !orphan && primaryEntries.length > 1 && !builtInLegacyStructureIsLocked(activePage);
                               return (
-                                <div key={orphan ? `orphan-${entry.id}` : entry.id} className={orphan ? "rounded-xl border-l-2 border-[#a8cdbb] pl-3" : undefined}>
+                                <div
+                                  key={orphan ? `orphan-${entry.id}` : entry.id}
+                                  data-testid="question-row"
+                                  data-entry-id={entry.id}
+                                  {...(canReorderEntries ? questionDrag.bindTarget(entry.id) : {})}
+                                  className={`${orphan ? "rounded-xl border-l-2 border-[#a8cdbb] pl-3" : ""} ${canReorderEntries ? "rounded-xl data-[drop-target=true]:ring-2 data-[drop-target=true]:ring-[#79ae97]" : ""}`}
+                                >
+                                  {canReorderEntries ? (
+                                    <div data-testid="question-reorder-bar" className="mb-1 flex items-center gap-1 text-[#9fb4ac]">
+                                      <span
+                                        {...questionDrag.bindSource(entry.id, { disabled: isBusy })}
+                                        data-testid="question-drag-handle"
+                                        title="Drag to reorder"
+                                        aria-hidden="true"
+                                        className="inline-flex cursor-grab items-center rounded px-1 py-0.5 hover:bg-[#eef7f2]"
+                                      >
+                                        <DragHandle />
+                                      </span>
+                                      <ReorderButtons
+                                        label={`question “${entry.label}”`}
+                                        disabled={isBusy}
+                                        canMoveUp={primaryIndex > 0}
+                                        canMoveDown={primaryIndex >= 0 && primaryIndex < primaryEntries.length - 1}
+                                        onMove={(direction) => moveEntry(entry, direction)}
+                                      />
+                                    </div>
+                                  ) : null}
                                   <PortalBuilderQuestion
                                     activeQuestion={questionEditorOpen ? activeQuestion : null}
                                     allEntries={activePagePresentation.entries}
@@ -5499,11 +5895,11 @@ export default function AdminQuestionnaireBuilder({
                         </div>
 
                         <div className="flex flex-col gap-3 border-t border-[#e0e7e3] bg-[#fbfcfb] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-8">
-                          <Button type="button" variant="outline" className="border-[#d2dfd8] bg-white text-[#38564b]" disabled={isBusy || activePageIndex === 0} onClick={() => { const page = definition.pages[activePageIndex - 1]; setActivePageId(page.id); setActiveQuestionId(page.questions?.[0]?.id || ""); setQuestionEditorOpen(false); setSectionSettingsOpen(false); }}><ArrowLeft />Previous section</Button>
+                          <Button type="button" variant="outline" className="border-[#d2dfd8] bg-white text-[#38564b]" disabled={isBusy || !adjacentPage(-1)} onClick={() => { const page = adjacentPage(-1); setActivePageId(page.id); setActiveQuestionId(page.questions?.[0]?.id || ""); setQuestionEditorOpen(false); setSectionSettingsOpen(false); }}><ArrowLeft />Previous section</Button>
                           <div className="flex flex-wrap items-center justify-end gap-2">
                             <span className="mr-2 text-xs text-[#748880]">{isDirty ? "Draft changes not saved" : "All changes saved"}</span>
                             <Button type="button" variant="outline" className="border-[#d2dfd8] bg-white text-[#38564b]" disabled={isBusy || !isDirty} onClick={() => saveDefinition()}>{isSaving ? <Loader2 className="animate-spin" /> : <Save />}Save changes</Button>
-                            <Button type="button" className="bg-[#4F726B] text-white hover:bg-[#3d625a]" disabled={isBusy || activePageIndex === definition.pages.length - 1} onClick={() => { const page = definition.pages[activePageIndex + 1]; setActivePageId(page.id); setActiveQuestionId(page.questions?.[0]?.id || ""); setQuestionEditorOpen(false); setSectionSettingsOpen(false); }}>Next section<ChevronRight /></Button>
+                            <Button type="button" className="bg-[#4F726B] text-white hover:bg-[#3d625a]" disabled={isBusy || !adjacentPage(1)} onClick={() => { const page = adjacentPage(1); setActivePageId(page.id); setActiveQuestionId(page.questions?.[0]?.id || ""); setQuestionEditorOpen(false); setSectionSettingsOpen(false); }}>Next section<ChevronRight /></Button>
                           </div>
                         </div>
                       </section>
@@ -5513,7 +5909,7 @@ export default function AdminQuestionnaireBuilder({
                       <FileText className="h-10 w-10 text-[#9fb4ac]" />
                       <h2 className="mt-4 text-lg font-semibold text-[#17372e]">Add your first section</h2>
                       <p className="mt-2 max-w-md text-sm text-[#71857d]">Sections group related questions and preserve the existing Client Portal routes and answer storage.</p>
-                      <Button type="button" className="mt-5 bg-[#1f6654] text-white hover:bg-[#174f42]" onClick={() => { addPage(); setSectionSettingsOpen(true); }}><Plus />Add section</Button>
+                      <Button type="button" className="mt-5 bg-[#1f6654] text-white hover:bg-[#174f42]" onClick={() => openNewSectionDialog()}><Plus />Add section</Button>
                     </section>
                   ) : questionEditorOpen && activeQuestion && isQuestionnaireDisplayItem(activeQuestion) ? (
                     <section className="space-y-5" data-testid="content-item-screen">
@@ -5671,6 +6067,9 @@ export default function AdminQuestionnaireBuilder({
                             ) : null}
                           </div>
 
+                          {activeQuestion.type === "repeater" && activeQuestion.metadata?.fields?.length > 1 && !builtInLegacyStructureIsLocked(activePage) ? (
+                            <FieldOrderList fields={repeaterFieldBlocks(activeQuestion)} disabled={isBusy} onReorder={reorderRepeaterField} onMove={moveRepeaterField} />
+                          ) : null}
                           {activeQuestion.metadata?.fields?.length ? (
                             <div className="space-y-4 border-t border-[#e6ece9] pt-5">
                               <div><h3 className="text-sm font-semibold text-[#24453b]">Record fields</h3><p className="mt-1 text-xs text-[#71857d]">Edit the wording shown inside each record. Saved keys stay unchanged.</p></div>
@@ -5732,7 +6131,7 @@ export default function AdminQuestionnaireBuilder({
 
                         {sectionSettingsOpen ? (
                           <div className="mt-5 rounded-xl border border-[#dce6e1] bg-[#f8fbf9] p-4 sm:p-5">
-                            <div className="mb-4 flex items-center justify-between"><div><h3 className="font-semibold text-[#24453b]">Section details</h3><p className="mt-1 text-xs text-[#71857d]">Order {activePageIndex + 1} of {definition.pages.length}</p></div><div className="flex gap-1"><Button type="button" variant="ghost" size="icon" disabled={isBusy || activePageIndex === 0} onClick={() => movePage(-1)} aria-label="Move section up"><ArrowUp /></Button><Button type="button" variant="ghost" size="icon" disabled={isBusy || activePageIndex === definition.pages.length - 1} onClick={() => movePage(1)} aria-label="Move section down"><ArrowDown /></Button><Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" disabled={isBusy} onClick={deletePage} aria-label="Delete section"><Trash2 /></Button></div></div>
+                            <div className="mb-4 flex items-center justify-between"><div><h3 className="font-semibold text-[#24453b]">Section details</h3><p className="mt-1 text-xs text-[#71857d]">Order {activePageIndex + 1} of {definition.pages.length}</p></div><div className="flex gap-1"><Button type="button" variant="ghost" size="icon" disabled={isBusy || !canMoveActivePage(-1)} onClick={() => movePage(-1)} aria-label="Move section up"><ArrowUp /></Button><Button type="button" variant="ghost" size="icon" disabled={isBusy || !canMoveActivePage(1)} onClick={() => movePage(1)} aria-label="Move section down"><ArrowDown /></Button><Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" disabled={isBusy} onClick={deletePage} aria-label="Delete section"><Trash2 /></Button></div></div>
                             <div className="grid gap-4 md:grid-cols-2">
                               <div className="space-y-2 md:col-span-2"><FieldLabel htmlFor="page-title">Section title</FieldLabel><Input id="page-title" className={inputClassName} value={activePage.title} onChange={(event) => updatePageField("title", event.target.value)} /></div>
                               <div className="space-y-2 md:col-span-2"><FieldLabel htmlFor="page-intro">Intro text</FieldLabel><Textarea id="page-intro" rows={3} className="border-[#d7e4de] bg-white" disabled={legacyPage && !activePage.metadata?.originalIntroBlocks?.length} value={getIntroText(activePage)} onChange={(event) => updateActivePage((page) => setIntroText(page, event.target.value))} /></div>
@@ -5819,6 +6218,7 @@ export default function AdminQuestionnaireBuilder({
     <div className="space-y-6">
       {createQuestionnaireDialog}
       {deleteQuestionDialog}
+      {newSectionDialogElement}
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           {embeddedInMatter ? <Button type="button" variant="outline" size="sm" className="mb-5 border-[#c7d8d0] bg-white text-[#38564b]" onClick={returnToQuestionnaireLibrary}><ArrowLeft className="h-4 w-4" />Visa questionnaires</Button> : null}
@@ -6252,10 +6652,10 @@ export default function AdminQuestionnaireBuilder({
                           <p className="text-xs text-[#71857d]">Order {activePageIndex + 1} of {definition.pages.length}</p>
                         </div>
                         <div className="flex gap-1">
-                          <Button type="button" variant="ghost" size="icon" disabled={isBusy || activePageIndex === 0} onClick={() => movePage(-1)} aria-label="Move page up">
+                          <Button type="button" variant="ghost" size="icon" disabled={isBusy || !canMoveActivePage(-1)} onClick={() => movePage(-1)} aria-label="Move page up">
                             <ArrowUp />
                           </Button>
-                          <Button type="button" variant="ghost" size="icon" disabled={isBusy || activePageIndex === definition.pages.length - 1} onClick={() => movePage(1)} aria-label="Move page down">
+                          <Button type="button" variant="ghost" size="icon" disabled={isBusy || !canMoveActivePage(1)} onClick={() => movePage(1)} aria-label="Move page down">
                             <ArrowDown />
                           </Button>
                           <Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50" disabled={isBusy} onClick={deletePage} aria-label="Delete page">
@@ -6453,6 +6853,9 @@ export default function AdminQuestionnaireBuilder({
                               </div>
 
                               <>
+                                  {activeQuestion.type === "repeater" && activeQuestion.metadata?.fields?.length > 1 && !builtInLegacyStructureIsLocked(activePage) ? (
+                                    <FieldOrderList fields={repeaterFieldBlocks(activeQuestion)} disabled={isBusy} onReorder={reorderRepeaterField} onMove={moveRepeaterField} />
+                                  ) : null}
                                   {activeQuestion.metadata?.fields?.length ? <div className="space-y-4 rounded-xl border border-[#d9e6e0] bg-[#f8fbf9] p-4">
                                     <div><h4 className="text-sm font-semibold text-[#24453b]">Record field wording</h4><p className="text-xs text-[#71857d]">Edit the fields clients see inside each record. Their saved values and answer keys stay preserved.</p></div>
                                     {embeddedInMatter

@@ -16,7 +16,16 @@
  * page whose route is not in the client navigation keeps its title as the label and is listed
  * after the client's pages in its group. `page.metadata.navigationTitle`, when an administrator
  * or a future catalog sets one, overrides the label. Existing saved definitions need no changes.
+ *
+ * Definitions that opt in with `navigation.mode === "definition"` (see questionnaireNavigationModel.js)
+ * are different: the client renders exactly what the definition says, so the sidebar here is built
+ * from the definition too — included groups in `navigation.groups` order, sections in `page.order`.
  */
+import {
+  getGroupPages,
+  getIncludedGroupKeys,
+  isDefinitionNavigation,
+} from "./questionnaireNavigationModel.js";
 
 const MAIN_APPLICANT_SUBPAGES = {
   "temporary-work": [
@@ -239,6 +248,7 @@ function fallbackGroup(page) {
  * }}
  */
 export function buildQuestionnaireSidebar(definition, { isVisible = () => true } = {}) {
+  if (isDefinitionNavigation(definition)) return buildDefinitionSidebar(definition, { isVisible });
   const pages = (definition?.pages || []).filter((page) => page && isVisible(page));
   const slots = getClientNavigationSlots(visaTypeOf(definition), contextOf(definition));
   const bySlot = new Map();
@@ -284,4 +294,44 @@ export function buildQuestionnaireSidebar(definition, { isVisible = () => true }
   });
 
   return { entries, items, stepNumberById, labelById, sectionCount: step };
+}
+
+/**
+ * Sidebar of a definition-driven questionnaire: exactly the groups the definition includes (even
+ * empty ones, so sections can be added to them) with their sections in saved order. Pages of
+ * excluded groups are returned in `excludedGroups` and never listed.
+ */
+function buildDefinitionSidebar(definition, { isVisible = () => true } = {}) {
+  const includedKeys = getIncludedGroupKeys(definition);
+  const entries = [];
+  const items = [];
+  const stepNumberById = new Map();
+  const labelById = new Map();
+  let step = 0;
+
+  includedKeys.forEach((groupKey) => {
+    const groupItems = getGroupPages(definition, groupKey)
+      .filter((page) => isVisible(page))
+      .map((page) => {
+        const label = String(page.metadata?.navigationTitle || "").trim() || page.title || "Untitled section";
+        const stepNumber = groupKey === "non-migrating" ? null : ++step;
+        const item = { page, label, stepNumber, group: groupKey };
+        items.push(item);
+        labelById.set(page.id, label);
+        if (stepNumber) stepNumberById.set(page.id, stepNumber);
+        return item;
+      });
+    entries.push({ kind: "group", key: groupKey, label: NAVIGATION_GROUP_LABELS[groupKey] || groupKey, items: groupItems });
+  });
+
+  const excludedGroups = Object.keys(NAVIGATION_GROUP_LABELS)
+    .filter((key) => !includedKeys.includes(key))
+    .map((key) => ({
+      key,
+      label: NAVIGATION_GROUP_LABELS[key],
+      pages: getGroupPages(definition, key).filter((page) => isVisible(page)),
+    }))
+    .filter((group) => group.key !== "shared" || group.pages.length > 0);
+
+  return { entries, items, stepNumberById, labelById, sectionCount: step, excludedGroups, definitionDriven: true };
 }

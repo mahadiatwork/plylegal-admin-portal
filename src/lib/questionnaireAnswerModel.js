@@ -1,3 +1,5 @@
+import { getIncludedGroupKeys, getPageGroupKey, isDefinitionNavigation } from "./questionnaireNavigationModel.js";
+
 const ROLE_ORDER = { main_applicant: 0, spouse: 1, child: 2, other: 3 };
 const ROLE_TITLES = { main_applicant: "Main Applicant", spouse: "Spouse/Partner", child: "Child", other: "Dependent" };
 const OTHER_ROUTES = ["other", "other-details", "other-names"];
@@ -304,7 +306,14 @@ function sharedValues(draft, page, profiles) {
 export function buildQuestionnaireAnswerGroups(definition, questionnaire = {}) {
   const draft = questionnaire || {};
   const visaType = definition?.visaType || draft.visaType || "temporary-work";
-  const profiles = getProfiles(draft, visaType).sort((a, b) => (ROLE_ORDER[roleForProfile(a)] ?? 4) - (ROLE_ORDER[roleForProfile(b)] ?? 4));
+  // A definition-driven questionnaire only covers the groups it includes: people and pages of an
+  // excluded group are neither listed nor counted (their saved answers stay in the draft).
+  const driven = isDefinitionNavigation(definition);
+  const includedGroups = new Set(driven ? getIncludedGroupKeys(definition) : []);
+  const roleGroups = { main_applicant: "main-applicant", spouse: "spouse-partner", child: "children", other: "non-migrating" };
+  const profiles = getProfiles(draft, visaType)
+    .filter((profile) => !driven || includedGroups.has(roleGroups[roleForProfile(profile)]) || roleForProfile(profile) === "main_applicant")
+    .sort((a, b) => (ROLE_ORDER[roleForProfile(a)] ?? 4) - (ROLE_ORDER[roleForProfile(b)] ?? 4));
   const actualProfiles = Array.isArray(draft.profiles) && draft.profiles.length > 0;
   const groups = [{
     key: "getting-started", title: "Getting Started", type: "standalone",
@@ -317,14 +326,17 @@ export function buildQuestionnaireAnswerGroups(definition, questionnaire = {}) {
       name: displayName(profile, draft.profiles_data?.[profile.id]?.details), relationship: ROLE_TITLES[roleForProfile(profile)] || profile.relationship,
     })) }, [{ id: "applicants", answerKey: "applicants", label: "Included applicants", type: "repeater" }])],
   }];
-  const pages = [...(definition?.pages || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const pages = [...(definition?.pages || [])]
+    .filter((page) => !driven || includedGroups.has(getPageGroupKey(page)))
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const showOtherFamily = !driven || includedGroups.has("non-migrating");
   const sharedSourceCounts = pages.filter((page) => !pageRole(page) && page.metadata?.storagePath).reduce((counts, page) => {
     const path = page.metadata.storagePath;
     counts[path] = (counts[path] || 0) + 1;
     return counts;
   }, {});
   const memberPages = pages.filter((page) => pageRole(page) === "non_migrating");
-  const members = Array.isArray(draft.non_migrating_members) ? draft.non_migrating_members.filter(record) : [];
+  const members = showOtherFamily && Array.isArray(draft.non_migrating_members) ? draft.non_migrating_members.filter(record) : [];
   const roleCounts = profiles.reduce((counts, profile) => ({ ...counts, [roleForProfile(profile)]: (counts[roleForProfile(profile)] || 0) + 1 }), {});
   const shownProfiles = profiles.length ? profiles : [{ id: "empty-main-applicant", relationship: "main_applicant", placeholder: true }];
   shownProfiles.forEach((profile) => {
@@ -339,7 +351,7 @@ export function buildQuestionnaireAnswerGroups(definition, questionnaire = {}) {
         completionCandidates: completionCandidates(expanded, profile, visaType, allowLegacy),
       };
     });
-    if (role === "main_applicant") {
+    if (role === "main_applicant" && showOtherFamily) {
       const explicitOverview = pages.find((page) => page.route === `/intake/${visaType}/non-migrating`);
       const family = staticItem(visaType, "non-migrating", "Other Family", {
         ...draft.temporary_work_non_migrating,

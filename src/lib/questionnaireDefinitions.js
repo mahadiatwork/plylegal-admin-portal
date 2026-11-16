@@ -1,5 +1,12 @@
 import { validateDefinitionCrmMappings } from "./questionnaireCrmContract.js";
 import { isQuestionnaireDisplayItem } from "./questionnaireContentItems.js";
+import {
+  canonicalNavigation,
+  getIncludedGroupKeys,
+  getNavigationIssues,
+  getPageGroupKey,
+  isDefinitionNavigation,
+} from "./questionnaireNavigationModel.js";
 
 export const QUESTIONNAIRE_DEFINITIONS_COLLECTION = "questionnaireDefinitions";
 export const QUESTIONNAIRE_DEFINITION_REVISIONS_COLLECTION = "questionnaireDefinitionRevisions";
@@ -107,6 +114,7 @@ const DEFINITION_FIELDS = new Set([
   "version",
   "status",
   "pages",
+  "navigation",
   "schemaVersion",
   "revision",
   "createdAt",
@@ -1083,6 +1091,12 @@ export function getQuestionnaireDefinitionIssues(input, options = {}) {
     }
   }
 
+  issues.push(...getNavigationIssues(definition));
+  const excludedGroupKeys = isDefinitionNavigation(definition) && Array.isArray(definition.navigation?.groups)
+    ? new Set(["main-applicant", "spouse-partner", "children", "non-migrating", "family-sponsor", "relationships", "all-applicants", "shared"]
+        .filter((key) => !getIncludedGroupKeys(definition).includes(key)))
+    : new Set();
+
   if (!Array.isArray(definition.pages)) {
     issues.push("definition.pages must be an array");
   } else {
@@ -1183,7 +1197,8 @@ export function getQuestionnaireDefinitionIssues(input, options = {}) {
       if (pageQuestionCount > QUESTIONNAIRE_DEFINITION_LIMITS.maxQuestionsPerPage) {
         issues.push(`${pagePath} cannot contain more than ${QUESTIONNAIRE_DEFINITION_LIMITS.maxQuestionsPerPage} questions including follow-ups`);
       }
-      if (definition.status === "active" && pageQuestionCount === 0) {
+      // Sections in an excluded group are hidden from clients, so they may stay empty.
+      if (definition.status === "active" && pageQuestionCount === 0 && !excludedGroupKeys.has(getPageGroupKey(page))) {
         issues.push(`${pagePath} must contain at least one question when active`);
       }
     });
@@ -1306,6 +1321,7 @@ export function normalizeQuestionnaireDefinition(input, options = {}) {
     revision: prepared.revision,
     pages: prepared.pages.map(canonicalPage),
   };
+  if (prepared.navigation !== undefined) normalized.navigation = canonicalNavigation(prepared.navigation);
   if (visaContexts.length === 1) normalized.visaContext = visaContexts[0];
   return normalized;
 }
@@ -1323,6 +1339,7 @@ export function mergeQuestionnaireDefinition(current, patch, options = {}) {
     "version",
     "status",
     "pages",
+    "navigation",
     "schemaVersion",
     "revision",
     "createdAt",
@@ -1341,7 +1358,7 @@ export function mergeQuestionnaireDefinition(current, patch, options = {}) {
     );
   }
 
-  const editableFields = ["visaType", "title", "version", "status", "pages", "schemaVersion"];
+  const editableFields = ["visaType", "title", "version", "status", "pages", "navigation", "schemaVersion"];
   const merged = { ...current, id: options.id || current.id };
   editableFields.forEach((field) => {
     if (hasOwn(patch, field)) merged[field] = patch[field];
